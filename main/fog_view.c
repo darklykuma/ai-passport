@@ -8,11 +8,13 @@
 #include <string.h>
 
 // --- Embedded sprites (see tools/gen_fog_march_assets.py, PRD 10.7) --------
+// EMBED_FILES symbols keep the full file name with '.' turned into '_':
+// assets/fog_terrain_plain.rgb565 -> _binary_fog_terrain_plain_rgb565_start.
 #define FOG_TILE_BYTES (FOG_CELL_PX * FOG_CELL_PX * 2)
 #define FOG_UNIT_BYTES (FOG_CELL_PX * FOG_CELL_PX * 3)
 
 #define FOG_TILE_EXTERN(name) \
-    extern const uint8_t name##_start[] asm("_binary_" #name "_start")
+    extern const uint8_t name##_start[] asm("_binary_" #name "_rgb565_start")
 #define FOG_TILE_DSC(var, name)                                          \
     static const lv_image_dsc_t var = {                                  \
         .header = { .magic = LV_IMAGE_HEADER_MAGIC,                      \
@@ -43,7 +45,7 @@ FOG_TILE_DSC(k_tile_city, fog_terrain_city);
 FOG_TILE_DSC(k_tile_city_dim, fog_terrain_city_dim);
 
 #define FOG_UNIT_EXTERN(name) \
-    extern const uint8_t name##_start[] asm("_binary_" #name "_start")
+    extern const uint8_t name##_start[] asm("_binary_" #name "_rgb565a8_start")
 #define FOG_UNIT_DSC(var, name)                                         \
     static const lv_image_dsc_t var = {                                 \
         .header = { .magic = LV_IMAGE_HEADER_MAGIC,                     \
