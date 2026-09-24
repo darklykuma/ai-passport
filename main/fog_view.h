@@ -26,10 +26,17 @@ typedef struct {
 
 typedef struct {
     const fog_game_t *game;
-    const fog_cand_t *cands;   // candidate list during FOG_PHASE_ACTION (else NULL)
+    const fog_cand_t *cands;   // candidate list during a pick state (else NULL)
     int cand_count;
     int cand_index;            // highlighted candidate, -1 = none
     int selected;              // selected unit index, -1 = none
+    // Action menu (9.2): when menu_rows is non-NULL the panel lists these
+    // rows instead of following the map cursor. kinds: 0 move, 1 attack,
+    // 2 standby — used for row coloring.
+    const char *const *menu_rows;
+    const int *menu_kinds;
+    int menu_count;
+    int menu_index;
 } fog_render_t;
 
 // Builds the battlefield screen (status bar, tile grid, hint bar). Must run

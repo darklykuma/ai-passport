@@ -199,57 +199,37 @@ const char *fog_class_name(int cls) {
     }
 }
 
-// Rebuilds the candidate panel contents (9.2 item 7). A sliding window keeps
-// the current candidate visible when the list exceeds FOG_CAND_VISIBLE rows.
+// Renders the action-menu panel (9.2). The panel lists the unit's action
+// types (move / attack / stand by); map-cursor picking happens with the
+// panel hidden, driven by r->cands borders instead.
 static void cand_panel_sync(fog_view_t *v, const fog_render_t *r) {
-    const fog_cand_t *cands = r->cands;
-    int count = r->cand_count;
-    int index = r->cand_index;
-    if (!cands || count <= 0 || index < 0 || index >= count) {
+    if (!r->menu_rows || r->menu_count <= 0 || r->menu_index < 0
+        || r->menu_index >= r->menu_count) {
         lv_obj_add_flag(v->cand_panel, LV_OBJ_FLAG_HIDDEN);
         return;
     }
     lv_obj_clear_flag(v->cand_panel, LV_OBJ_FLAG_HIDDEN);
-
-    int start = 0;
-    if (count > FOG_CAND_VISIBLE) {
-        start = index - FOG_CAND_VISIBLE / 2;
-        if (start < 0) start = 0;
-        if (start > count - FOG_CAND_VISIBLE) start = count - FOG_CAND_VISIBLE;
-    }
+    int h = r->menu_count * 18 + 10;
+    lv_obj_set_height(v->cand_panel, h);
 
     for (int i = 0; i < FOG_CAND_VISIBLE; ++i) {
-        int ci = start + i;
         lv_obj_t *row = v->cand_rows[i];
-        if (ci >= count) {
+        if (i >= r->menu_count) {
             lv_obj_add_flag(row, LV_OBJ_FLAG_HIDDEN);
             continue;
         }
         lv_obj_clear_flag(row, LV_OBJ_FLAG_HIDDEN);
-        const fog_cand_t *cd = &cands[ci];
-        char text[48];
-        lv_color_t text_color = FOG_TEXT_DIM;
-        lv_color_t bg_color = lv_color_hex(0x3A3F45);
-        if (cd->kind == FOG_CAND_MOVE) {
-            snprintf(text, sizeof text, "%s移动 (%d,%d) %dAP",
-                     ci == index ? "> " : "  ", cd->x, cd->y, cd->ap_cost);
-            bg_color = FOG_COLOR_MOVE;
-            if (ci != index) text_color = lv_color_hex(0x9BCBE0);
-        } else if (cd->kind == FOG_CAND_ATTACK) {
-            const fog_unit_t *t = &r->game->units[FOG_SIDE_ENEMY][cd->target];
-            snprintf(text, sizeof text, "%s攻击 敌%s 伤%d",
-                     ci == index ? "> " : "  ", fog_class_name(t->cls), cd->damage);
-            bg_color = FOG_COLOR_ATTACK;
-            text_color = ci == index ? lv_color_hex(0xFFFFFF)
-                                     : lv_color_hex(0xE8A06A);
-        } else {
-            snprintf(text, sizeof text, "%s待机", ci == index ? "> " : "  ");
-        }
+        bool cur = i == r->menu_index;
+        char text[32];
+        snprintf(text, sizeof text, "%s%s", cur ? "> " : "  ", r->menu_rows[i]);
         lv_label_set_text(row, text);
-        lv_obj_set_style_text_color(row, ci == index ? lv_color_hex(0xFFFFFF)
-                                                     : text_color, 0);
-        lv_obj_set_style_bg_color(row, bg_color, 0);
-        lv_obj_set_style_bg_opa(row, ci == index ? LV_OPA_70 : LV_OPA_TRANSP, 0);
+        lv_color_t bg = lv_color_hex(0x3A3F45);
+        if (r->menu_kinds[i] == 0) bg = FOG_COLOR_MOVE;
+        else if (r->menu_kinds[i] == 1) bg = FOG_COLOR_ATTACK;
+        lv_obj_set_style_text_color(row, cur ? lv_color_hex(0xFFFFFF)
+                                             : FOG_TEXT_DIM, 0);
+        lv_obj_set_style_bg_color(row, bg, 0);
+        lv_obj_set_style_bg_opa(row, cur ? LV_OPA_70 : LV_OPA_TRANSP, 0);
     }
 }
 

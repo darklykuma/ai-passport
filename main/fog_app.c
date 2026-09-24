@@ -55,6 +55,9 @@ static struct {
     int cand_count;
     int cand_index;
     int selected;
+    bool act_menu;                 // true = action menu, false = map picking
+    int menu_count;
+    int menu_index;
     bool paused;
     int pause_index;
     bool battery_ok;
@@ -71,6 +74,48 @@ static struct {
     volatile bool ready;
     bool ai_fast;
 } s_app;
+
+// Action menu (9.2): rows rendered by the view panel. kind 0 = move,
+// 1 = attack, 2 = standby; standby is always present.
+static const char *s_menu_rows[3];
+static int s_menu_kind[3];
+
+static void after_player_action(void);
+
+static void build_action_menu(void) {
+    int moves = 0, attacks = 0;
+    for (int i = 0; i < s_app.cand_count; ++i) {
+        if (s_app.cands[i].kind == FOG_CAND_MOVE) moves = 1;
+        else if (s_app.cands[i].kind == FOG_CAND_ATTACK) attacks = 1;
+    }
+    int n = 0;
+    if (moves) {
+        s_menu_rows[n] = "移动";
+        s_menu_kind[n] = 0;
+        n++;
+    }
+    if (attacks) {
+        s_menu_rows[n] = "攻击";
+        s_menu_kind[n] = 1;
+        n++;
+    }
+    s_menu_rows[n] = "待机";
+    s_menu_kind[n] = 2;
+    n++;
+    s_app.menu_count = n;
+    s_app.menu_index = 0;
+}
+
+// Compacts the master candidate list down to one kind and switches the app
+// into map picking (panel hides, range borders drive the cursor).
+static void enter_pick(fog_cand_kind_t kind) {
+    int n = 0;
+    for (int i = 0; i < s_app.cand_count; ++i)
+        if (s_app.cands[i].kind == kind) s_app.cands[n++] = s_app.cands[i];
+    s_app.cand_count = n;
+    s_app.cand_index = 0;
+    s_app.act_menu = false;
+}
 
 // --- Small screen helpers --------------------------------------------------
 
@@ -245,7 +290,16 @@ static void compose_hint(char *buf, size_t len) {
         return;
     }
     const fog_unit_t *u = &g->units[FOG_SIDE_PLAYER][s_app.selected];
-    if (g->phase != FOG_PHASE_ACTION || s_app.cand_index >= s_app.cand_count) {
+    if (g->phase != FOG_PHASE_ACTION) {
+        snprintf(buf, len, "%s %d/%d", fog_class_name(u->cls), u->strength,
+                 FOG_CLASS_STATS[u->cls].strength);
+        return;
+    }
+    if (s_app.act_menu) {                    // menu: show remaining AP (9.2)
+        snprintf(buf, len, "剩余 %dAP", u->ap);
+        return;
+    }
+    if (s_app.cand_index >= s_app.cand_count) {
         snprintf(buf, len, "%s %d/%d", fog_class_name(u->cls), u->strength,
                  FOG_CLASS_STATS[u->cls].strength);
         return;
@@ -263,12 +317,17 @@ static void compose_hint(char *buf, size_t len) {
 }
 
 static void refresh_battle(void) {
+    bool action = s_app.game.phase == FOG_PHASE_ACTION;
     fog_render_t r = {
         .game = &s_app.game,
-        .cands = s_app.game.phase == FOG_PHASE_ACTION ? s_app.cands : NULL,
+        .cands = (action && !s_app.act_menu) ? s_app.cands : NULL,
         .cand_count = s_app.cand_count,
         .cand_index = s_app.cand_index,
         .selected = s_app.selected,
+        .menu_rows = (action && s_app.act_menu) ? s_menu_rows : NULL,
+        .menu_kinds = s_menu_kind,
+        .menu_count = s_app.menu_count,
+        .menu_index = s_app.menu_index,
     };
     fog_view_refresh(&s_app.view, &r);
     fog_view_status(&s_app.view, &s_app.game, battery_label_for_view());
@@ -277,20 +336,34 @@ static void refresh_battle(void) {
     fog_view_hint(&s_app.view, hint);
 }
 
-static void after_player_action(void);
-
 static void enter_action(void) {
     fog_game_t *g = &s_app.game;
     fog_unit_t *u = &g->units[FOG_SIDE_PLAYER][s_app.selected];
     if (!u->alive || u->acted) return;
     s_app.cand_count = fog_candidates(g, u, s_app.cands);
-    s_app.cand_index = 0;
     if (s_app.cand_count == 1 && s_app.cands[0].kind == FOG_CAND_STANDBY) {
-        fog_standby(g, s_app.selected);      // auto-standby (PRD 9.2 item 6)
+        fog_standby(g, s_app.selected);      // auto-standby (PRD 9.2)
         after_player_action();
         return;
     }
     g->phase = FOG_PHASE_ACTION;
+    build_action_menu();
+    s_app.act_menu = true;                   // menu first, picking second (9.2)
+}
+
+static void menu_apply(void) {
+    fog_game_t *g = &s_app.game;
+    if (g->phase != FOG_PHASE_ACTION || s_app.menu_index >= s_app.menu_count)
+        return;
+    int kind = s_menu_kind[s_app.menu_index];
+    if (kind == 0) {
+        enter_pick(FOG_CAND_MOVE);
+    } else if (kind == 1) {
+        enter_pick(FOG_CAND_ATTACK);
+    } else {
+        fog_standby(g, s_app.selected);
+        after_player_action();
+    }
 }
 
 static void apply_current(void) {
@@ -315,12 +388,13 @@ static void after_player_action(void) {
     if (u->alive && !u->acted) {
         g->phase = FOG_PHASE_ACTION;
         s_app.cand_count = fog_candidates(g, u, s_app.cands);
-        s_app.cand_index = 0;
         if (s_app.cand_count == 1 && s_app.cands[0].kind == FOG_CAND_STANDBY) {
             fog_standby(g, s_app.selected);
             after_player_action();            // bounded: standby always ends the unit
             return;
         }
+        build_action_menu();                  // back to the menu (9.2)
+        s_app.act_menu = true;
         return;
     }
     g->phase = FOG_PHASE_SELECT;
@@ -438,14 +512,23 @@ static void process_battle(bsp_btn_t btn, bool click, bool long_ok) {
     } else if (g->phase == FOG_PHASE_ACTION) {
         if (long_ok) { pause_open(); return; }
         if (!click) return;
-        if (s_app.cand_count > 0) {
+        if (s_app.act_menu) {                // level 1: action menu (9.2)
             if (btn == BSP_BTN_UP)
-                s_app.cand_index = (s_app.cand_index + s_app.cand_count - 1)
-                                   % s_app.cand_count;
+                s_app.menu_index = (s_app.menu_index + s_app.menu_count - 1)
+                                   % s_app.menu_count;
             if (btn == BSP_BTN_DOWN)
-                s_app.cand_index = (s_app.cand_index + 1) % s_app.cand_count;
+                s_app.menu_index = (s_app.menu_index + 1) % s_app.menu_count;
+            if (btn == BSP_BTN_OK) menu_apply();
+        } else {                             // level 2: map picking (9.2)
+            if (s_app.cand_count > 0) {
+                if (btn == BSP_BTN_UP)
+                    s_app.cand_index = (s_app.cand_index + s_app.cand_count - 1)
+                                       % s_app.cand_count;
+                if (btn == BSP_BTN_DOWN)
+                    s_app.cand_index = (s_app.cand_index + 1) % s_app.cand_count;
+            }
+            if (btn == BSP_BTN_OK) apply_current();
         }
-        if (btn == BSP_BTN_OK) apply_current();
         refresh_battle();
     } else if (g->phase == FOG_PHASE_ENEMY) {
         if (long_ok) { pause_open(); refresh_battle(); return; }

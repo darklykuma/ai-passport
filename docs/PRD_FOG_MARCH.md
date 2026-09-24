@@ -434,19 +434,16 @@ Updated after each match and shown on the records page:
 
 This is the key mechanism solving "three buttons cannot express four directions".
 
-When a friendly unit is selected, all currently **legal target cells of its actions** form an ordered candidate list (reachability per 8.4):
+When a friendly unit is confirmed with `OK`, interaction is **two-level**: pick an action type in the action menu first, then pick a target cell on the map.
 
-1. **Sort order**: by action type first (movable cells → attackable targets), then by fixed bearing ring (up, right, down, left), by distance to the unit ascending within one bearing, then y, x;
-2. **Fixed tail**: after sorting, append one `Stand by` pseudo-item. It maps to no cell, does not participate in sorting, and is always last;
-3. `UP` selects the previous candidate, `DOWN` the next, **wrapping around** (pressing `DOWN` past `Stand by` returns to the first movable cell);
-4. The current candidate is highlighted with a border, and **every other candidate shows a faded 1 px border (blue for moves, orange for attacks) so the whole action range reads at a glance**; the bottom hint bar shows the action's type and cost; **attack candidates must also show expected damage and target remaining strength** (hint-bar rules in 10.6). On `Stand by`, the bar shows `Stand by — end this unit's action`;
-5. `OK` click executes the highlighted candidate; if it is `Stand by`, the unit ends its action and control returns to unit selection. This is the **only** way to deliberately stand by with AP remaining (why not double-click: 9.4);
-6. If the list contains only `Stand by`, or is empty (AP exhausted or surrounded), the unit stands by automatically;
-7. **Candidate list panel**: during the action phase a semi-transparent panel overlays the map area, listing every candidate row by row (`Move (x,y) nAP` / `Attack enemy <class> dmg n` / `Stand by`). The current candidate carries a `>` prefix and a type-colored background; the highlight and scroll window follow `UP`/`DOWN`; after `OK` executes, the panel refreshes with the state. When the list exceeds 14 rows, a sliding window keeps the current item centered. The panel is a second readout next to the hint bar, addressing the playtest feedback that move/attack/stand-by switches were hard to notice.
+1. **Action menu**: on entering the action phase, a semi-transparent panel lists the currently available action types — `Move` (when reachable cells exist), `Attack` (when attackable targets exist), `Stand by` (always present; the only way to end the unit's action deliberately). `UP` selects the previous item, `DOWN` the next, wrapping around; `OK` confirms; the hint bar shows remaining AP;
+2. **Map picking**: confirming `Move` or `Attack` hides the panel and enters picking. All candidate cells of that type form an ordered list: by fixed bearing ring (up, right, down, left), by distance to the unit ascending within one bearing, then y, x. The current candidate is highlighted with a border, every other candidate shows a faded 1 px border (blue for moves, orange for attacks); `UP`/`DOWN` wrap around (pressing `DOWN` past the last item returns to the first); `OK` executes the current candidate;
+3. **Back to menu**: after an action, if the unit still has usable actions (remaining AP, or not yet attacked with targets available), control returns to the action menu; if only `Stand by` remains or the list is empty, the unit stands by automatically and control moves to the next unit (selection state);
+4. Sorting must be stable: **repeated `UP`/`DOWN` in the same state must produce a fully predictable order**; no random factor may affect ordering.
 
-Sorting must be stable: **repeated `UP`/`DOWN` in the same state must produce a fully predictable order**; no random factor may affect ordering.
+H2 validation outcome (on-device playtest, 2026-09-24): the original distance-first order broke the sense of direction when holding `DOWN` — the highlight jumped between the four bearings and movement felt random. The order was adjusted to the bearing ring per this section's contingency: holding `DOWN` now walks outward along one bearing before moving to the next. A faded range border for all candidates was added alongside (see item 2).
 
-H2 validation outcome (on-device playtest, 2026-09-24): the original distance-first order broke the sense of direction when holding `DOWN` — the highlight jumped between the four bearings and movement felt random. The order was adjusted to the bearing ring per this section's contingency: holding `DOWN` now walks outward along one bearing before moving to the next. A faded range border for all candidates was added alongside (see item 4).
+Second playtest (same day): with all candidates (move cells + attack targets + stand by) mixed in a single list, the action-type switches were easy to miss and attack entries were buried under many move cells. The interaction was rebuilt into the current two-level "action menu + map picking" scheme; the single candidate cycle (historical design) remains a P1 fallback.
 
 ### 9.3 Full interaction table
 
@@ -454,7 +451,8 @@ H2 validation outcome (on-device playtest, 2026-09-24): the original distance-fi
 | --- | --- | --- | --- | --- |
 | Main menu | Previous | Next | Enter | No action |
 | Battle · player phase · select | Previous unit | Next unit | Select and enter action | Pause menu |
-| Battle · player phase · action | Previous candidate | Next candidate | Execute highlight (incl. `Stand by`) | Pause menu |
+| Battle · player phase · action menu | Previous action type | Next action type | Enter its picking state / execute `Stand by` | Pause menu |
+| Battle · player phase · map picking | Previous candidate | Next candidate | Execute highlighted candidate | Pause menu |
 | Battle · AI phase | Speed up animation | Speed up animation | No action | Pause menu |
 | Combat resolve overlay | No action | No action | Skip wait | No action |
 | Pause menu | Previous | Next | Choose | Close menu |
