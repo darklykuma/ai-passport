@@ -79,14 +79,20 @@ static const lv_image_dsc_t *tile_dsc(uint8_t terrain, bool dim) {
     }
 }
 
+// The sprite set ships cavalry ahead of the model lineup (P3 expansion), so
+// the table keeps four entries and every descriptor stays referenced.
+#define FOG_SPRITE_CLASSES 4
+
 static const lv_image_dsc_t *unit_dsc(int cls, bool enemy) {
-    static const lv_image_dsc_t *blue[FOG_CLASS_COUNT] = {
+    static const lv_image_dsc_t *blue[FOG_SPRITE_CLASSES] = {
         &k_unit_general_blue, &k_unit_spear_blue, &k_unit_archer_blue,
+        &k_unit_cavalry_blue,
     };
-    static const lv_image_dsc_t *red[FOG_CLASS_COUNT] = {
+    static const lv_image_dsc_t *red[FOG_SPRITE_CLASSES] = {
         &k_unit_general_red, &k_unit_spear_red, &k_unit_archer_red,
+        &k_unit_cavalry_red,
     };
-    return (enemy ? red : blue)[cls % FOG_CLASS_COUNT];
+    return (enemy ? red : blue)[cls % FOG_SPRITE_CLASSES];
 }
 
 // PRD 10.5 palette (RGB565 panel; LVGL converts from RGB888).
