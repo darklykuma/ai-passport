@@ -77,7 +77,6 @@ static void on_event(void *arg, void *usr_data, bsp_btn_ev_t ev) {
 }
 static void cb_press (void *a, void *u) { on_event(a, u, BSP_BTN_PRESS);  }
 static void cb_click (void *a, void *u) { on_event(a, u, BSP_BTN_CLICK);  }
-static void cb_double(void *a, void *u) { on_event(a, u, BSP_BTN_DOUBLE); }
 static void cb_long  (void *a, void *u) { on_event(a, u, BSP_BTN_LONG);   }
 
 // 初始化中途失败时先停掉所有 button driver，再释放本文件持有的校准与 ADC unit。
@@ -116,9 +115,11 @@ static void button_cleanup(void) {
 }
 
 static esp_err_t register_callbacks(button_handle_t button, void *index) {
+    // FOG MARCH: BUTTON_DOUBLE_CLICK stays unregistered so SINGLE_CLICK is not
+    // delayed by the double-click window (PRD_FOG_MARCH 9.4). BSP_BTN_DOUBLE
+    // remains in the public enum for applications that want it.
     esp_err_t e = iot_button_register_cb(button, BUTTON_PRESS_DOWN, NULL, cb_press, index);
     if (e == ESP_OK) e = iot_button_register_cb(button, BUTTON_SINGLE_CLICK, NULL, cb_click, index);
-    if (e == ESP_OK) e = iot_button_register_cb(button, BUTTON_DOUBLE_CLICK, NULL, cb_double, index);
     if (e == ESP_OK) e = iot_button_register_cb(button, BUTTON_LONG_PRESS_START, NULL, cb_long, index);
     return e;
 }
