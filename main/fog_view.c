@@ -143,6 +143,10 @@ bool fog_view_build(fog_view_t *v) {
             lv_obj_set_size(tile, FOG_CELL_PX, FOG_CELL_PX);
             lv_obj_clear_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_set_style_border_width(tile, 0, 0);
+            // lv_image draws its texture AFTER the base class paints bg/border,
+            // so a cell-sized sprite covers the border entirely. border_post
+            // defers the border into DRAW_POST, on top of the image (9.2).
+            lv_obj_set_style_border_post(tile, true, 0);
             lv_obj_add_flag(tile, LV_OBJ_FLAG_EVENT_BUBBLE);
             v->cells[y][x] = tile;
 
