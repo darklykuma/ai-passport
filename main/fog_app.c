@@ -57,7 +57,8 @@ static struct {
     int selected;
     bool act_menu;                 // true = action menu, false = map picking
     int menu_count;
-    int menu_index;
+    int act_index;                 // action-menu cursor (main-menu member above
+                                   // keeps the name menu_index)
     bool paused;
     int pause_index;
     bool battery_ok;
@@ -103,7 +104,7 @@ static void build_action_menu(void) {
     s_menu_kind[n] = 2;
     n++;
     s_app.menu_count = n;
-    s_app.menu_index = 0;
+    s_app.act_index = 0;
 }
 
 // Compacts the master candidate list down to one kind and switches the app
@@ -327,7 +328,7 @@ static void refresh_battle(void) {
         .menu_rows = (action && s_app.act_menu) ? s_menu_rows : NULL,
         .menu_kinds = s_menu_kind,
         .menu_count = s_app.menu_count,
-        .menu_index = s_app.menu_index,
+        .menu_index = s_app.act_index,
     };
     fog_view_refresh(&s_app.view, &r);
     fog_view_status(&s_app.view, &s_app.game, battery_label_for_view());
@@ -353,9 +354,9 @@ static void enter_action(void) {
 
 static void menu_apply(void) {
     fog_game_t *g = &s_app.game;
-    if (g->phase != FOG_PHASE_ACTION || s_app.menu_index >= s_app.menu_count)
+    if (g->phase != FOG_PHASE_ACTION || s_app.act_index >= s_app.menu_count)
         return;
-    int kind = s_menu_kind[s_app.menu_index];
+    int kind = s_menu_kind[s_app.act_index];
     if (kind == 0) {
         enter_pick(FOG_CAND_MOVE);
     } else if (kind == 1) {
@@ -514,10 +515,10 @@ static void process_battle(bsp_btn_t btn, bool click, bool long_ok) {
         if (!click) return;
         if (s_app.act_menu) {                // level 1: action menu (9.2)
             if (btn == BSP_BTN_UP)
-                s_app.menu_index = (s_app.menu_index + s_app.menu_count - 1)
-                                   % s_app.menu_count;
+                s_app.act_index = (s_app.act_index + s_app.menu_count - 1)
+                                  % s_app.menu_count;
             if (btn == BSP_BTN_DOWN)
-                s_app.menu_index = (s_app.menu_index + 1) % s_app.menu_count;
+                s_app.act_index = (s_app.act_index + 1) % s_app.menu_count;
             if (btn == BSP_BTN_OK) menu_apply();
         } else {                             // level 2: map picking (9.2)
             if (s_app.cand_count > 0) {
