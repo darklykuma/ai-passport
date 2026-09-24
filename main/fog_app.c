@@ -1,0 +1,553 @@
+// main/fog_app.c — FOG MARCH application: pages, input, AI pacing (PRD 9/11/18).
+// Redesigned UI (PRD 15.4): no baseline test-menu screens are used. The input
+// task owns the LVGL lock; button callbacks only enqueue (bsp_button.h).
+#include "fog_app.h"
+
+#include <stdio.h>
+#include <string.h>
+
+#include "bsp_battery.h"
+#include "bsp_button.h"
+#include "bsp_display.h"
+#include "esp_log.h"
+#include "esp_random.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
+#include "fog_ai.h"
+#include "fog_model.h"
+#include "fog_view.h"
+#include "lvgl.h"
+
+static const char *TAG = "fog";
+
+#define INPUT_QUEUE_DEPTH 8
+#define AI_PACE_MS 350
+#define AI_PACE_FAST_MS 90
+#define BATTERY_POLL_MS 5000
+
+extern const lv_font_t lv_font_source_han_sans_sc_16_cjk;
+
+typedef enum {
+    PAGE_MENU = 0,
+    PAGE_ABOUT,
+    PAGE_BATTLE,
+    PAGE_END,
+} page_t;
+
+typedef struct {
+    bsp_btn_t btn;
+    bsp_btn_ev_t event;
+} input_event_t;
+
+static struct {
+    page_t page;
+    int menu_index;
+    int end_index;
+
+    fog_game_t game;
+    fog_view_t view;
+    bool view_alive;
+    fog_cand_t cands[FOG_CAND_MAX];
+    int cand_count;
+    int cand_index;
+    int selected;
+    bool paused;
+    int pause_index;
+    bool battery_ok;
+    int battery;                   // -1 = unavailable
+
+    lv_obj_t *screen;              // menu / about / end screen
+    lv_obj_t *menu_items[2];
+    lv_obj_t *end_items[2];
+    lv_obj_t *overlay;             // pause panel on the battle screen
+    lv_obj_t *overlay_items[3];
+
+    QueueHandle_t queue;
+    TaskHandle_t task;
+    volatile bool ready;
+    bool ai_fast;
+} s_app;
+
+static const char *class_name(int cls) {
+    switch (cls) {
+    case FOG_CLASS_GENERAL: return "主将";
+    case FOG_CLASS_SPEAR:   return "枪兵";
+    default:                return "弓兵";
+    }
+}
+
+// --- Small screen helpers --------------------------------------------------
+
+static lv_obj_t *base_screen(void) {
+    lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x07090C), 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_all(scr, 0, 0);
+    lv_obj_set_style_border_width(scr, 0, 0);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    return scr;
+}
+
+static lv_obj_t *text_label(lv_obj_t *parent, int x, int y) {
+    lv_obj_t *label = lv_label_create(parent);
+    lv_obj_set_style_text_font(label, &lv_font_source_han_sans_sc_16_cjk, 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(0xE8E4D8), 0);
+    lv_obj_set_pos(label, x, y);
+    return label;
+}
+
+static void load_screen(lv_obj_t *built) {
+    lv_obj_t *prev = lv_screen_active();
+    lv_screen_load(built);
+    if (prev && prev != built) lv_obj_delete(prev);
+}
+
+static void screen_delete(void) {
+    if (s_app.screen) {
+        lv_obj_delete(s_app.screen);
+        s_app.screen = NULL;
+    }
+    memset(s_app.menu_items, 0, sizeof s_app.menu_items);
+    memset(s_app.end_items, 0, sizeof s_app.end_items);
+}
+
+// --- Battery (optional capability: failures never block the game) -----------
+
+static int battery_read(void) {
+    static TickType_t last;
+    if (!s_app.battery_ok) return -1;
+    TickType_t now = xTaskGetTickCount();
+    if (s_app.battery < 0 || now - last >= pdMS_TO_TICKS(BATTERY_POLL_MS)) {
+        last = now;
+        s_app.battery = bsp_battery_soc();
+    }
+    return s_app.battery;
+}
+
+// --- Menu / About / End pages ------------------------------------------------
+
+static void menu_refresh(void) {
+    for (int i = 0; i < 2; ++i)
+        lv_obj_set_style_text_color(s_app.menu_items[i],
+            i == s_app.menu_index ? lv_color_hex(0xF2E85C)
+                                  : lv_color_hex(0x9AA3A8), 0);
+}
+
+static void page_menu(void) {
+    s_app.page = PAGE_MENU;
+    screen_delete();
+    s_app.screen = base_screen();
+    lv_obj_t *title = text_label(s_app.screen, 72, 40);
+    lv_label_set_text(title, "迷雾三国");
+    s_app.menu_items[0] = text_label(s_app.screen, 96, 120);
+    lv_label_set_text(s_app.menu_items[0], "新游戏");
+    s_app.menu_items[1] = text_label(s_app.screen, 100, 160);
+    lv_label_set_text(s_app.menu_items[1], "关于");
+    menu_refresh();
+    load_screen(s_app.screen);
+}
+
+static void page_about(void) {
+    s_app.page = PAGE_ABOUT;
+    screen_delete();
+    s_app.screen = base_screen();
+    lv_label_set_text(text_label(s_app.screen, 88, 60), "迷雾三国");
+    lv_label_set_text(text_label(s_app.screen, 68, 104), "FOG MARCH v0.1");
+    lv_label_set_text(text_label(s_app.screen, 96, 132), "MIT License");
+    load_screen(s_app.screen);
+}
+
+static void end_refresh(void) {
+    for (int i = 0; i < 2; ++i)
+        lv_obj_set_style_text_color(s_app.end_items[i],
+            i == s_app.end_index ? lv_color_hex(0xF2E85C)
+                                 : lv_color_hex(0x9AA3A8), 0);
+}
+
+static void page_end(void) {
+    s_app.page = PAGE_END;
+    if (s_app.view_alive) {
+        lv_obj_delete(s_app.view.screen);
+        s_app.view_alive = false;
+        memset(&s_app.view, 0, sizeof s_app.view);
+    }
+    s_app.screen = base_screen();
+    const char *verdict =
+        s_app.game.winner == FOG_WIN_PLAYER ? "胜利"
+        : s_app.game.winner == FOG_WIN_ENEMY ? "失败" : "平局";
+    lv_label_set_text(text_label(s_app.screen, 104, 56), verdict);
+    char info[48];
+    snprintf(info, sizeof info, "回合 %u  击破 %u",
+             (unsigned)s_app.game.round,
+             (unsigned)(FOG_UNITS_PER_SIDE
+                        - fog_side_alive(&s_app.game, FOG_SIDE_ENEMY)));
+    lv_label_set_text(text_label(s_app.screen, 76, 96), info);
+    s_app.end_items[0] = text_label(s_app.screen, 92, 170);
+    lv_label_set_text(s_app.end_items[0], "再来一局");
+    s_app.end_items[1] = text_label(s_app.screen, 104, 210);
+    lv_label_set_text(s_app.end_items[1], "退出");
+    s_app.end_index = 0;
+    end_refresh();
+    load_screen(s_app.screen);
+}
+
+// --- Battle -------------------------------------------------------------------
+
+static void refresh_battle(void);
+
+static int battery_label_for_view(void) { return battery_read(); }
+
+static void battle_open(uint32_t seed) {
+    ESP_LOGI(TAG, "new match seed=%u round_cap=%d", (unsigned)seed, FOG_ROUND_CAP);
+    fog_game_start(&s_app.game, seed);
+    s_app.selected = 0;
+    s_app.cand_count = 0;
+    s_app.cand_index = 0;
+    s_app.ai_fast = false;
+    s_app.paused = false;
+    s_app.overlay = NULL;
+
+    screen_delete();                       // menu / about / end screen
+    if (s_app.view_alive) {
+        lv_obj_delete(s_app.view.screen);  // restart from pause overlay
+        s_app.view_alive = false;
+    }
+    if (!fog_view_build(&s_app.view)) {
+        ESP_LOGE(TAG, "battle UI build failed");
+        memset(&s_app.view, 0, sizeof s_app.view);
+        page_menu();
+        return;
+    }
+    s_app.view_alive = true;
+    s_app.page = PAGE_BATTLE;
+    load_screen(s_app.view.screen);
+    refresh_battle();
+}
+
+static int unit_available(int from, int dir) {
+    for (int step = 1; step <= FOG_UNITS_PER_SIDE; ++step) {
+        int i = (from + dir * step + FOG_UNITS_PER_SIDE * 4) % FOG_UNITS_PER_SIDE;
+        const fog_unit_t *u = &s_app.game.units[FOG_SIDE_PLAYER][i];
+        if (u->alive && !u->acted) return i;
+    }
+    return from;
+}
+
+static void compose_hint(char *buf, size_t len) {
+    const fog_game_t *g = &s_app.game;
+    if (g->phase == FOG_PHASE_ENEMY) {
+        snprintf(buf, len, "AI 行动中");
+        return;
+    }
+    const fog_unit_t *u = &g->units[FOG_SIDE_PLAYER][s_app.selected];
+    if (g->phase != FOG_PHASE_ACTION || s_app.cand_index >= s_app.cand_count) {
+        snprintf(buf, len, "%s %d/%d", class_name(u->cls), u->strength,
+                 FOG_CLASS_STATS[u->cls].strength);
+        return;
+    }
+    const fog_cand_t *c = &s_app.cands[s_app.cand_index];
+    if (c->kind == FOG_CAND_MOVE) {
+        snprintf(buf, len, "移动 %dAP", c->ap_cost);
+    } else if (c->kind == FOG_CAND_ATTACK) {
+        const fog_unit_t *t = &g->units[FOG_SIDE_ENEMY][c->target];
+        snprintf(buf, len, "攻击 2AP 伤%d 敌%s %d/%d", c->damage,
+                 class_name(t->cls), t->strength, FOG_CLASS_STATS[t->cls].strength);
+    } else {
+        snprintf(buf, len, "待机 结束行动");
+    }
+}
+
+static void refresh_battle(void) {
+    fog_render_t r = {
+        .game = &s_app.game,
+        .cands = s_app.game.phase == FOG_PHASE_ACTION ? s_app.cands : NULL,
+        .cand_count = s_app.cand_count,
+        .cand_index = s_app.cand_index,
+        .selected = s_app.selected,
+    };
+    fog_view_refresh(&s_app.view, &r);
+    fog_view_status(&s_app.view, &s_app.game, battery_label_for_view());
+    char hint[64];
+    compose_hint(hint, sizeof hint);
+    fog_view_hint(&s_app.view, hint);
+}
+
+static void after_player_action(void);
+
+static void enter_action(void) {
+    fog_game_t *g = &s_app.game;
+    fog_unit_t *u = &g->units[FOG_SIDE_PLAYER][s_app.selected];
+    if (!u->alive || u->acted) return;
+    s_app.cand_count = fog_candidates(g, u, s_app.cands);
+    s_app.cand_index = 0;
+    if (s_app.cand_count == 1 && s_app.cands[0].kind == FOG_CAND_STANDBY) {
+        fog_standby(g, s_app.selected);      // auto-standby (PRD 9.2 item 6)
+        after_player_action();
+        return;
+    }
+    g->phase = FOG_PHASE_ACTION;
+}
+
+static void apply_current(void) {
+    fog_game_t *g = &s_app.game;
+    if (g->phase != FOG_PHASE_ACTION) return;
+    if (s_app.cand_index < 0 || s_app.cand_index >= s_app.cand_count) return;
+    fog_apply(g, s_app.selected, &s_app.cands[s_app.cand_index]);
+    after_player_action();
+}
+
+static void after_player_action(void) {
+    fog_game_t *g = &s_app.game;
+    if (g->winner != FOG_WIN_NONE || g->phase == FOG_PHASE_END) {
+        page_end();
+        return;
+    }
+    if (g->phase == FOG_PHASE_ENEMY) {
+        s_app.ai_fast = false;
+        return;                               // input task paces the AI
+    }
+    const fog_unit_t *u = &g->units[FOG_SIDE_PLAYER][s_app.selected];
+    if (u->alive && !u->acted) {
+        g->phase = FOG_PHASE_ACTION;
+        s_app.cand_count = fog_candidates(g, u, s_app.cands);
+        s_app.cand_index = 0;
+        if (s_app.cand_count == 1 && s_app.cands[0].kind == FOG_CAND_STANDBY) {
+            fog_standby(g, s_app.selected);
+            after_player_action();            // bounded: standby always ends the unit
+            return;
+        }
+        return;
+    }
+    g->phase = FOG_PHASE_SELECT;
+    s_app.selected = unit_available(s_app.selected, +1);
+}
+
+// --- Pause overlay ---------------------------------------------------------
+
+static void pause_refresh(void) {
+    for (int i = 0; i < 3; ++i)
+        lv_obj_set_style_text_color(s_app.overlay_items[i],
+            i == s_app.pause_index ? lv_color_hex(0xF2E85C)
+                                   : lv_color_hex(0x9AA3A8), 0);
+}
+
+static void pause_open(void) {
+    if (s_app.paused || !s_app.view_alive) return;
+    s_app.paused = true;
+    s_app.pause_index = 0;
+    s_app.overlay = lv_obj_create(s_app.view.screen);
+    lv_obj_set_size(s_app.overlay, 180, 190);
+    lv_obj_center(s_app.overlay);
+    lv_obj_set_style_bg_color(s_app.overlay, lv_color_hex(0x101820), 0);
+    lv_obj_set_style_bg_opa(s_app.overlay, LV_OPA_90, 0);
+    lv_obj_set_style_border_color(s_app.overlay, lv_color_hex(0x3A4A58), 0);
+    lv_obj_set_style_border_width(s_app.overlay, 2, 0);
+    lv_obj_set_style_radius(s_app.overlay, 8, 0);
+    lv_obj_clear_flag(s_app.overlay, LV_OBJ_FLAG_SCROLLABLE);
+    lv_label_set_text(text_label(s_app.overlay, 68, 12), "暂停");
+    static const char *items[3] = { "继续", "重新开始", "退出" };
+    for (int i = 0; i < 3; ++i) {
+        s_app.overlay_items[i] = text_label(s_app.overlay, 56, 52 + i * 40);
+        lv_label_set_text(s_app.overlay_items[i], items[i]);
+    }
+    pause_refresh();
+}
+
+static void pause_close(void) {
+    if (!s_app.paused) return;
+    s_app.paused = false;
+    if (s_app.overlay) {
+        lv_obj_delete(s_app.overlay);
+        s_app.overlay = NULL;
+    }
+    refresh_battle();
+}
+
+// --- AI ---------------------------------------------------------------------
+
+static void ai_step(void) {
+    if (s_app.page != PAGE_BATTLE || s_app.paused) return;
+    fog_game_t *g = &s_app.game;
+    if (g->phase != FOG_PHASE_ENEMY) return;
+    if (g->winner != FOG_WIN_NONE) { page_end(); return; }
+
+    int idx = -1;
+    for (int i = 0; i < FOG_UNITS_PER_SIDE; ++i) {
+        const fog_unit_t *u = &g->units[FOG_SIDE_ENEMY][i];
+        if (u->alive && !u->acted) { idx = i; break; }
+    }
+    if (idx < 0) return;                      // model advances on the last action
+
+    fog_observation_t obs;
+    fog_ai_observe(&obs, &s_app.game, FOG_SIDE_ENEMY, idx);
+    fog_ai_memory_t mem = { 0 };
+    fog_ai_action_t act = fog_ai_decide(&obs, &mem);
+
+    fog_unit_t *u = &g->units[FOG_SIDE_ENEMY][idx];
+    int n = fog_candidates(g, u, s_app.cands);
+    int pick = -1;
+    for (int i = 0; i < n; ++i) {
+        const fog_cand_t *c = &s_app.cands[i];
+        if (c->kind == FOG_CAND_STANDBY) continue;
+        if (act.kind == FOG_AI_MOVE && c->kind == FOG_CAND_MOVE
+            && c->x == act.x && c->y == act.y) { pick = i; break; }
+        if (act.kind == FOG_AI_ATTACK && c->kind == FOG_CAND_ATTACK
+            && c->x == act.x && c->y == act.y) { pick = i; break; }
+    }
+    ESP_LOGI(TAG, "AI unit %d @(%d,%d) -> kind=%d (%d,%d) pick=%d",
+             idx, u->x, u->y, (int)act.kind, act.x, act.y, pick);
+    if (pick >= 0) fog_apply(g, idx, &s_app.cands[pick]);
+    else fog_standby(g, idx);
+
+    if (g->winner != FOG_WIN_NONE || g->phase == FOG_PHASE_END) page_end();
+    else refresh_battle();
+}
+
+// --- Input --------------------------------------------------------------------
+
+static void process_battle(bsp_btn_t btn, bool click, bool long_ok) {
+    fog_game_t *g = &s_app.game;
+
+    if (s_app.paused) {
+        if (long_ok) { pause_close(); return; }          // close = continue (9.3)
+        if (!click) return;
+        if (btn == BSP_BTN_UP)   s_app.pause_index = (s_app.pause_index + 2) % 3;
+        if (btn == BSP_BTN_DOWN) s_app.pause_index = (s_app.pause_index + 1) % 3;
+        if (btn == BSP_BTN_OK) {
+            if (s_app.pause_index == 0) pause_close();
+            else if (s_app.pause_index == 1) battle_open(esp_random());
+            else page_menu();
+            return;
+        }
+        pause_refresh();
+        return;
+    }
+
+    if (g->phase == FOG_PHASE_SELECT) {
+        if (long_ok) { pause_open(); return; }
+        if (!click) return;
+        if (btn == BSP_BTN_UP) s_app.selected = unit_available(s_app.selected, -1);
+        if (btn == BSP_BTN_DOWN) s_app.selected = unit_available(s_app.selected, +1);
+        if (btn == BSP_BTN_OK) enter_action();
+        refresh_battle();
+    } else if (g->phase == FOG_PHASE_ACTION) {
+        if (long_ok) { pause_open(); return; }
+        if (!click) return;
+        if (s_app.cand_count > 0) {
+            if (btn == BSP_BTN_UP)
+                s_app.cand_index = (s_app.cand_index + s_app.cand_count - 1)
+                                   % s_app.cand_count;
+            if (btn == BSP_BTN_DOWN)
+                s_app.cand_index = (s_app.cand_index + 1) % s_app.cand_count;
+        }
+        if (btn == BSP_BTN_OK) apply_current();
+        refresh_battle();
+    } else if (g->phase == FOG_PHASE_ENEMY) {
+        if (long_ok) { pause_open(); refresh_battle(); return; }
+        if (click && (btn == BSP_BTN_UP || btn == BSP_BTN_DOWN)) {
+            s_app.ai_fast = true;                        // speed up (9.3)
+            refresh_battle();
+        }
+    }
+}
+
+static void process_event(const input_event_t *ev) {
+    bool click = ev->event == BSP_BTN_CLICK;
+    bool long_ok = ev->event == BSP_BTN_LONG && ev->btn == BSP_BTN_OK;
+    if (!click && !long_ok) return;                      // PRESS unused in P0
+
+    switch (s_app.page) {
+    case PAGE_MENU:
+        if (!click) return;
+        if (ev->btn == BSP_BTN_UP)   s_app.menu_index = (s_app.menu_index + 1) % 2;
+        if (ev->btn == BSP_BTN_DOWN) s_app.menu_index = (s_app.menu_index + 1) % 2;
+        if (ev->btn == BSP_BTN_OK) {
+            if (s_app.menu_index == 0) battle_open(esp_random());
+            else page_about();
+            return;
+        }
+        menu_refresh();
+        break;
+    case PAGE_ABOUT:
+        if (click && ev->btn == BSP_BTN_OK) page_menu();
+        else if (long_ok) page_menu();
+        break;
+    case PAGE_BATTLE:
+        process_battle(ev->btn, click, long_ok);
+        break;
+    case PAGE_END:
+        if (!click) { if (long_ok) page_menu(); return; }
+        if (ev->btn == BSP_BTN_UP || ev->btn == BSP_BTN_DOWN)
+            s_app.end_index = (s_app.end_index + 1) % 2;
+        if (ev->btn == BSP_BTN_OK) {
+            if (s_app.end_index == 0) battle_open(esp_random());
+            else page_menu();
+            return;
+        }
+        end_refresh();
+        break;
+    }
+}
+
+// Button callbacks run on the shared esp_timer task: enqueue only (PRD 9.3).
+static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user) {
+    (void)user;
+    if (!s_app.ready || !s_app.queue) return;
+    const input_event_t input = { .btn = btn, .event = ev };
+    (void)xQueueSend(s_app.queue, &input, 0);
+}
+
+static void input_task(void *arg) {
+    (void)arg;
+    input_event_t ev;
+    for (;;) {
+        TickType_t wait = portMAX_DELAY;
+        if (s_app.page == PAGE_BATTLE && !s_app.paused
+            && s_app.game.phase == FOG_PHASE_ENEMY) {
+            wait = pdMS_TO_TICKS(s_app.ai_fast ? AI_PACE_FAST_MS : AI_PACE_MS);
+        }
+        if (xQueueReceive(s_app.queue, &ev, wait) == pdTRUE) {
+            if (!bsp_lvgl_lock(500)) continue;
+            process_event(&ev);
+            bsp_lvgl_unlock();
+        } else {
+            if (!bsp_lvgl_lock(500)) continue;
+            ai_step();
+            bsp_lvgl_unlock();
+        }
+    }
+}
+
+// --- Boot ---------------------------------------------------------------------
+
+void fog_app_boot(void) {
+    memset(&s_app, 0, sizeof s_app);
+    s_app.battery = -1;
+    s_app.battery_ok = bsp_battery_init() == ESP_OK;     // optional capability
+    if (!s_app.battery_ok) ESP_LOGW(TAG, "battery gauge unavailable; slot stays blank");
+
+    s_app.queue = xQueueCreate(INPUT_QUEUE_DEPTH, sizeof(input_event_t));
+    if (!s_app.queue) {
+        ESP_LOGE(TAG, "input queue alloc failed");
+        return;
+    }
+    if (xTaskCreate(input_task, "fog_input", 4096, NULL, 5, &s_app.task) != pdPASS) {
+        vQueueDelete(s_app.queue);
+        s_app.queue = NULL;
+        ESP_LOGE(TAG, "input task create failed");
+        return;
+    }
+    if (bsp_button_init(on_key, NULL) != ESP_OK) {
+        ESP_LOGE(TAG, "button init failed");
+    }
+
+    if (bsp_lvgl_lock(1000)) {
+        page_menu();
+        bsp_lvgl_unlock();
+        s_app.ready = true;
+    } else {
+        ESP_LOGE(TAG, "LVGL lock timeout; UI not built");
+    }
+    ESP_LOGI(TAG, "FOG MARCH ready battery=%d", s_app.battery);
+}

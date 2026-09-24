@@ -45,6 +45,12 @@ run_static_checks() {
         tests/test_bsp_button.c -o "${test_dir}/test_bsp_button"
     "${test_dir}/test_bsp_button"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
+        tests/test_fog_model.c -o "${test_dir}/test_fog_model"
+    "${test_dir}/test_fog_model"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
+        tests/test_fog_ai.c -o "${test_dir}/test_fog_ai"
+    "${test_dir}/test_fog_ai"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
         -Itests/bsp_stubs -Icomponents/bsp/include \
         tests/test_bsp_lvgl_init.c components/bsp/src/bsp_display_rounding.c \
         -o "${test_dir}/test_bsp_lvgl_init"
@@ -66,6 +72,8 @@ run_static_checks() {
     PYTHONDONTWRITEBYTECODE=1 python3 tests/test_verify_firmware.py
     PYTHONDONTWRITEBYTECODE=1 python3 tests/test_archive_firmware.py
     PYTHONDONTWRITEBYTECODE=1 python3 tests/test_install_passport_skills.py
+    PYTHONDONTWRITEBYTECODE=1 python3 tests/test_fog_assets.py
+    PYTHONDONTWRITEBYTECODE=1 python3 tests/test_fog_ui_glyphs.py
     rm -rf "${test_dir}"
     echo "Host tests: PASS"
 }
