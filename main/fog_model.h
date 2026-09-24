@@ -144,8 +144,9 @@ void fog_vision_recompute(fog_game_t *g, int side);
 
 // --- Actions -----------------------------------------------------------
 // Deterministic candidate list for a unit, PRD 9.2 ordering: moves first
-// (distance ascending, then bearing up/right/down/left, then y, x), attack
-// targets next (same order), standby pseudo-item always last.
+// (bearing ring up/right/down/left, distance ascending within a bearing,
+// then y, x), attack targets next (same order), standby pseudo-item always
+// last.
 // Returns the candidate count (>= 1: standby is always present).
 int fog_candidates(const fog_game_t *g, const fog_unit_t *u, fog_cand_t out[FOG_CAND_MAX]);
 

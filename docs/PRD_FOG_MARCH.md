@@ -436,16 +436,16 @@ This is the key mechanism solving "three buttons cannot express four directions"
 
 When a friendly unit is selected, all currently **legal target cells of its actions** form an ordered candidate list (reachability per 8.4):
 
-1. **Sort order**: by action type first (movable cells → attackable targets), then by distance to the unit ascending, then by fixed bearing order (up, right, down, left) for ties;
+1. **Sort order**: by action type first (movable cells → attackable targets), then by fixed bearing ring (up, right, down, left), by distance to the unit ascending within one bearing, then y, x;
 2. **Fixed tail**: after sorting, append one `Stand by` pseudo-item. It maps to no cell, does not participate in sorting, and is always last;
 3. `UP` selects the previous candidate, `DOWN` the next, **wrapping around** (pressing `DOWN` past `Stand by` returns to the first movable cell);
-4. The current candidate is highlighted with a border, and the bottom hint bar shows the action's type and cost; **attack candidates must also show expected damage and target remaining strength** (hint-bar rules in 10.6). On `Stand by`, the bar shows `Stand by — end this unit's action`;
+4. The current candidate is highlighted with a border, and **every other candidate shows a faded 1 px border (blue for moves, orange for attacks) so the whole action range reads at a glance**; the bottom hint bar shows the action's type and cost; **attack candidates must also show expected damage and target remaining strength** (hint-bar rules in 10.6). On `Stand by`, the bar shows `Stand by — end this unit's action`;
 5. `OK` click executes the highlighted candidate; if it is `Stand by`, the unit ends its action and control returns to unit selection. This is the **only** way to deliberately stand by with AP remaining (why not double-click: 9.4);
 6. If the list contains only `Stand by`, or is empty (AP exhausted or surrounded), the unit stands by automatically.
 
 Sorting must be stable: **repeated `UP`/`DOWN` in the same state must produce a fully predictable order**; no random factor may affect ordering.
 
-The ordering may need adjustment after on-device playtests (e.g. a ringed bearing order). It is the concrete validation object of assumption H2 in 3.2.
+H2 validation outcome (on-device playtest, 2026-09-24): the original distance-first order broke the sense of direction when holding `DOWN` — the highlight jumped between the four bearings and movement felt random. The order was adjusted to the bearing ring per this section's contingency: holding `DOWN` now walks outward along one bearing before moving to the next. A faded range border for all candidates was added alongside (see item 4).
 
 ### 9.3 Full interaction table
 

@@ -101,6 +101,7 @@ static const lv_image_dsc_t *unit_dsc(int cls, bool enemy) {
 #define FOG_COLOR_CURSOR lv_color_hex(0xF2E85C)      // selected unit outline
 #define FOG_COLOR_MOVE lv_color_hex(0x53C7E8)        // move candidate (cool)
 #define FOG_COLOR_ATTACK lv_color_hex(0xF08C3A)      // attack candidate (warm)
+#define FOG_CAND_FADE_OPA (LV_OPA_40)                // faded range display
 #define FOG_COLOR_BAR_SLOT lv_color_hex(0x2A2E33)
 #define FOG_COLOR_BAR_BLUE lv_color_hex(0x53A8F2)
 #define FOG_COLOR_BAR_RED lv_color_hex(0xE05A48)
@@ -222,6 +223,18 @@ void fog_view_refresh(fog_view_t *v, const fog_render_t *r) {
         }
     }
 
+    // Faded range display (9.2 item 4): every non-highlighted candidate gets
+    // a 1 px low-opacity border so the whole action range reads at a glance.
+    uint8_t faint[FOG_MAP_H][FOG_MAP_W] = { 0 };      // 0 none, 1 move, 2 attack
+    if (r->cands) {
+        for (int i = 0; i < r->cand_count; ++i) {
+            if (i == r->cand_index) continue;         // bright border elsewhere
+            const fog_cand_t *c = &r->cands[i];
+            if (c->kind == FOG_CAND_MOVE) faint[c->y][c->x] = 1;
+            else if (c->kind == FOG_CAND_ATTACK) faint[c->y][c->x] = 2;
+        }
+    }
+
     for (int y = 0; y < FOG_MAP_H; ++y)
         for (int x = 0; x < FOG_MAP_W; ++x) {
             lv_obj_t *tile = v->cells[y][x];
@@ -241,9 +254,16 @@ void fog_view_refresh(fog_view_t *v, const fog_render_t *r) {
             if (is_sel && !(hl_x == x && hl_y == y)) {
                 lv_obj_set_style_border_color(tile, FOG_COLOR_CURSOR, 0);
                 lv_obj_set_style_border_width(tile, 2, 0);
+                lv_obj_set_style_border_opa(tile, LV_OPA_COVER, 0);
             } else if (hl_x == x && hl_y == y) {
                 lv_obj_set_style_border_color(tile, hl_color, 0);
                 lv_obj_set_style_border_width(tile, 2, 0);
+                lv_obj_set_style_border_opa(tile, LV_OPA_COVER, 0);
+            } else if (faint[y][x]) {
+                lv_obj_set_style_border_color(tile, faint[y][x] == 2 ? FOG_COLOR_ATTACK
+                                                                     : FOG_COLOR_MOVE, 0);
+                lv_obj_set_style_border_width(tile, 1, 0);
+                lv_obj_set_style_border_opa(tile, FOG_CAND_FADE_OPA, 0);
             } else {
                 lv_obj_set_style_border_width(tile, 0, 0);
             }

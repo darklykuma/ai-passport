@@ -291,12 +291,14 @@ static int bearing_index(int dx, int dy) {
 }
 
 static int cand_less(const fog_cand_t *a, const fog_cand_t *b, int ux, int uy) {
-    int da = fog_cheb(ux, uy, a->x, a->y);
-    int db = fog_cheb(ux, uy, b->x, b->y);
-    if (da != db) return da < db;
+    // H2 playtest result (PRD 9.2): bearing ring first, so holding DOWN keeps
+    // walking in one direction; distance only ranks cells within a bearing.
     int ba = bearing_index(a->x - ux, a->y - uy);
     int bb = bearing_index(b->x - ux, b->y - uy);
     if (ba != bb) return ba < bb;
+    int da = fog_cheb(ux, uy, a->x, a->y);
+    int db = fog_cheb(ux, uy, b->x, b->y);
+    if (da != db) return da < db;
     if (a->y != b->y) return a->y < b->y;
     return a->x < b->x;
 }

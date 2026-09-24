@@ -162,12 +162,16 @@ static void test_candidate_order_and_costs(void) {
     int n = fog_candidates(&g, u, c);
     assert(n > 5);
     assert(c[n - 1].kind == FOG_CAND_STANDBY);     // fixed tail (9.2 item 2)
-    // Distance-1 group ordered up, right, down (no left at the edge) (9.2).
+    // Bearing-ring order (H2 playtest adjustment, 9.2): ring up/right/down/
+    // left first, distance ascending within a bearing, then y, x. Spear at
+    // (0,3), 3 AP, all plain: the distance-1 ring is up, up, right, down,
+    // down, then the whole up bearing outranks nearer right/down cells.
     assert(c[0].x == 0 && c[0].y == 2);
     assert(c[1].x == 1 && c[1].y == 2);
-    assert(c[2].x == 1 && c[2].y == 3);
-    assert(c[3].x == 0 && c[3].y == 4);
-    assert(c[4].x == 1 && c[4].y == 4);
+    assert(c[2].x == 0 && c[2].y == 1);
+    assert(c[3].x == 1 && c[3].y == 1);
+    assert(c[4].x == 2 && c[4].y == 1);
+    assert(c[5].x == 0 && c[5].y == 0);            // far up before near right
     fog_cand_t c2[FOG_CAND_MAX];                   // stable ordering
     int n2 = fog_candidates(&g, u, c2);
     assert(n == n2 && memcmp(c, c2, (size_t)n * sizeof c[0]) == 0);
