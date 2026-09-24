@@ -166,7 +166,91 @@ bool fog_view_build(fog_view_t *v) {
     lv_obj_set_pos(v->hint_label, 6, 320 - FOG_HINT_H + 6);
     lv_label_set_text(v->hint_label, "");
 
+    // Candidate list panel (9.2 item 7): semi-transparent overlay on the map
+    // area during the action phase. Pooled row labels keep the object count
+    // fixed regardless of candidate count.
+    v->cand_panel = lv_obj_create(v->screen);
+    lv_obj_set_pos(v->cand_panel, FOG_GRID_X, FOG_GRID_Y);
+    lv_obj_set_size(v->cand_panel, FOG_MAP_W * FOG_CELL_PX, FOG_MAP_H * FOG_CELL_PX);
+    lv_obj_set_style_bg_color(v->cand_panel, lv_color_hex(0x07090C), 0);
+    lv_obj_set_style_bg_opa(v->cand_panel, LV_OPA_90, 0);
+    lv_obj_set_style_border_width(v->cand_panel, 1, 0);
+    lv_obj_set_style_border_color(v->cand_panel, lv_color_hex(0x2A2E33), 0);
+    lv_obj_set_style_radius(v->cand_panel, 4, 0);
+    lv_obj_set_style_pad_all(v->cand_panel, 0, 0);
+    lv_obj_clear_flag(v->cand_panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(v->cand_panel, LV_OBJ_FLAG_HIDDEN);
+    for (int i = 0; i < FOG_CAND_VISIBLE; ++i) {
+        lv_obj_t *row = lv_label_create(v->cand_panel);
+        lv_obj_set_style_text_font(row, &fog_font_16, 0);
+        lv_obj_set_pos(row, 8, 5 + i * 18);
+        lv_label_set_text(row, "");
+        v->cand_rows[i] = row;
+    }
+
     return true;
+}
+
+const char *fog_class_name(int cls) {
+    switch (cls) {
+    case FOG_CLASS_GENERAL: return "主将";
+    case FOG_CLASS_SPEAR:   return "枪兵";
+    default:                return "弓兵";
+    }
+}
+
+// Rebuilds the candidate panel contents (9.2 item 7). A sliding window keeps
+// the current candidate visible when the list exceeds FOG_CAND_VISIBLE rows.
+static void cand_panel_sync(fog_view_t *v, const fog_render_t *r) {
+    const fog_cand_t *cands = r->cands;
+    int count = r->cand_count;
+    int index = r->cand_index;
+    if (!cands || count <= 0 || index < 0 || index >= count) {
+        lv_obj_add_flag(v->cand_panel, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_obj_clear_flag(v->cand_panel, LV_OBJ_FLAG_HIDDEN);
+
+    int start = 0;
+    if (count > FOG_CAND_VISIBLE) {
+        start = index - FOG_CAND_VISIBLE / 2;
+        if (start < 0) start = 0;
+        if (start > count - FOG_CAND_VISIBLE) start = count - FOG_CAND_VISIBLE;
+    }
+
+    for (int i = 0; i < FOG_CAND_VISIBLE; ++i) {
+        int ci = start + i;
+        lv_obj_t *row = v->cand_rows[i];
+        if (ci >= count) {
+            lv_obj_add_flag(row, LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_HIDDEN);
+        const fog_cand_t *cd = &cands[ci];
+        char text[48];
+        lv_color_t text_color = FOG_TEXT_DIM;
+        lv_color_t bg_color = lv_color_hex(0x3A3F45);
+        if (cd->kind == FOG_CAND_MOVE) {
+            snprintf(text, sizeof text, "%s移动 (%d,%d) %dAP",
+                     ci == index ? "> " : "  ", cd->x, cd->y, cd->ap_cost);
+            bg_color = FOG_COLOR_MOVE;
+            if (ci != index) text_color = lv_color_hex(0x9BCBE0);
+        } else if (cd->kind == FOG_CAND_ATTACK) {
+            const fog_unit_t *t = &r->game->units[FOG_SIDE_ENEMY][cd->target];
+            snprintf(text, sizeof text, "%s攻击 敌%s 伤%d",
+                     ci == index ? "> " : "  ", fog_class_name(t->cls), cd->damage);
+            bg_color = FOG_COLOR_ATTACK;
+            text_color = ci == index ? lv_color_hex(0xFFFFFF)
+                                     : lv_color_hex(0xE8A06A);
+        } else {
+            snprintf(text, sizeof text, "%s待机", ci == index ? "> " : "  ");
+        }
+        lv_label_set_text(row, text);
+        lv_obj_set_style_text_color(row, ci == index ? lv_color_hex(0xFFFFFF)
+                                                     : text_color, 0);
+        lv_obj_set_style_bg_color(row, bg_color, 0);
+        lv_obj_set_style_bg_opa(row, ci == index ? LV_OPA_70 : LV_OPA_TRANSP, 0);
+    }
 }
 
 static void set_bar(fog_view_t *v, int x, int y, const fog_unit_t *u) {
@@ -295,6 +379,8 @@ void fog_view_refresh(fog_view_t *v, const fog_render_t *r) {
                     lv_obj_add_flag(v->bar_slot[y][x], LV_OBJ_FLAG_HIDDEN);
             }
         }
+
+    cand_panel_sync(v, r);
 }
 
 void fog_view_status(fog_view_t *v, const fog_game_t *g, int battery) {

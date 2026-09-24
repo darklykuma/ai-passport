@@ -441,7 +441,8 @@ When a friendly unit is selected, all currently **legal target cells of its acti
 3. `UP` selects the previous candidate, `DOWN` the next, **wrapping around** (pressing `DOWN` past `Stand by` returns to the first movable cell);
 4. The current candidate is highlighted with a border, and **every other candidate shows a faded 1 px border (blue for moves, orange for attacks) so the whole action range reads at a glance**; the bottom hint bar shows the action's type and cost; **attack candidates must also show expected damage and target remaining strength** (hint-bar rules in 10.6). On `Stand by`, the bar shows `Stand by — end this unit's action`;
 5. `OK` click executes the highlighted candidate; if it is `Stand by`, the unit ends its action and control returns to unit selection. This is the **only** way to deliberately stand by with AP remaining (why not double-click: 9.4);
-6. If the list contains only `Stand by`, or is empty (AP exhausted or surrounded), the unit stands by automatically.
+6. If the list contains only `Stand by`, or is empty (AP exhausted or surrounded), the unit stands by automatically;
+7. **Candidate list panel**: during the action phase a semi-transparent panel overlays the map area, listing every candidate row by row (`Move (x,y) nAP` / `Attack enemy <class> dmg n` / `Stand by`). The current candidate carries a `>` prefix and a type-colored background; the highlight and scroll window follow `UP`/`DOWN`; after `OK` executes, the panel refreshes with the state. When the list exceeds 14 rows, a sliding window keeps the current item centered. The panel is a second readout next to the hint bar, addressing the playtest feedback that move/attack/stand-by switches were hard to notice.
 
 Sorting must be stable: **repeated `UP`/`DOWN` in the same state must produce a fully predictable order**; no random factor may affect ordering.
 

@@ -72,14 +72,6 @@ static struct {
     bool ai_fast;
 } s_app;
 
-static const char *class_name(int cls) {
-    switch (cls) {
-    case FOG_CLASS_GENERAL: return "主将";
-    case FOG_CLASS_SPEAR:   return "枪兵";
-    default:                return "弓兵";
-    }
-}
-
 // --- Small screen helpers --------------------------------------------------
 
 static lv_obj_t *base_screen(void) {
@@ -254,7 +246,7 @@ static void compose_hint(char *buf, size_t len) {
     }
     const fog_unit_t *u = &g->units[FOG_SIDE_PLAYER][s_app.selected];
     if (g->phase != FOG_PHASE_ACTION || s_app.cand_index >= s_app.cand_count) {
-        snprintf(buf, len, "%s %d/%d", class_name(u->cls), u->strength,
+        snprintf(buf, len, "%s %d/%d", fog_class_name(u->cls), u->strength,
                  FOG_CLASS_STATS[u->cls].strength);
         return;
     }
@@ -264,7 +256,7 @@ static void compose_hint(char *buf, size_t len) {
     } else if (c->kind == FOG_CAND_ATTACK) {
         const fog_unit_t *t = &g->units[FOG_SIDE_ENEMY][c->target];
         snprintf(buf, len, "攻击 2AP 伤%d 敌%s %d/%d", c->damage,
-                 class_name(t->cls), t->strength, FOG_CLASS_STATS[t->cls].strength);
+                 fog_class_name(t->cls), t->strength, FOG_CLASS_STATS[t->cls].strength);
     } else {
         snprintf(buf, len, "待机 结束行动");
     }

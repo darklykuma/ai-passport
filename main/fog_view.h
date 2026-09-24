@@ -9,12 +9,15 @@
 #define FOG_GRID_Y 28
 #define FOG_STATUS_H 28
 #define FOG_HINT_H 32
+#define FOG_CAND_VISIBLE 14                       // rows in the candidate panel
 
 typedef struct {
     lv_obj_t *screen;
     lv_obj_t *status_label;
     lv_obj_t *battery_label;
     lv_obj_t *hint_label;
+    lv_obj_t *cand_panel;                         // action-phase candidate list
+    lv_obj_t *cand_rows[FOG_CAND_VISIBLE];        // pooled row labels
     lv_obj_t *cells[FOG_MAP_H][FOG_MAP_W];        // terrain tile images
     lv_obj_t *unit_img[FOG_MAP_H][FOG_MAP_W];     // unit / ghost images
     lv_obj_t *bar_slot[FOG_MAP_H][FOG_MAP_W];     // strength bar slot
@@ -42,3 +45,7 @@ void fog_view_refresh(fog_view_t *v, const fog_render_t *r);
 void fog_view_status(fog_view_t *v, const fog_game_t *g, int battery);
 
 void fog_view_hint(fog_view_t *v, const char *text);
+
+// Chinese display name of a unit class, shared by the hint bar and the
+// candidate list panel ("主将" / "枪兵" / "弓兵").
+const char *fog_class_name(int cls);
