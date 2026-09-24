@@ -21,11 +21,12 @@ CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 CONFIG_LV_COLOR_DEPTH_16=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_20=y
-# FOG MARCH 中文 UI:内置思源黑体简体子集(Plan A,PRD 10.4)。字形覆盖须逐字
-# 核对(用 lv_font_get_glyph_dsc 按码点检查)并经真机验收,见 PRD 17.4。
 CONFIG_LV_TXT_ENC_UTF8=y
 CONFIG_LV_USE_FONT_PLACEHOLDER=y
-CONFIG_LV_FONT_SOURCE_HAN_SANS_SC_16_CJK=y
+# FOG MARCH 中文 UI 走方案 B(PRD 10.4):内置思源黑体简体子集缺 PRD 清单 56 字,
+# 已改为应用自建子集字体 assets/fonts/fog_font_16.c / fog_font_20.c(由
+# tools/gen_fog_march_fonts.sh 生成)。不再启用内置 CJK 子集,节省 Flash。
+# 字形覆盖由 tests/test_fog_ui_glyphs.py 按码点核对;真机验收见 PRD 17.4。
 # LVGL 内置 malloc 池(KB)。战场页约 170 个对象(80 地块 + 80 单位层 + 标签),
 # 24KB 不足;按对象预算上调至 48KB(PRD 15.2 内存以实测为准)。
 CONFIG_LV_MEM_SIZE_KILOBYTES=48

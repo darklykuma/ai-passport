@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Every CJK character used by the FOG MARCH UI sources must be in the PRD's
-verified glyph inventory (PRD_FOG_MARCH 10.4). The inventory is the set that
-gets checked against the built-in Source Han Sans subset; a character outside
-it has no coverage guarantee and would render as a blank box on the device.
+verified glyph inventory (PRD_FOG_MARCH 10.4). Plan B (application-owned
+subset fonts) serves exactly this inventory: the generator input
+assets/fonts/fog_march_charset.txt must match the PRD list, and the tracked
+generated fonts must cover every code point of it.
 """
 
 from __future__ import annotations
@@ -21,6 +22,12 @@ INVENTORY = set(
     "继续退出暂停重新开始战斗结算击破命中伤害恢复跳过确认取消"
     "目标距离地形隐蔽防御加成剩余总览战绩连胜最高难度简单普通困难"
     "关于存档已重置不可用再来一局行动中电量"
+)
+
+CHARSET_FILE = ROOT / "assets" / "fonts" / "fog_march_charset.txt"
+FONT_SOURCES = (
+    ROOT / "assets" / "fonts" / "fog_font_16.c",
+    ROOT / "assets" / "fonts" / "fog_font_20.c",
 )
 
 CJK = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
@@ -50,6 +57,31 @@ class FogUiGlyphs(unittest.TestCase):
             for ch in word:
                 self.assertIn(ch, INVENTORY)
 
+    def test_charset_file_matches_inventory(self) -> None:
+        charset = set(CJK.findall(CHARSET_FILE.read_text(encoding="utf-8")))
+        self.assertEqual(
+            charset,
+            INVENTORY,
+            "assets/fonts/fog_march_charset.txt drifted from the PRD 10.4 "
+            "inventory; the generated subset fonts would not serve the PRD",
+        )
+
+    def test_generated_fonts_cover_inventory(self) -> None:
+        for path in FONT_SOURCES:
+            self.assertTrue(path.exists(), f"{path.name} missing; run "
+                                           f"tools/gen_fog_march_fonts.sh")
+            covered = {int(m, 16) for m in
+                       re.findall(r"U\+([0-9A-Fa-f]{4,5})", path.read_text(encoding="utf-8"))}
+            missing = [f"U+{ord(ch):04X}({ch})" for ch in INVENTORY
+                       if ord(ch) not in covered]
+            self.assertFalse(
+                missing,
+                f"{path.name} does not cover the PRD 10.4 inventory: "
+                f"{', '.join(missing)}; regenerate with "
+                f"tools/gen_fog_march_fonts.sh",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -1,0 +1,9 @@
+# FOG MARCH UI CJK charset (PRD_FOG_MARCH 10.4 inventory, verbatim lines).
+# tools/gen_fog_march_fonts.sh strips whitespace and passes this to
+# lv_font_conv --symbols. One CJK character per logical UI need; lines mirror
+# the PRD inventory. ASCII (0x20-0x7E) is added by the generator separately.
+迷雾三国 枪兵骑弓主将 兵力 行动移动攻击待机 结束回合 视野侦察
+山地林地河流城池要地 胜利失败平局 我方敌方 统计设置 新游戏
+继续退出暂停重新开始 战斗结算 击破 命中伤害 恢复跳过 确认取消
+目标距离地形隐蔽防御 加成剩余 总览战绩连胜最高 难度简单普通困难
+关于存档已重置不可用 再来一局行动中 电量

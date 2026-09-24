@@ -17,6 +17,23 @@ Store reusable font files and generated font sources in `fonts/`.
 - Check Flash and internal-RAM impact before adding a font; the ESP32-C3 has no PSRAM.
 - Do not commit fonts whose license does not permit redistribution.
 
+### FOG MARCH application subset
+
+| File | Tracked | Use |
+| --- | --- | --- |
+| [`fonts/fog_march_charset.txt`](fonts/fog_march_charset.txt) | yes | Generator input: the PRD_FOG_MARCH 10.4 character inventory. |
+| [`fonts/fog_font_16.c`](fonts/fog_font_16.c) | yes | Generated 16 px LVGL font (body text), compiled by `main/CMakeLists.txt`. |
+| [`fonts/fog_font_20.c`](fonts/fog_font_20.c) | yes | Generated 20 px LVGL font (titles), compiled by `main/CMakeLists.txt`. |
+| `fonts/SourceHanSansSC-Regular.otf` | no (16.4 MB) | Conversion source, kept locally only; regenerate after re-downloading. |
+
+Source font: Source Han Sans SC Regular (`SourceHanSansSC-Regular.otf`,
+Adobe, SIL Open Font License 1.1, redistribution permitted), from
+<https://github.com/adobe-fonts/source-han-sans/releases>
+(SHA256 `84bbd4ace91d327b3ad1a581c688196278a4e41308520176f419180064e4af2b`).
+Regenerate the subsets with `tools/gen_fog_march_fonts.sh`, which records the
+pinned `lv_font_conv` version and the exact conversion command. Coverage of
+the PRD inventory is enforced by `tests/test_fog_ui_glyphs.py`.
+
 ## Images
 
 Store reusable source images and generated display assets in `images/`.

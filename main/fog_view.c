@@ -120,15 +120,15 @@ bool fog_view_build(fog_view_t *v) {
     lv_obj_set_style_border_width(v->screen, 0, 0);
     lv_obj_clear_flag(v->screen, LV_OBJ_FLAG_SCROLLABLE);
 
-    extern const lv_font_t lv_font_source_han_sans_sc_16_cjk;
+    LV_FONT_DECLARE(fog_font_16);
 
     v->status_label = lv_label_create(v->screen);
-    lv_obj_set_style_text_font(v->status_label, &lv_font_source_han_sans_sc_16_cjk, 0);
+    lv_obj_set_style_text_font(v->status_label, &fog_font_16, 0);
     lv_obj_set_style_text_color(v->status_label, FOG_TEXT_MAIN, 0);
     lv_obj_set_pos(v->status_label, 6, 5);
 
     v->battery_label = lv_label_create(v->screen);
-    lv_obj_set_style_text_font(v->battery_label, &lv_font_source_han_sans_sc_16_cjk, 0);
+    lv_obj_set_style_text_font(v->battery_label, &fog_font_16, 0);
     lv_obj_set_style_text_color(v->battery_label, FOG_TEXT_DIM, 0);
     lv_obj_align(v->battery_label, LV_ALIGN_TOP_RIGHT, -6, 5);
 
@@ -156,7 +156,7 @@ bool fog_view_build(fog_view_t *v) {
         }
 
     v->hint_label = lv_label_create(v->screen);
-    lv_obj_set_style_text_font(v->hint_label, &lv_font_source_han_sans_sc_16_cjk, 0);
+    lv_obj_set_style_text_font(v->hint_label, &fog_font_16, 0);
     lv_obj_set_style_text_color(v->hint_label, FOG_TEXT_MAIN, 0);
     lv_obj_set_pos(v->hint_label, 6, 320 - FOG_HINT_H + 6);
     lv_label_set_text(v->hint_label, "");

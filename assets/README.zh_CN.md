@@ -15,6 +15,23 @@
 - 添加字库前评估 Flash 与内部 RAM 影响；ESP32-C3 无 PSRAM。
 - 不提交许可不允许分发的字库。
 
+### FOG MARCH 应用子集字体
+
+| 文件 | 是否入库 | 用途 |
+| --- | --- | --- |
+| [`fonts/fog_march_charset.txt`](fonts/fog_march_charset.txt) | 是 | 生成器输入：PRD_FOG_MARCH 10.4 字形清单。 |
+| [`fonts/fog_font_16.c`](fonts/fog_font_16.c) | 是 | 生成的 16 px LVGL 字体（正文），由 `main/CMakeLists.txt` 编译。 |
+| [`fonts/fog_font_20.c`](fonts/fog_font_20.c) | 是 | 生成的 20 px LVGL 字体（标题），由 `main/CMakeLists.txt` 编译。 |
+| `fonts/SourceHanSansSC-Regular.otf` | 否（16.4 MB） | 转换源字体，仅保存在本地；重新下载后可再生成。 |
+
+源字体：思源黑体 SC Regular（`SourceHanSansSC-Regular.otf`，Adobe，
+SIL Open Font License 1.1，允许再分发），来自
+<https://github.com/adobe-fonts/source-han-sans/releases>
+（SHA256 `84bbd4ace91d327b3ad1a581c688196278a4e41308520176f419180064e4af2b`）。
+使用 `tools/gen_fog_march_fonts.sh` 重新生成子集，脚本内记录了锁定的
+`lv_font_conv` 版本与完整转换命令。PRD 清单覆盖由
+`tests/test_fog_ui_glyphs.py` 强制核对。
+
 ## 图片（images）
 
 可复用的源图与生成的显示资产放在 `images/`。
