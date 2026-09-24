@@ -101,7 +101,7 @@ static const lv_image_dsc_t *unit_dsc(int cls, bool enemy) {
 #define FOG_COLOR_CURSOR lv_color_hex(0xF2E85C)      // selected unit outline
 #define FOG_COLOR_MOVE lv_color_hex(0x53C7E8)        // move candidate (cool)
 #define FOG_COLOR_ATTACK lv_color_hex(0xF08C3A)      // attack candidate (warm)
-#define FOG_CAND_FADE_OPA (LV_OPA_40)                // faded range display
+#define FOG_CAND_FADE_OPA (LV_OPA_70)                // faded range display
 #define FOG_COLOR_BAR_SLOT lv_color_hex(0x2A2E33)
 #define FOG_COLOR_BAR_BLUE lv_color_hex(0x53A8F2)
 #define FOG_COLOR_BAR_RED lv_color_hex(0xE05A48)
