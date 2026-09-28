@@ -1,0 +1,812 @@
+// main/mafa_app.c — MAFA CHRONICLE application: pages, input, idle pacing
+// (PRD_MAFA_CHRONICLE 6/7/10). The input task owns the LVGL lock; button
+// callbacks only enqueue (bsp_button.h). Auto-battle ticks run on the same
+// task's queue timeout, one model round per tick, with app-side diff guards
+// so unchanged labels never reach LVGL (the FOG MARCH pool lesson).
+#include "mafa_app.h"
+
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "bsp_battery.h"
+#include "bsp_button.h"
+#include "bsp_display.h"
+#include "esp_log.h"
+#include "esp_random.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
+#include "lvgl.h"
+#include "mafa_model.h"
+#include "mafa_view.h"
+#include "nvs.h"
+#include "nvs_flash.h"
+
+static const char *TAG = "mafa";
+
+#define INPUT_QUEUE_DEPTH 8
+#define LOG_LINES 6
+#define LOG_LINE_CAP 56
+#define NVS_NS "mafa"
+#define NVS_KEY "save"
+
+typedef enum {
+    PAGE_MENU = 0,
+    PAGE_CLASS,
+    PAGE_MAIN,
+    PAGE_BACKPACK,
+    PAGE_STORE,
+    PAGE_MAPS,
+    PAGE_SETTINGS,
+} page_t;
+
+typedef struct {
+    bsp_btn_t btn;
+    bsp_btn_ev_t event;
+} input_event_t;
+
+/* Quality display (PRD 9.3): recolor codes for the log label. */
+static const char *Q_COLOR[MAFA_Q_COUNT] = {
+    "#C8C8C8", "#5FC85F", "#4FA8F2", "#B06CF0", "#F0C04A",
+};
+
+static const uint32_t PACE_MS[3] = {1500, 750, 375};   /* 1x/2x/4x (8.3) */
+static const char *SPEED_NAME[3] = {"1x", "2x", "4x"};
+static const char *MAIN_MENU[5] = {"背包", "商店", "地图", "设置", "加速"};
+
+static struct {
+    mafa_player_t player;
+    mafa_battle_t battle;
+    bool in_battle;
+
+    page_t page;
+    int cur_menu;           // menu page cursor
+    bool confirm_new;       // menu: overwrite-save confirmation shown
+    int cur_class;
+    int cur_main;           // action menu cursor (0..4)
+    int cur_pack;
+    bool packsub;           // backpack action submenu open
+    int cur_packsub;        // 0 equip, 1 sell
+    int cur_store;
+    int cur_maps;
+    int cur_set;
+    int cur_modal;          // boss / drop prompt cursor
+    bool boss_pending;
+    uint8_t speed;
+    bool battery_ok;
+    int battery;
+    bool has_save;
+
+    char log[LOG_LINES][LOG_LINE_CAP];
+
+    char prev_status[112];
+    char prev_log[LOG_LINES * LOG_LINE_CAP + LOG_LINES];
+    char prev_menu[176];
+    char prev_modal[224];
+
+    mafa_view_t view;
+    QueueHandle_t queue;
+    TaskHandle_t task;
+    volatile bool ready;
+} s_app;
+
+static void enter_page(page_t page);
+static void refresh_page(void);
+static void tick_battle(void);
+static bool save_now(void);
+
+// --- Log ring ----------------------------------------------------------------
+
+static void log_line(const char *fmt, ...) {
+    memmove(s_app.log, s_app.log + 1, (LOG_LINES - 1) * LOG_LINE_CAP);
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(s_app.log[LOG_LINES - 1], LOG_LINE_CAP, fmt, ap);
+    va_end(ap);
+}
+
+static void log_clear(const char *first) {
+    for (int i = 0; i < LOG_LINES; ++i) s_app.log[i][0] = '\0';
+    strncpy(s_app.log[LOG_LINES - 1], first, LOG_LINE_CAP - 1);
+}
+
+// --- Save (PRD 8.10): NVS blob, autosaved at every state change --------------
+
+static bool save_now(void) {
+    if (!s_app.ready) return false;
+    uint8_t buf[96];
+    size_t n = mafa_save_serialize(&s_app.player, buf, sizeof buf);
+    if (n == 0) return false;
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return false;
+    esp_err_t e = nvs_set_blob(h, NVS_KEY, buf, n);
+    if (e == ESP_OK) e = nvs_commit(h);
+    nvs_close(h);
+    if (e != ESP_OK) ESP_LOGW(TAG, "save failed: %s", esp_err_to_name(e));
+    return e == ESP_OK;
+}
+
+static bool load_save(void) {
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) return false;
+    uint8_t buf[96];
+    size_t n = sizeof buf;
+    esp_err_t e = nvs_get_blob(h, NVS_KEY, buf, &n);
+    nvs_close(h);
+    if (e != ESP_OK) return false;
+    mafa_player_t p = s_app.player;     /* zeroed template at boot */
+    if (!mafa_save_deserialize(&p, buf, n)) return false;
+    s_app.player = p;
+    return true;
+}
+
+// --- Helpers -------------------------------------------------------------------
+
+static int battery_read(void) {
+    static TickType_t last;
+    if (!s_app.battery_ok) return -1;
+    TickType_t now = xTaskGetTickCount();
+    if (s_app.battery < 0 || now - last >= pdMS_TO_TICKS(5000)) {
+        last = now;
+        s_app.battery = bsp_battery_soc();
+    }
+    return s_app.battery;
+}
+
+/* Guarded set: only push the text into LVGL when it actually changed.
+ * The shadow buffers are wiped on page entry, so the first refresh of a
+ * page always lands. */
+static void label_set(lv_obj_t *label, const char *text, char *prev, size_t cap) {
+    if (strncmp(prev, text, cap) == 0) return;
+    strncpy(prev, text, cap - 1);
+    prev[cap - 1] = '\0';
+    lv_label_set_text(label, text);
+}
+
+// --- Composers ------------------------------------------------------------------
+
+static void compose_status(char *buf, size_t cap) {
+    mafa_stats_t st;
+    mafa_stats(&s_app.player, &st);
+    const char *map = MAFA_MAP_NAMES[s_app.player.map];
+    if (s_app.in_battle) {
+        const mafa_monster_t *m = s_app.battle.mob.base;
+        snprintf(buf, cap, "Lv%d %s 血%d/%d 蓝%d 金%u\n▶%s %ld/%ld",
+                 s_app.player.level, map, s_app.player.hp, st.max_hp,
+                 s_app.player.mp, (unsigned)s_app.player.gold,
+                 m->name, (long)s_app.battle.mob.hp,
+                 (long)s_app.battle.mob.max_hp);
+    } else {
+        snprintf(buf, cap, "Lv%d %s 血%d/%d 蓝%d 金%u\n【%s】挂机中",
+                 s_app.player.level, map, s_app.player.hp, st.max_hp,
+                 s_app.player.mp, (unsigned)s_app.player.gold, map);
+    }
+    int bat = battery_read();
+    size_t used = strlen(buf);
+    if (bat >= 0 && used + 8 < cap)
+        snprintf(buf + used, cap - used, " %d%%", bat);
+}
+
+static void compose_log(char *buf, size_t cap) {
+    buf[0] = '\0';
+    for (int i = 0; i < LOG_LINES; ++i) {
+        if (s_app.log[i][0] == '\0') continue;
+        if (buf[0]) strncat(buf, "\n", cap - strlen(buf) - 1);
+        strncat(buf, s_app.log[i], cap - strlen(buf) - 1);
+    }
+}
+
+static void compose_main_menu(char *buf, size_t cap) {
+    buf[0] = '\0';
+    for (int i = 0; i < 5; ++i) {
+        char row[32];
+        if (i == 4)
+            snprintf(row, sizeof row, "%s加速(%s)",
+                     s_app.cur_main == i ? ">" : "  ", SPEED_NAME[s_app.speed]);
+        else
+            snprintf(row, sizeof row, "%s%s",
+                     s_app.cur_main == i ? ">" : "  ", MAIN_MENU[i]);
+        strncat(buf, row, cap - strlen(buf) - 1);
+        if (i < 4) strncat(buf, "\n", cap - strlen(buf) - 1);
+    }
+}
+
+// --- Events → log (PRD 8.3 copy, quality colors for loot) -----------------------
+
+static const mafa_skill_t *skill_of(uint8_t idx) {
+    return &MAFA_SKILLS[s_app.player.cls][idx];
+}
+
+static void handle_events(const mafa_events_t *ev) {
+    bool settled = false;
+    for (int i = 0; i < ev->n; ++i) {
+        uint8_t kind = ev->e[i].kind;
+        uint8_t id = ev->e[i].id;
+        int32_t a = ev->e[i].a;
+        switch (kind) {
+        case MAFA_EV_PLAYER_HIT:
+            log_line("你造成 %d 点伤害", a);
+            break;
+        case MAFA_EV_PLAYER_CRIT:
+            log_line("【爆击】你造成 %d 伤害!", a);
+            break;
+        case MAFA_EV_SKILL_HIT:
+            log_line("【%s】造成 %d 伤害!", skill_of(id)->name, a);
+            break;
+        case MAFA_EV_SKILL_SUPPORT:
+            if (id & 0x80)
+                log_line("#F0C04A 习得【%s】!#",
+                         skill_of(id & 0x7F)->name);
+            else
+                log_line("【%s】发动!", skill_of(id)->name);
+            break;
+        case MAFA_EV_DOT_TICK:
+            log_line("持续伤害 %d 点", a);
+            break;
+        case MAFA_EV_MOB_HIT:
+            log_line("#E05A48 %s 反击,你受 %d 伤害#",
+                     s_app.battle.mob.base->name, a);
+            break;
+        case MAFA_EV_MOB_SKILL:
+            log_line("#E05A48 【%s】你受 %d 伤害!#",
+                     id == MAFA_MSK_FIRE ? "火攻"
+                     : id == MAFA_MSK_FLURRY ? "连击"
+                     : id == MAFA_MSK_HEAVY ? "重击"
+                     : id == MAFA_MSK_STING ? "毒刺"
+                     : id == MAFA_MSK_ROAR ? "咆哮"
+                     : id == MAFA_MSK_HELLFIRE ? "地狱火" : "技能",
+                     a);
+            break;
+        case MAFA_EV_PLAYER_POISON:
+            log_line("#E05A48 中毒,失去 %d HP#", a);
+            break;
+        case MAFA_EV_HEAL:
+            log_line("#5FC85F %s +%d#",
+                     id == 1 ? "红药" : id == 2 ? "蓝药" : "治愈", a);
+            break;
+        case MAFA_EV_MOB_KILLED:
+            log_line("#F0C04A %s 倒下!经验+%d#",
+                     s_app.battle.mob.base->name, a);
+            settled = true;
+            break;
+        case MAFA_EV_LEVELUP:
+            log_line("#F0C04A 升级!Lv.%d#", id);
+            break;
+        case MAFA_EV_DROP: {
+            const mafa_item_t *it = &MAFA_ITEMS[id];
+            if (a == 1)
+                log_line("【掉落】%s%s%s!", Q_COLOR[it->quality], it->name, "#");
+            else if (a == 2)
+                log_line("白装售出 +%d 金", (int)mafa_sell_price(id));
+            else
+                log_line("#E05A48 背包已满!#");
+            settled = true;
+            break;
+        }
+        case MAFA_EV_PLAYER_DEATH:
+            log_line("#E05A48 你被 %s 杀死了…#", s_app.battle.mob.base->name);
+            break;
+        default:
+            break;
+        }
+    }
+    if (settled) save_now();
+}
+
+// --- Modals -----------------------------------------------------------------------
+
+static void modal_show(const char *buf) {
+    if (!s_app.view.modal)
+        mafa_view_modal_open(&s_app.view, buf);
+    else if (strncmp(s_app.prev_modal, buf, sizeof s_app.prev_modal) != 0)
+        mafa_view_modal_text(&s_app.view, buf);
+    strncpy(s_app.prev_modal, buf, sizeof s_app.prev_modal - 1);
+    s_app.prev_modal[sizeof s_app.prev_modal - 1] = '\0';
+}
+
+static void modal_close(void) {
+    mafa_view_modal_close(&s_app.view);
+    s_app.prev_modal[0] = '\0';
+}
+
+static void boss_modal_refresh(void) {
+    char buf[128];
+    snprintf(buf, sizeof buf, "【Boss】%s 出现了!\n  %s迎战\n  %s回避",
+             MAFA_MONSTERS[s_app.player.map * 6 + 5].name,
+             s_app.cur_modal == 0 ? ">" : "  ",
+             s_app.cur_modal == 1 ? ">" : "  ");
+    modal_show(buf);
+}
+
+static void drop_modal_refresh(void) {
+    char buf[224];
+    int n = snprintf(buf, sizeof buf, "背包已满!获得 %s\n",
+                     MAFA_ITEMS[s_app.player.pending_drop].name);
+    for (int i = 0; i < MAFA_BACKPACK && n > 0 && n < (int)sizeof buf; ++i) {
+        uint8_t id = s_app.player.inv_id[i];
+        n += snprintf(buf + n, sizeof buf - n, "%s%d.%s\n",
+                      s_app.cur_modal == i ? ">" : " ", i + 1,
+                      id == MAFA_INV_EMPTY ? "空" : MAFA_ITEMS[id].name);
+    }
+    if (n > 0 && n < (int)sizeof buf)
+        snprintf(buf + n, sizeof buf - n, "%s丢弃",
+                 s_app.cur_modal == MAFA_BACKPACK ? ">" : " ");
+    modal_show(buf);
+}
+
+// --- Tick (idle auto-battle, PRD 8.3) ----------------------------------------------
+
+static void refresh_main(void) {
+    char buf[112];
+    compose_status(buf, sizeof buf);
+    label_set(s_app.view.status_label, buf, s_app.prev_status,
+              sizeof s_app.prev_status);
+    char logbuf[sizeof s_app.prev_log];
+    compose_log(logbuf, sizeof logbuf);
+    label_set(s_app.view.log_label, logbuf, s_app.prev_log, sizeof s_app.prev_log);
+    compose_main_menu(buf, sizeof buf);
+    label_set(s_app.view.menu_label, buf, s_app.prev_menu, sizeof s_app.prev_menu);
+}
+
+static void tick_battle(void) {
+    if (s_app.boss_pending || s_app.player.pending_drop != MAFA_DROP_NONE)
+        return;                          /* prompts pause the world (7) */
+    if (!s_app.in_battle) {
+        if (!mafa_battle_start(&s_app.player, &s_app.battle)) return;
+        s_app.in_battle = true;
+        const mafa_monster_t *m = s_app.battle.mob.base;
+        if (s_app.battle.mob.elite)
+            log_line("【精英】%s 出现!", m->name);
+        else
+            log_line("遭遇 %s!", m->name);
+    }
+    mafa_events_t ev;
+    mafa_battle_round(&s_app.player, &s_app.battle, &ev);
+    handle_events(&ev);
+    if (s_app.battle.over) {
+        s_app.in_battle = false;
+        if (!s_app.battle.player_dead) mafa_regen(&s_app.player, 3);
+        if (!s_app.battle.is_boss && mafa_boss_ready(&s_app.player)) {
+            s_app.boss_pending = true;
+            s_app.cur_modal = 0;
+            log_line("#F0C04A 【Boss】%s 出现了!#",
+                     MAFA_MONSTERS[s_app.player.map * 6 + 5].name);
+        }
+    }
+}
+
+// --- Pages ---------------------------------------------------------------------------
+
+static void refresh_menu(void) {
+    char buf[96];
+    if (s_app.confirm_new)
+        snprintf(buf, sizeof buf, "覆盖现有存档?\n%s是\n%s否",
+                 s_app.cur_menu == 0 ? ">" : "  ",
+                 s_app.cur_menu == 1 ? ">" : "  ");
+    else if (s_app.has_save)
+        snprintf(buf, sizeof buf, "%s继续游戏\n%s新游戏",
+                 s_app.cur_menu == 0 ? ">" : "  ",
+                 s_app.cur_menu == 1 ? ">" : "  ");
+    else
+        snprintf(buf, sizeof buf, "%s新游戏", s_app.cur_menu == 0 ? ">" : "  ");
+    lv_label_set_text(s_app.view.items_label, buf);
+}
+
+static void refresh_class(void) {
+    static const char *ROWS[MAFA_CLS_COUNT] = {
+        "战士  高血高防", "法师  高攻脆皮", "道士  攻守兼备",
+    };
+    static const char *BLURB[MAFA_CLS_COUNT] = {
+        "技能:攻杀/半月/烈火", "技能:雷电/火墙/冰咆哮",
+        "技能:火符/治愈/施毒",
+    };
+    char buf[96];
+    buf[0] = '\0';
+    for (int i = 0; i < MAFA_CLS_COUNT; ++i) {
+        strncat(buf, i == s_app.cur_class ? ">" : "  ", sizeof buf - strlen(buf) - 1);
+        strncat(buf, ROWS[i], sizeof buf - strlen(buf) - 1);
+        if (i < MAFA_CLS_COUNT - 1)
+            strncat(buf, "\n", sizeof buf - strlen(buf) - 1);
+    }
+    lv_label_set_text(s_app.view.items_label, buf);
+    lv_label_set_text(s_app.view.detail_label, BLURB[s_app.cur_class]);
+}
+
+static void refresh_backpack(void) {
+    char buf[256];
+    buf[0] = '\0';
+    for (int i = 0; i < MAFA_BACKPACK; ++i) {
+        uint8_t id = s_app.player.inv_id[i];
+        char row[40];
+        if (id == MAFA_INV_EMPTY)
+            snprintf(row, sizeof row, "%s%d.空",
+                     !s_app.packsub && s_app.cur_pack == i ? ">" : " ", i + 1);
+        else
+            snprintf(row, sizeof row, "%s%d.%s x%d",
+                     !s_app.packsub && s_app.cur_pack == i ? ">" : " ", i + 1,
+                     MAFA_ITEMS[id].name, s_app.player.inv_n[i]);
+        strncat(buf, row, sizeof buf - strlen(buf) - 1);
+        if (i < MAFA_BACKPACK - 1)
+            strncat(buf, "\n", sizeof buf - strlen(buf) - 1);
+    }
+    lv_label_set_text(s_app.view.items_label, buf);
+
+    char det[80];
+    uint8_t id = s_app.player.inv_id[s_app.cur_pack];
+    if (s_app.packsub) {
+        snprintf(det, sizeof det, "%s装备\n%s卖出",
+                 s_app.cur_packsub == 0 ? ">" : " ",
+                 s_app.cur_packsub == 1 ? ">" : " ");
+    } else if (id == MAFA_INV_EMPTY) {
+        snprintf(det, sizeof det, "金币 %u", (unsigned)s_app.player.gold);
+    } else {
+        mafa_compare_t cmp;
+        mafa_compare(&s_app.player, id, &cmp);
+        snprintf(det, sizeof det, "攻%+d 防%+d 血%+d | 金币 %u",
+                 cmp.d_atk, cmp.d_def, (int)cmp.d_hp,
+                 (unsigned)s_app.player.gold);
+    }
+    lv_label_set_text(s_app.view.detail_label, det);
+}
+
+static void refresh_store(void) {
+    char buf[96];
+    snprintf(buf, sizeof buf, "%s红药 30HP 20金\n%s蓝药 15MP 25金\n金币 %u",
+             s_app.cur_store == 0 ? ">" : " ",
+             s_app.cur_store == 1 ? ">" : " ",
+             (unsigned)s_app.player.gold);
+    lv_label_set_text(s_app.view.items_label, buf);
+}
+
+static void refresh_maps(void) {
+    char buf[128];
+    buf[0] = '\0';
+    for (int i = 0; i < MAFA_MAP_COUNT; ++i) {
+        bool unlocked = i <= s_app.player.unlocked;
+        char row[40];
+        snprintf(row, sizeof row, "%s%d.%s%s",
+                 unlocked && s_app.cur_maps == i ? ">" : " ", i + 1,
+                 MAFA_MAP_NAMES[i], unlocked ? "" : " 锁定");
+        strncat(buf, row, sizeof buf - strlen(buf) - 1);
+        if (i < MAFA_MAP_COUNT - 1)
+            strncat(buf, "\n", sizeof buf - strlen(buf) - 1);
+    }
+    lv_label_set_text(s_app.view.items_label, buf);
+    lv_label_set_text(s_app.view.detail_label,
+                      MAFA_MAP_NAMES[s_app.player.map]);
+}
+
+static void refresh_settings(void) {
+    char buf[96];
+    snprintf(buf, sizeof buf, "%s自动喝药:%s\n%s自动卖白:%s",
+             s_app.cur_set == 0 ? ">" : " ",
+             s_app.player.auto_potion ? "开" : "关",
+             s_app.cur_set == 1 ? ">" : " ",
+             s_app.player.auto_sell_white ? "开" : "关");
+    lv_label_set_text(s_app.view.items_label, buf);
+}
+
+static void refresh_page(void) {
+    switch (s_app.page) {
+    case PAGE_MENU: refresh_menu(); break;
+    case PAGE_CLASS: refresh_class(); break;
+    case PAGE_MAIN: refresh_main(); break;
+    case PAGE_BACKPACK: refresh_backpack(); break;
+    case PAGE_STORE: refresh_store(); break;
+    case PAGE_MAPS: refresh_maps(); break;
+    case PAGE_SETTINGS: refresh_settings(); break;
+    }
+}
+
+static void enter_page(page_t page) {
+    s_app.page = page;
+    memset(s_app.prev_status, 0, sizeof s_app.prev_status);
+    memset(s_app.prev_log, 0, sizeof s_app.prev_log);
+    memset(s_app.prev_menu, 0, sizeof s_app.prev_menu);
+    memset(s_app.prev_modal, 0, sizeof s_app.prev_modal);
+    if (s_app.view.screen) lv_obj_delete(s_app.view.screen);
+    switch (page) {
+    case PAGE_MENU:
+        mafa_view_page_menu(&s_app.view);
+        refresh_menu();
+        break;
+    case PAGE_CLASS:
+        mafa_view_page_class(&s_app.view);
+        refresh_class();
+        break;
+    case PAGE_MAIN:
+        mafa_view_page_main(&s_app.view);
+        refresh_main();
+        break;
+    case PAGE_BACKPACK:
+        mafa_view_page_backpack(&s_app.view);
+        refresh_backpack();
+        break;
+    case PAGE_STORE:
+        mafa_view_page_store(&s_app.view);
+        refresh_store();
+        break;
+    case PAGE_MAPS:
+        mafa_view_page_maps(&s_app.view);
+        refresh_maps();
+        break;
+    case PAGE_SETTINGS:
+        mafa_view_page_settings(&s_app.view);
+        refresh_settings();
+        break;
+    }
+}
+
+// --- Input (PRD 10) --------------------------------------------------------------------
+
+static void input_main(bsp_btn_t btn, bool click) {
+    /* Prompt modals capture input first. */
+    if (s_app.boss_pending) {
+        if (!click) return;
+        if (btn == BSP_BTN_UP || btn == BSP_BTN_DOWN)
+            s_app.cur_modal = (s_app.cur_modal + 1) % 2;
+        else if (btn == BSP_BTN_OK) {
+            if (s_app.cur_modal == 0) {
+                mafa_battle_t b;
+                if (mafa_boss_start(&s_app.player, &b)) {
+                    s_app.battle = b;
+                    s_app.in_battle = true;
+                    log_line("【Boss】%s!", b.mob.base->name);
+                }
+                s_app.boss_pending = false;
+                modal_close();
+            } else {
+                mafa_boss_pass(&s_app.player);
+                s_app.boss_pending = false;
+                modal_close();
+            }
+        }
+        if (s_app.boss_pending) boss_modal_refresh();
+        else refresh_main();
+        return;
+    }
+    if (s_app.player.pending_drop != MAFA_DROP_NONE) {
+        if (!click) return;
+        int rows = MAFA_BACKPACK + 1;    /* 8 slots + 丢弃 */
+        if (btn == BSP_BTN_UP)
+            s_app.cur_modal = (s_app.cur_modal + rows - 1) % rows;
+        else if (btn == BSP_BTN_DOWN)
+            s_app.cur_modal = (s_app.cur_modal + 1) % rows;
+        else if (btn == BSP_BTN_OK) {
+            if (s_app.cur_modal < MAFA_BACKPACK)
+                mafa_drop_replace(&s_app.player, (uint8_t)s_app.cur_modal);
+            else
+                mafa_drop_discard(&s_app.player);
+            modal_close();
+            save_now();
+        }
+        if (s_app.player.pending_drop != MAFA_DROP_NONE) drop_modal_refresh();
+        else refresh_main();
+        return;
+    }
+    if (!click) return;
+    if (btn == BSP_BTN_UP)
+        s_app.cur_main = (s_app.cur_main + 4) % 5;
+    else if (btn == BSP_BTN_DOWN)
+        s_app.cur_main = (s_app.cur_main + 1) % 5;
+    else if (btn == BSP_BTN_OK) {
+        switch (s_app.cur_main) {
+        case 0: enter_page(PAGE_BACKPACK); return;
+        case 1: enter_page(PAGE_STORE); return;
+        case 2:
+            s_app.cur_maps = s_app.player.map;
+            enter_page(PAGE_MAPS);
+            return;
+        case 3: enter_page(PAGE_SETTINGS); return;
+        default:
+            s_app.speed = (s_app.speed + 1) % 3;
+            break;
+        }
+    }
+    refresh_main();
+}
+
+static void process_event(const input_event_t *ev) {
+    bool click = ev->event == BSP_BTN_CLICK;
+    bool long_ok = ev->event == BSP_BTN_LONG && ev->btn == BSP_BTN_OK;
+    if (!click && !long_ok) return;
+
+    switch (s_app.page) {
+    case PAGE_MENU: {
+        int rows = s_app.confirm_new ? 2 : (s_app.has_save ? 2 : 1);
+        if (!click) break;
+        if (ev->btn == BSP_BTN_UP || ev->btn == BSP_BTN_DOWN)
+            s_app.cur_menu = (s_app.cur_menu + 1) % rows;
+        else if (ev->btn == BSP_BTN_OK) {
+            if (s_app.confirm_new) {
+                if (s_app.cur_menu == 0) {          /* confirmed overwrite */
+                    s_app.confirm_new = false;
+                    enter_page(PAGE_CLASS);
+                    return;
+                }
+                s_app.confirm_new = false;
+            } else if (s_app.has_save && s_app.cur_menu == 0) {
+                load_save();
+                enter_page(PAGE_MAIN);
+                log_clear("欢迎回来,冒险者!");
+                refresh_main();
+                return;
+            } else if (s_app.has_save) {
+                s_app.confirm_new = true;           /* 新游戏 → overwrite ask */
+            } else {
+                enter_page(PAGE_CLASS);
+                return;
+            }
+        }
+        refresh_menu();
+        break;
+    }
+    case PAGE_CLASS:
+        if (long_ok) { enter_page(PAGE_MENU); break; }
+        if (!click) break;
+        if (ev->btn == BSP_BTN_UP)
+            s_app.cur_class = (s_app.cur_class + MAFA_CLS_COUNT - 1) % MAFA_CLS_COUNT;
+        else if (ev->btn == BSP_BTN_DOWN)
+            s_app.cur_class = (s_app.cur_class + 1) % MAFA_CLS_COUNT;
+        else if (ev->btn == BSP_BTN_OK) {
+            mafa_player_init(&s_app.player, (uint8_t)s_app.cur_class,
+                             esp_random());
+            save_now();
+            enter_page(PAGE_MAIN);
+            log_clear("冒险开始!怪物即将出现");
+            refresh_main();
+            break;
+        }
+        refresh_class();
+        break;
+    case PAGE_MAIN:
+        input_main(ev->btn, click);
+        break;
+    case PAGE_BACKPACK:
+        if (long_ok) { enter_page(PAGE_MAIN); break; }
+        if (!click) break;
+        if (s_app.packsub) {
+            if (ev->btn == BSP_BTN_UP || ev->btn == BSP_BTN_DOWN)
+                s_app.cur_packsub = (s_app.cur_packsub + 1) % 2;
+            else if (ev->btn == BSP_BTN_OK) {
+                if (s_app.cur_packsub == 0)
+                    mafa_equip(&s_app.player, (uint8_t)s_app.cur_pack);
+                else
+                    mafa_sell(&s_app.player, (uint8_t)s_app.cur_pack);
+                s_app.packsub = false;
+                save_now();
+            }
+        } else {
+            if (ev->btn == BSP_BTN_UP)
+                s_app.cur_pack = (s_app.cur_pack + MAFA_BACKPACK - 1) % MAFA_BACKPACK;
+            else if (ev->btn == BSP_BTN_DOWN)
+                s_app.cur_pack = (s_app.cur_pack + 1) % MAFA_BACKPACK;
+            else if (ev->btn == BSP_BTN_OK
+                     && s_app.player.inv_id[s_app.cur_pack] != MAFA_INV_EMPTY) {
+                s_app.packsub = true;
+                s_app.cur_packsub = 0;
+            }
+        }
+        refresh_backpack();
+        break;
+    case PAGE_STORE:
+        if (long_ok) { enter_page(PAGE_MAIN); break; }
+        if (!click) break;
+        if (ev->btn == BSP_BTN_UP)
+            s_app.cur_store = (s_app.cur_store + 1) % 2;
+        else if (ev->btn == BSP_BTN_DOWN)
+            s_app.cur_store = (s_app.cur_store + 1) % 2;
+        else if (ev->btn == BSP_BTN_OK)
+            mafa_buy_potion(&s_app.player, s_app.cur_store == 0);
+        refresh_store();
+        break;
+    case PAGE_MAPS:
+        if (long_ok) { enter_page(PAGE_MAIN); break; }
+        if (!click) break;
+        if (ev->btn == BSP_BTN_UP || ev->btn == BSP_BTN_DOWN) {
+            int max = s_app.player.unlocked;
+            s_app.cur_maps = (s_app.cur_maps + 1) % (max + 1);
+        } else if (ev->btn == BSP_BTN_OK) {
+            mafa_switch_map(&s_app.player, (uint8_t)s_app.cur_maps);
+            save_now();
+            enter_page(PAGE_MAIN);
+            log_clear("【%s】开始挂机",
+                      MAFA_MAP_NAMES[s_app.player.map]);
+            refresh_main();
+            break;
+        }
+        refresh_maps();
+        break;
+    case PAGE_SETTINGS:
+        if (long_ok) { enter_page(PAGE_MAIN); break; }
+        if (!click) break;
+        if (ev->btn == BSP_BTN_UP)
+            s_app.cur_set = (s_app.cur_set + 1) % 2;
+        else if (ev->btn == BSP_BTN_DOWN)
+            s_app.cur_set = (s_app.cur_set + 1) % 2;
+        else if (ev->btn == BSP_BTN_OK) {
+            if (s_app.cur_set == 0) s_app.player.auto_potion = !s_app.player.auto_potion;
+            else s_app.player.auto_sell_white = !s_app.player.auto_sell_white;
+            save_now();
+        }
+        refresh_settings();
+        break;
+    }
+}
+
+// Input task: paces the idle battle via queue timeout; button events arrive
+// from the shared esp_timer task and are only enqueued (PRD 9.3 pattern).
+static void input_task(void *arg) {
+    (void)arg;
+    input_event_t ev;
+    for (;;) {
+        bool idle_page = s_app.page == PAGE_MAIN && !s_app.boss_pending
+                         && s_app.player.pending_drop == MAFA_DROP_NONE;
+        TickType_t wait = idle_page ? pdMS_TO_TICKS(PACE_MS[s_app.speed])
+                                    : portMAX_DELAY;
+        if (xQueueReceive(s_app.queue, &ev, wait) == pdTRUE) {
+            if (!bsp_lvgl_lock(500)) continue;
+            process_event(&ev);
+            bsp_lvgl_unlock();
+        } else {
+            if (!bsp_lvgl_lock(500)) continue;
+            tick_battle();
+            refresh_main();
+            bsp_lvgl_unlock();
+        }
+    }
+}
+
+static void on_key(bsp_btn_t btn, bsp_btn_ev_t event, void *user) {
+    (void)user;
+    if (!s_app.ready || !s_app.queue) return;
+    const input_event_t input = {.btn = btn, .event = event};
+    (void)xQueueSend(s_app.queue, &input, 0);
+}
+
+// --- Boot --------------------------------------------------------------------------------
+
+void mafa_app_boot(void) {
+    memset(&s_app, 0, sizeof s_app);
+    s_app.battery = -1;
+    s_app.battery_ok = bsp_battery_init() == ESP_OK;
+    if (!s_app.battery_ok)
+        ESP_LOGW(TAG, "battery gauge unavailable; slot stays blank");
+
+    esp_err_t e = nvs_flash_init();
+    if (e == ESP_ERR_NVS_NO_FREE_PAGES || e == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        e = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(e);
+
+    s_app.queue = xQueueCreate(INPUT_QUEUE_DEPTH, sizeof(input_event_t));
+    if (!s_app.queue) {
+        ESP_LOGE(TAG, "input queue alloc failed");
+        return;
+    }
+    if (xTaskCreate(input_task, "mafa_input", 4096, NULL, 5, &s_app.task)
+        != pdPASS) {
+        vQueueDelete(s_app.queue);
+        s_app.queue = NULL;
+        ESP_LOGE(TAG, "input task create failed");
+        return;
+    }
+    if (bsp_button_init(on_key, NULL) != ESP_OK) {
+        ESP_LOGE(TAG, "button init failed");
+    }
+
+    if (bsp_lvgl_lock(1000)) {
+        s_app.has_save = load_save();
+        if (!s_app.has_save)
+            mafa_player_init(&s_app.player, MAFA_CLS_WARRIOR, esp_random());
+        enter_page(PAGE_MENU);
+        bsp_lvgl_unlock();
+        s_app.ready = true;
+    } else {
+        ESP_LOGE(TAG, "LVGL lock timeout; UI not built");
+    }
+    ESP_LOGI(TAG, "MAFA CHRONICLE ready battery=%d save=%d",
+             s_app.battery, s_app.has_save);
+}
