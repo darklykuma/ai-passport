@@ -4,10 +4,10 @@
 
 # MAFA CHRONICLE PRD
 
-> Document status: **Draft v0.5, awaiting review**
+> Document status: **Draft v0.6, awaiting review**
 > Product carrier: FoloToy AI Passport / ESP32-C3 / 240 × 320 LCD / three ADC buttons (UP/DOWN/OK)
 > Target branch: `feature/mafa-chronicle` (to be created)
-> PRD version: v0.5
+> PRD version: v0.6
 > Updated: 2026-09-28
 
 ---
@@ -146,7 +146,7 @@ Boot ─▶ [Continue / New game] (new game → pick class)
      │        ├─ Gear (equipped three slots + stat summary)                │
      │        ├─ Store (buy red / buy blue)                                │
      │        ├─ Map (unlocked list; switching moves the idle spot)        │
-     │        ├─ Settings (auto-potion / auto-sell-white toggles)          │
+     │        ├─ Settings (auto-potion / auto-sell-white / auto-boss)       │
      │        └─ Speed (1x / 2x / 4x)                                      │
      └─ Boss event prompt (fight / pass) ◀── kill-count trigger ───────────┘
 ```
@@ -263,7 +263,7 @@ HP ≤ 0: log "You were killed by Chicken…" → full restoration, idling conti
 ### 8.10 Save
 
 - NVS, namespace `mafa`, binary struct + magic + version + CRC8; incompatible data is treated as corrupt and only a new game may proceed.
-- Contents: class / level / XP / gold / potion counts / backpack (8 × {item id, count}) / 3 equipped items / unlocked area.
+- Contents: class / level / XP / gold / potion counts / backpack (8 × {item id, count}) / 3 equipped items / unlocked area / settings toggles (auto-potion, auto-sell-white, auto-boss).
 - **Autosave points**: after every battle settlement, after store purchases, after equip/unequip. No manual save.
 - Overwriting an existing save with a new game requires confirmation.
 
@@ -325,7 +325,7 @@ Global: UP/DOWN move the cursor, OK confirms, long-press returns to the main scr
 | Backpack | move | select (equip/sell submenu, with comparison) | back to main screen |
 | Store | move | buy | back to main screen |
 | Map list | move | go to that map | back to main screen |
-| Settings | move | toggle (auto-potion / auto-sell-white) | back to main screen |
+| Settings | move | toggle (auto-potion / auto-sell-white / auto-boss) | back to main screen |
 | Boss event prompt | move | fight / pass | — |
 | Backpack-full drop prompt | move | replace / discard | pass the drop |
 
@@ -369,5 +369,6 @@ Global: UP/DOWN move the cursor, OK confirms, long-press returns to the main scr
 - v0.1 (2026-09-28): initial draft. Positioning and loop established from the FOG MARCH on-device playtest feedback (2026-09-28): the player prefers a monster-slaying, loot-grinding progression loop.
 - v0.2 (2026-09-28): aligned to the text-legend genre and the reference product (TapTap "Text Legend" / Wenzi Chuanqi, app 842887) including its player reviews: combat changed from manual turn-based to an **auto-idle log stream**; added boss kill events, auto-potion/auto-sell-white, equipment comparison on equip, sell pricing; removed the town screen and the 5-floor area structure; MMO theater moved to P1.
 - v0.3 (2026-09-28): skills expanded from 1 to 3 per class (L3/L7/L12), with burn/poison DoT effects and per-class auto-cast priorities; added sell-price details; copy budget raised to 600 characters.
+- v0.6 (2026-09-28): on-device feedback added an "auto-boss" settings toggle (boss events are fought automatically instead of prompting); save contents and the settings page updated.
 - v0.5 (2026-09-28): on-device feedback added a gear-overview page (action menu item 2: the three equipped slots plus a stat summary); the action menu grew to six entries.
 - v0.4 (2026-09-28): M2 balance calibration finalized. Taoist rebalanced as a sustain fighter (HP 60+6, attack 12+1; Soul Fire Talisman L3 2.4×/MP14, Heal L7, Poison L12); added boss-fight rules (50% defense pierce, ±20% monster damage roll, fixed-value potions); boss stats finalized (Ape 300/16, Corpse King 400/26, Overlord 1200/22); success metric redefined as "per map at least one class win rate within 20–85%, none locked at 0%".

@@ -171,6 +171,7 @@ static void test_save_roundtrip(void) {
     p.map = 1;
     p.kills = 17;
     p.auto_potion = false;
+    p.auto_boss = true;
     assert(mafa_inv_add(&p, 11));
     assert(mafa_inv_add(&p, 3));
     assert(mafa_equip(&p, 1));          /* wears 骷髅甲 */
@@ -189,6 +190,7 @@ static void test_save_roundtrip(void) {
     assert(q.gold == p.gold && q.pot_red == 3 && q.pot_blue == 4);
     assert(q.unlocked == 1 && q.map == 1 && q.kills == 17);
     assert(q.auto_potion == false && q.auto_sell_white == true);
+    assert(q.auto_boss == true);
     assert(q.equipped[MAFA_SLOT_ARMOR] == 3);
     assert(q.hp == 111 && q.mp == 22);
     assert(q.rng > 0);                  /* the live stream is kept, not saved */

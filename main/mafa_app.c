@@ -358,6 +358,21 @@ static void refresh_main(void) {
 static void tick_battle(void) {
     if (s_app.boss_pending || s_app.player.pending_drop != MAFA_DROP_NONE)
         return;                          /* prompts pause the world (7) */
+    if (!s_app.in_battle && mafa_boss_ready(&s_app.player)) {
+        if (s_app.player.auto_boss) {    /* auto-answer boss events (10) */
+            mafa_battle_t b;
+            if (mafa_boss_start(&s_app.player, &b)) {
+                s_app.battle = b;
+                s_app.in_battle = true;
+                log_line("#F0C04A 【Boss】%s!#", b.mob.base->name);
+            }
+        } else {
+            s_app.boss_pending = true;
+            s_app.cur_modal = 0;
+            log_line("#F0C04A 【Boss】%s 出现了!#",
+                     MAFA_MONSTERS[s_app.player.map * 6 + 5].name);
+        }
+    }
     if (!s_app.in_battle) {
         if (!mafa_battle_start(&s_app.player, &s_app.battle)) return;
         s_app.in_battle = true;
@@ -373,7 +388,8 @@ static void tick_battle(void) {
     if (s_app.battle.over) {
         s_app.in_battle = false;
         if (!s_app.battle.player_dead) mafa_regen(&s_app.player, 3);
-        if (!s_app.battle.is_boss && mafa_boss_ready(&s_app.player)) {
+        if (!s_app.battle.is_boss && !s_app.player.auto_boss
+            && mafa_boss_ready(&s_app.player)) {
             s_app.boss_pending = true;
             s_app.cur_modal = 0;
             log_line("#F0C04A 【Boss】%s 出现了!#",
@@ -513,12 +529,15 @@ static void refresh_maps(void) {
 }
 
 static void refresh_settings(void) {
-    char buf[96];
-    snprintf(buf, sizeof buf, "%s自动喝药:%s\n%s自动卖白:%s",
+    char buf[128];
+    snprintf(buf, sizeof buf,
+             "%s自动喝药:%s\n%s自动卖白:%s\n%s自动Boss:%s",
              s_app.cur_set == 0 ? ">" : " ",
              s_app.player.auto_potion ? "开" : "关",
              s_app.cur_set == 1 ? ">" : " ",
-             s_app.player.auto_sell_white ? "开" : "关");
+             s_app.player.auto_sell_white ? "开" : "关",
+             s_app.cur_set == 2 ? ">" : " ",
+             s_app.player.auto_boss ? "开" : "关");
     lv_label_set_text(s_app.view.items_label, buf);
 }
 
@@ -764,12 +783,13 @@ static void process_event(const input_event_t *ev) {
         if (long_ok) { enter_page(PAGE_MAIN); break; }
         if (!click) break;
         if (ev->btn == BSP_BTN_UP)
-            s_app.cur_set = (s_app.cur_set + 1) % 2;
+            s_app.cur_set = (s_app.cur_set + 2) % 3;
         else if (ev->btn == BSP_BTN_DOWN)
-            s_app.cur_set = (s_app.cur_set + 1) % 2;
+            s_app.cur_set = (s_app.cur_set + 1) % 3;
         else if (ev->btn == BSP_BTN_OK) {
             if (s_app.cur_set == 0) s_app.player.auto_potion = !s_app.player.auto_potion;
-            else s_app.player.auto_sell_white = !s_app.player.auto_sell_white;
+            else if (s_app.cur_set == 1) s_app.player.auto_sell_white = !s_app.player.auto_sell_white;
+            else s_app.player.auto_boss = !s_app.player.auto_boss;
             save_now();
         }
         refresh_settings();

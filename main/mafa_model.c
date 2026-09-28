@@ -717,7 +717,8 @@ size_t mafa_save_serialize(const mafa_player_t *p, uint8_t *buf, size_t cap) {
     *w++ = p->kills & 0xFF; *w++ = p->kills >> 8;
     *w++ = (uint8_t)(p->map | (p->unlocked << 2)
                      | (p->auto_potion ? 0x10 : 0)
-                     | (p->auto_sell_white ? 0x20 : 0));
+                     | (p->auto_sell_white ? 0x20 : 0)
+                     | (p->auto_boss ? 0x40 : 0));
     *w++ = p->pending_drop;
     for (int i = 0; i < MAFA_EQ_SLOTS; ++i) *w++ = p->equipped[i];
     for (int i = 0; i < MAFA_BACKPACK; ++i) { *w++ = p->inv_id[i]; *w++ = p->inv_n[i]; }
@@ -753,6 +754,7 @@ bool mafa_save_deserialize(mafa_player_t *p, const uint8_t *buf, size_t len) {
     if (t.map >= MAFA_MAP_COUNT || t.unlocked >= MAFA_MAP_COUNT) return false;
     t.auto_potion = (flags & 0x10) != 0;
     t.auto_sell_white = (flags & 0x20) != 0;
+    t.auto_boss = (flags & 0x40) != 0;
     t.pending_drop = *r++;
     if (t.pending_drop != MAFA_DROP_NONE
         && t.pending_drop >= MAFA_ITEM_COUNT) return false;

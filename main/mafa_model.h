@@ -118,6 +118,8 @@ typedef struct {
     uint8_t pending_drop;   /* item id awaiting the full-backpack prompt */
     bool auto_potion;       /* settings toggle, default on */
     bool auto_sell_white;   /* settings toggle, default on */
+    bool auto_boss;         /* settings toggle: answer boss events without
+                               the prompt (PRD 10 settings) */
     uint32_t rng;           /* splitmix32 state */
 } mafa_player_t;
 
