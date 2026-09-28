@@ -24,6 +24,7 @@ typedef struct {
 lv_obj_t *mafa_view_page_menu(mafa_view_t *v);
 lv_obj_t *mafa_view_page_class(mafa_view_t *v);
 lv_obj_t *mafa_view_page_main(mafa_view_t *v);
+lv_obj_t *mafa_view_page_status(mafa_view_t *v);
 lv_obj_t *mafa_view_page_backpack(mafa_view_t *v);
 lv_obj_t *mafa_view_page_store(mafa_view_t *v);
 lv_obj_t *mafa_view_page_maps(mafa_view_t *v);

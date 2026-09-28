@@ -64,9 +64,21 @@ lv_obj_t *mafa_view_page_main(mafa_view_t *v) {
     v->status_label = new_label(v->screen, 8, 4, false);
     v->log_label = new_label(v->screen, 8, 44, false);
     lv_label_set_recolor(v->log_label, true);
-    lv_obj_set_style_text_line_space(v->log_label, 8, 0);
-    v->menu_label = new_label(v->screen, 8, 218, false);
+    lv_obj_set_style_text_line_space(v->log_label, 6, 0);
+    v->menu_label = new_label(v->screen, 8, 210, false);
     lv_obj_set_style_text_line_space(v->menu_label, 2, 0);
+    return v->screen;
+}
+
+lv_obj_t *mafa_view_page_status(mafa_view_t *v) {
+    memset(v, 0, sizeof *v);
+    v->screen = base_screen();
+    v->title_label = new_label(v->screen, 64, 6, true);
+    lv_label_set_text(v->title_label, "装备");
+    v->items_label = new_label(v->screen, 16, 40, false);
+    list_style(v->items_label);
+    v->detail_label = new_label(v->screen, 16, 180, false);
+    lv_obj_set_style_text_color(v->detail_label, MAFA_TEXT_DIM, 0);
     return v->screen;
 }
 

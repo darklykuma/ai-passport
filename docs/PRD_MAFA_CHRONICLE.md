@@ -4,10 +4,10 @@
 
 # MAFA CHRONICLE PRD
 
-> Document status: **Draft v0.4, awaiting review**
+> Document status: **Draft v0.5, awaiting review**
 > Product carrier: FoloToy AI Passport / ESP32-C3 / 240 × 320 LCD / three ADC buttons (UP/DOWN/OK)
 > Target branch: `feature/mafa-chronicle` (to be created)
-> PRD version: v0.4
+> PRD version: v0.5
 > Updated: 2026-09-28
 
 ---
@@ -141,8 +141,9 @@ Boot ─▶ [Continue / New game] (new game → pick class)
               │
               ▼
      ┌── Main screen: idle on map (status bar + combat log + action menu) ──┐
-     │   action menu: Backpack / Store / Map / Settings / Speed            │
+     │   action menu: Backpack / Gear / Store / Map / Settings / Speed      │
      │        ├─ Backpack (equip / sell / sell-all-whites)                 │
+     │        ├─ Gear (equipped three slots + stat summary)                │
      │        ├─ Store (buy red / buy blue)                                │
      │        ├─ Map (unlocked list; switching moves the idle spot)        │
      │        ├─ Settings (auto-potion / auto-sell-white toggles)          │
@@ -318,7 +319,8 @@ Global: UP/DOWN move the cursor, OK confirms, long-press returns to the main scr
 | --- | --- | --- | --- |
 | Main menu (continue/new) | move cursor | confirm | — |
 | Pick class | move | confirm | back to menu |
-| Main screen (idling) | move action-menu cursor | open Backpack/Store/Map/Settings/Speed | — |
+| Main screen (idling) | move action-menu cursor | open Backpack/Gear/Store/Map/Settings/Speed | — |
+| Gear overview | move cursor | back to main screen | — |
 | Main screen — speed | — | cycles 1x → 2x → 4x | — |
 | Backpack | move | select (equip/sell submenu, with comparison) | back to main screen |
 | Store | move | buy | back to main screen |
@@ -367,4 +369,5 @@ Global: UP/DOWN move the cursor, OK confirms, long-press returns to the main scr
 - v0.1 (2026-09-28): initial draft. Positioning and loop established from the FOG MARCH on-device playtest feedback (2026-09-28): the player prefers a monster-slaying, loot-grinding progression loop.
 - v0.2 (2026-09-28): aligned to the text-legend genre and the reference product (TapTap "Text Legend" / Wenzi Chuanqi, app 842887) including its player reviews: combat changed from manual turn-based to an **auto-idle log stream**; added boss kill events, auto-potion/auto-sell-white, equipment comparison on equip, sell pricing; removed the town screen and the 5-floor area structure; MMO theater moved to P1.
 - v0.3 (2026-09-28): skills expanded from 1 to 3 per class (L3/L7/L12), with burn/poison DoT effects and per-class auto-cast priorities; added sell-price details; copy budget raised to 600 characters.
+- v0.5 (2026-09-28): on-device feedback added a gear-overview page (action menu item 2: the three equipped slots plus a stat summary); the action menu grew to six entries.
 - v0.4 (2026-09-28): M2 balance calibration finalized. Taoist rebalanced as a sustain fighter (HP 60+6, attack 12+1; Soul Fire Talisman L3 2.4×/MP14, Heal L7, Poison L12); added boss-fight rules (50% defense pierce, ±20% monster damage roll, fixed-value potions); boss stats finalized (Ape 300/16, Corpse King 400/26, Overlord 1200/22); success metric redefined as "per map at least one class win rate within 20–85%, none locked at 0%".

@@ -35,6 +35,7 @@ typedef enum {
     PAGE_MENU = 0,
     PAGE_CLASS,
     PAGE_MAIN,
+    PAGE_STATUS,
     PAGE_BACKPACK,
     PAGE_STORE,
     PAGE_MAPS,
@@ -53,7 +54,7 @@ static const char *Q_COLOR[MAFA_Q_COUNT] = {
 
 static const uint32_t PACE_MS[3] = {1500, 750, 375};   /* 1x/2x/4x (8.3) */
 static const char *SPEED_NAME[3] = {"1x", "2x", "4x"};
-static const char *MAIN_MENU[5] = {"背包", "商店", "地图", "设置", "加速"};
+static const char *MAIN_MENU[6] = {"背包", "装备", "商店", "地图", "设置", "加速"};
 
 static struct {
     mafa_player_t player;
@@ -64,7 +65,8 @@ static struct {
     int cur_menu;           // menu page cursor
     bool confirm_new;       // menu: overwrite-save confirmation shown
     int cur_class;
-    int cur_main;           // action menu cursor (0..4)
+    int cur_main;           // action menu cursor (0..5)
+    int cur_status;
     int cur_pack;
     bool packsub;           // backpack action submenu open
     int cur_packsub;        // 0 equip, 1 sell
@@ -203,16 +205,16 @@ static void compose_log(char *buf, size_t cap) {
 
 static void compose_main_menu(char *buf, size_t cap) {
     buf[0] = '\0';
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 6; ++i) {
         char row[32];
-        if (i == 4)
+        if (i == 5)
             snprintf(row, sizeof row, "%s加速(%s)",
                      s_app.cur_main == i ? ">" : "  ", SPEED_NAME[s_app.speed]);
         else
             snprintf(row, sizeof row, "%s%s",
                      s_app.cur_main == i ? ">" : "  ", MAIN_MENU[i]);
         strncat(buf, row, cap - strlen(buf) - 1);
-        if (i < 4) strncat(buf, "\n", cap - strlen(buf) - 1);
+        if (i < 5) strncat(buf, "\n", cap - strlen(buf) - 1);
     }
 }
 
@@ -417,6 +419,35 @@ static void refresh_class(void) {
     lv_label_set_text(s_app.view.detail_label, BLURB[s_app.cur_class]);
 }
 
+static void refresh_status(void) {
+    static const char *SLOT_NAME[MAFA_EQ_SLOTS] = {"武器", "衣服", "首饰"};
+    char buf[224];
+    int n = 0;
+    for (int i = 0; i < MAFA_EQ_SLOTS; ++i) {
+        uint8_t id = s_app.player.equipped[i];
+        const char *mark = s_app.cur_status == i ? ">" : " ";
+        if (id == MAFA_INV_EMPTY) {
+            n += snprintf(buf + n, sizeof buf - n, "%s%s:空\n", mark, SLOT_NAME[i]);
+            continue;
+        }
+        const mafa_item_t *it = &MAFA_ITEMS[id];
+        if (it->slot == MAFA_SLOT_WEAPON)
+            n += snprintf(buf + n, sizeof buf - n, "%s%s:%s 攻%+d\n", mark,
+                          SLOT_NAME[i], it->name, it->atk);
+        else if (it->slot == MAFA_SLOT_ARMOR)
+            n += snprintf(buf + n, sizeof buf - n, "%s%s:%s 防%+d 血%+d\n",
+                          mark, SLOT_NAME[i], it->name, it->def, it->hp);
+        else
+            n += snprintf(buf + n, sizeof buf - n, "%s%s:%s 攻%+d 防%+d\n",
+                          mark, SLOT_NAME[i], it->name, it->atk, it->def);
+    }
+    mafa_stats_t st;
+    mafa_stats(&s_app.player, &st);
+    snprintf(buf + n, sizeof buf - n, "攻%d 防%d 血%d/%ld 蓝%ld",
+             st.atk, st.def, s_app.player.hp, (long)st.max_hp, (long)st.max_mp);
+    lv_label_set_text(s_app.view.items_label, buf);
+}
+
 static void refresh_backpack(void) {
     char buf[256];
     buf[0] = '\0';
@@ -509,6 +540,10 @@ static void enter_page(page_t page) {
     case PAGE_MAIN:
         mafa_view_page_main(&s_app.view);
         break;
+    case PAGE_STATUS:
+        mafa_view_page_status(&s_app.view);
+        refresh_status();
+        break;
     case PAGE_BACKPACK:
         mafa_view_page_backpack(&s_app.view);
         break;
@@ -584,18 +619,19 @@ static void input_main(bsp_btn_t btn, bool click) {
     }
     if (!click) return;
     if (btn == BSP_BTN_UP)
-        s_app.cur_main = (s_app.cur_main + 4) % 5;
+        s_app.cur_main = (s_app.cur_main + 5) % 6;
     else if (btn == BSP_BTN_DOWN)
         s_app.cur_main = (s_app.cur_main + 1) % 5;
     else if (btn == BSP_BTN_OK) {
         switch (s_app.cur_main) {
         case 0: enter_page(PAGE_BACKPACK); return;
-        case 1: enter_page(PAGE_STORE); return;
-        case 2:
+        case 1: enter_page(PAGE_STATUS); return;
+        case 2: enter_page(PAGE_STORE); return;
+        case 3:
             s_app.cur_maps = s_app.player.map;
             enter_page(PAGE_MAPS);
             return;
-        case 3: enter_page(PAGE_SETTINGS); return;
+        case 4: enter_page(PAGE_SETTINGS); return;
         default:
             s_app.speed = (s_app.speed + 1) % 3;
             break;
@@ -659,6 +695,15 @@ static void process_event(const input_event_t *ev) {
         break;
     case PAGE_MAIN:
         input_main(ev->btn, click);
+        break;
+    case PAGE_STATUS:
+        if (long_ok || (click && ev->btn == BSP_BTN_OK)) {
+            enter_page(PAGE_MAIN);
+            break;
+        }
+        if (ev->btn == BSP_BTN_UP || ev->btn == BSP_BTN_DOWN)
+            s_app.cur_status = (s_app.cur_status + 1) % MAFA_EQ_SLOTS;
+        refresh_status();
         break;
     case PAGE_BACKPACK:
         if (long_ok) { enter_page(PAGE_MAIN); break; }
