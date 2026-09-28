@@ -426,13 +426,18 @@ void fog_view_refresh(fog_view_t *v, const fog_render_t *r) {
                 }
             }
 
-            // Strength bar follows the visible-unit state.
+            // Strength bar follows the visible-unit state. Bars are freed as
+            // soon as their cell empties: set_bar() recreates them on demand,
+            // so the pool no longer grows with every cell a unit ever visits.
             if (want_opa == LV_OPA_COVER) {
                 set_bar(v, x, y, u);
             } else if (v->bar_shown[y][x]) {
                 v->bar_shown[y][x] = false;
-                if (v->bar_slot[y][x])
-                    lv_obj_add_flag(v->bar_slot[y][x], LV_OBJ_FLAG_HIDDEN);
+                if (v->bar_slot[y][x]) {
+                    lv_obj_delete(v->bar_slot[y][x]);   // fill is its child
+                    v->bar_slot[y][x] = NULL;
+                    v->bar_fill[y][x] = NULL;
+                }
             }
         }
 
