@@ -4,10 +4,10 @@
 
 # MAFA CHRONICLE PRD
 
-> Document status: **Draft v0.3, awaiting review**
+> Document status: **Draft v0.4, awaiting review**
 > Product carrier: FoloToy AI Passport / ESP32-C3 / 240 × 320 LCD / three ADC buttons (UP/DOWN/OK)
 > Target branch: `feature/mafa-chronicle` (to be created)
-> PRD version: v0.3
+> PRD version: v0.4
 > Updated: 2026-09-28
 
 ---
@@ -91,7 +91,10 @@ All interaction = UP / DOWN / OK (click) + OK long-press (back). Every screen mu
 ### 4.2 Success metrics
 
 - On-device DoD fully green (chapter 13).
-- Host simulator: per class and map, **time between deaths ≥ 3 minutes** (at suggested level), **kill interval 5–15 s per monster**, boss-event win rate 50%–80% (winnable but potions matter).
+- Host simulator (per map, at the suggested level with the map's T1 gear and 8 red / 4 blue potions):
+  - kill interval 1.5–10 s per monster;
+  - idle death interval ≥ 3 min;
+  - boss win rate: at least one class per map within 20–85% (a viable reference path) and no class locked out at 0%; a second class trivially beating the boss is normal idle-game scaling.
 
 ### 4.3 P0 non-goals
 
@@ -157,7 +160,7 @@ Three classes, chosen at game start, immutable. Stats: HP / MP / attack / defens
 | --- | --- | --- |
 | Warrior | High HP/defense, steady damage | solid normal hits, skills woven in on fixed cooldowns |
 | Mage | Highest attack, fragile | high burst at high MP cost; fast clears, expensive in potions |
-| Taoist | Sustain, long fights | poison + heal self-loop; survives the deepest maps, slowest kills |
+| Taoist | Balanced sustain fighter | talisman damage + heal/poison sustain; survives the deepest maps |
 
 ### 8.2 Stats and growth
 
@@ -169,7 +172,7 @@ Three classes, chosen at game start, immutable. Stats: HP / MP / attack / defens
 | --- | --- | --- | --- | --- |
 | Warrior | 60 +8 | — | 10 +2 | 5 +1 |
 | Mage | 40 +5 | 30 +5 | 14 +2 | 3 +1 (every 2 levels) |
-| Taoist | 50 +6 | 25 +4 | 11 +1 | 4 +1 |
+| Taoist | 60 +6 | 25 +4 | 12 +1 | 4 +1 |
 
 - MP regeneration: +2 at the end of each battle round; outside combat, HP/MP regenerate slowly per 8.8.
 
@@ -198,9 +201,9 @@ Three classes, chosen at game start, immutable. Stats: HP / MP / attack / defens
 | Mage | Thunder | L3 | 2.2 × attack, ignores defense | MP 10 |
 | Mage | Firewall | L7 | applies burn: 3 rounds of 0.8 × attack per round | MP 16 |
 | Mage | Frost Howl | L12 | 3.0 × attack, ignores defense | MP 28 |
-| Taoist | Heal | L3 | restore 30% max HP | MP 8 |
-| Taoist | Poison | L7 | poisoned: 5 rounds of −4 HP and monster defense −30% | MP 12 |
-| Taoist | Soul Fire Talisman | L12 | 2.0 × attack | MP 18 |
+| Taoist | Soul Fire Talisman | L3 | 2.4 × attack | MP 14 |
+| Taoist | Heal | L7 | restore 30% max HP | MP 12 |
+| Taoist | Poison | L12 | poisoned: 5 rounds of −4 HP and monster defense −30% | MP 12 |
 
 **Auto-cast policy** (each round takes the first available by priority):
 
@@ -209,6 +212,11 @@ Three classes, chosen at game start, immutable. Stats: HP / MP / attack / defens
 - Taoist: Heal at HP < 60% > Poison if the monster is not poisoned > Soul Fire Talisman at MP ≥ 60%.
 
 Burn/poison and similar effects attach to a per-monster effect list, resolved each round (covered by model-layer host tests).
+
+**Boss-fight rules** (balance-simulator calibration, PRD 4.2):
+- Bosses pierce 50% of player defense — keeping high-defense warriors and glass-cannon mages in the same danger band;
+- Monster damage rolls within ±20% of the nominal value, so outcomes spread smoothly instead of tipping at a budget cliff;
+- Potions restore fixed amounts: red +30 HP, blue +15 MP (no percentage heals).
 
 ### 8.5 Items and equipment
 
@@ -273,21 +281,21 @@ See 8.2. Level cap in P0 = 15 (graduation of area 3).
 | Scarecrow | 1 | 2 | 28 | 7 | 1 | 10 | Fire (1.5× attack) |
 | Hook-cat | 1 | 3 | 35 | 8 | 2 | 12 | Flurry (2 hits of 0.7× attack) |
 | Forest yeti | 1 | 4 | 45 | 9 | 3 | 15 | Heavy blow (1.6× attack) |
-| Forest Ape (boss) | 1 | 5 | 120 | 12 | 4 | 60 | Roar (1.5× attack) |
+| Forest Ape (boss) | 1 | 5 | 300 | 16 | 4 | 90 | Roar (1.5× attack) |
 | Skeleton | 2 | 5 | 40 | 10 | 3 | 15 | — |
 | Mine rat | 2 | 6 | 35 | 12 | 2 | 16 | Flurry |
 | Skeleton warrior | 2 | 7 | 60 | 13 | 5 | 20 | Heavy blow |
 | Axe skeleton | 2 | 8 | 55 | 15 | 4 | 24 | Fire |
 | Cave scorpion | 2 | 9 | 70 | 16 | 6 | 28 | Sting (1.2× attack, then −3 HP for 2 rounds) |
-| Corpse King (boss) | 2 | 10 | 220 | 18 | 7 | 120 | Rot (1.5× attack) |
+| Corpse King (boss) | 2 | 10 | 400 | 26 | 7 | 180 | Rot (1.5× attack) |
 | Zuma guard | 3 | 10 | 80 | 18 | 7 | 30 | Heavy blow |
 | Giant rat | 3 | 11 | 70 | 20 | 5 | 32 | Flurry |
 | Black maggot | 3 | 12 | 95 | 21 | 8 | 38 | Sting |
 | Contract moth | 3 | 13 | 90 | 24 | 6 | 44 | Fire |
 | Zuma statue | 3 | 14 | 130 | 26 | 10 | 52 | Heavy blow |
-| Zuma Overlord (boss) | 3 | 15 | 400 | 30 | 12 | 250 | Hellfire (2.0× attack) |
+| Zuma Overlord (boss) | 3 | 15 | 1200 | 22 | 12 | 380 | Hellfire (2.0× attack) |
 
-Elite monsters = same-table monster ×1.5 HP ×1.2 attack, XP ×1.5.
+Elite monsters = same-table monster ×1.5 HP ×1.2 attack, XP ×1.5. Boss numbers are calibrated by the balance simulator (PRD 4.2): a player at the suggested level with the map's T1 gear and 8 red / 4 blue potions should find at least one class whose win rate lands in 20–85%, and no class locked out entirely (0% or 100% is acceptable but must be present).
 
 ### 9.3 Drops and equipment tables
 
@@ -359,3 +367,4 @@ Global: UP/DOWN move the cursor, OK confirms, long-press returns to the main scr
 - v0.1 (2026-09-28): initial draft. Positioning and loop established from the FOG MARCH on-device playtest feedback (2026-09-28): the player prefers a monster-slaying, loot-grinding progression loop.
 - v0.2 (2026-09-28): aligned to the text-legend genre and the reference product (TapTap "Text Legend" / Wenzi Chuanqi, app 842887) including its player reviews: combat changed from manual turn-based to an **auto-idle log stream**; added boss kill events, auto-potion/auto-sell-white, equipment comparison on equip, sell pricing; removed the town screen and the 5-floor area structure; MMO theater moved to P1.
 - v0.3 (2026-09-28): skills expanded from 1 to 3 per class (L3/L7/L12), with burn/poison DoT effects and per-class auto-cast priorities; added sell-price details; copy budget raised to 600 characters.
+- v0.4 (2026-09-28): M2 balance calibration finalized. Taoist rebalanced as a sustain fighter (HP 60+6, attack 12+1; Soul Fire Talisman L3 2.4×/MP14, Heal L7, Poison L12); added boss-fight rules (50% defense pierce, ±20% monster damage roll, fixed-value potions); boss stats finalized (Ape 300/16, Corpse King 400/26, Overlord 1200/22); success metric redefined as "per map at least one class win rate within 20–85%, none locked at 0%".

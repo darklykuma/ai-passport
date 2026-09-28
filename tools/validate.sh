@@ -51,6 +51,12 @@ run_static_checks() {
         tests/test_fog_ai.c -o "${test_dir}/test_fog_ai"
     "${test_dir}/test_fog_ai"
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
+        tests/test_mafa_model.c -o "${test_dir}/test_mafa_model"
+    "${test_dir}/test_mafa_model"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
+        tests/mafa_balance_sim.c -o "${test_dir}/mafa_balance_sim"
+    "${test_dir}/mafa_balance_sim"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
         -Itests/bsp_stubs -Icomponents/bsp/include \
         tests/test_bsp_lvgl_init.c components/bsp/src/bsp_display_rounding.c \
         -o "${test_dir}/test_bsp_lvgl_init"
