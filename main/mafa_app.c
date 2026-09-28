@@ -94,7 +94,6 @@ static struct {
 } s_app;
 
 static void enter_page(page_t page);
-static void refresh_page(void);
 static void tick_battle(void);
 static bool save_now(void);
 
@@ -561,7 +560,6 @@ static void enter_page(page_t page) {
         break;
     case PAGE_STATUS:
         mafa_view_page_status(&s_app.view);
-        refresh_status();
         break;
     case PAGE_BACKPACK:
         mafa_view_page_backpack(&s_app.view);
@@ -586,6 +584,7 @@ static void enter_page(page_t page) {
     case PAGE_STORE: refresh_store(); break;
     case PAGE_MAPS: refresh_maps(); break;
     case PAGE_SETTINGS: refresh_settings(); break;
+    case PAGE_STATUS: refresh_status(); break;
     }
 }
 
