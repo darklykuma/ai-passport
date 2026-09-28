@@ -492,41 +492,46 @@ static void refresh_settings(void) {
 }
 
 static void enter_page(page_t page) {
+    lv_obj_t *prev = s_app.view.screen;   /* deleted after the new screen is
+                                             loaded (fog load_screen order) */
     s_app.page = page;
     memset(s_app.prev_status, 0, sizeof s_app.prev_status);
     memset(s_app.prev_log, 0, sizeof s_app.prev_log);
     memset(s_app.prev_menu, 0, sizeof s_app.prev_menu);
     memset(s_app.prev_modal, 0, sizeof s_app.prev_modal);
-    if (s_app.view.screen) lv_obj_delete(s_app.view.screen);
     switch (page) {
     case PAGE_MENU:
         mafa_view_page_menu(&s_app.view);
-        refresh_menu();
         break;
     case PAGE_CLASS:
         mafa_view_page_class(&s_app.view);
-        refresh_class();
         break;
     case PAGE_MAIN:
         mafa_view_page_main(&s_app.view);
-        refresh_main();
         break;
     case PAGE_BACKPACK:
         mafa_view_page_backpack(&s_app.view);
-        refresh_backpack();
         break;
     case PAGE_STORE:
         mafa_view_page_store(&s_app.view);
-        refresh_store();
         break;
     case PAGE_MAPS:
         mafa_view_page_maps(&s_app.view);
-        refresh_maps();
         break;
     case PAGE_SETTINGS:
         mafa_view_page_settings(&s_app.view);
-        refresh_settings();
         break;
+    }
+    lv_screen_load(s_app.view.screen);    /* make the new screen visible */
+    if (prev) lv_obj_delete(prev);
+    switch (page) {
+    case PAGE_MENU: refresh_menu(); break;
+    case PAGE_CLASS: refresh_class(); break;
+    case PAGE_MAIN: refresh_main(); break;
+    case PAGE_BACKPACK: refresh_backpack(); break;
+    case PAGE_STORE: refresh_store(); break;
+    case PAGE_MAPS: refresh_maps(); break;
+    case PAGE_SETTINGS: refresh_settings(); break;
     }
 }
 
