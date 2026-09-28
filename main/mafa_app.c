@@ -106,9 +106,12 @@ static void log_line(const char *fmt, ...) {
     va_end(ap);
 }
 
-static void log_clear(const char *first) {
+static void log_clear(const char *fmt, ...) {
     for (int i = 0; i < LOG_LINES; ++i) s_app.log[i][0] = '\0';
-    strncpy(s_app.log[LOG_LINES - 1], first, LOG_LINE_CAP - 1);
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(s_app.log[LOG_LINES - 1], LOG_LINE_CAP, fmt, ap);
+    va_end(ap);
 }
 
 // --- Save (PRD 8.10): NVS blob, autosaved at every state change --------------
@@ -172,15 +175,16 @@ static void compose_status(char *buf, size_t cap) {
     const char *map = MAFA_MAP_NAMES[s_app.player.map];
     if (s_app.in_battle) {
         const mafa_monster_t *m = s_app.battle.mob.base;
-        snprintf(buf, cap, "Lv%d %s 血%d/%d 蓝%d 金%u\n▶%s %ld/%ld",
-                 s_app.player.level, map, s_app.player.hp, st.max_hp,
-                 s_app.player.mp, (unsigned)s_app.player.gold,
+        snprintf(buf, cap, "Lv%d %s 血%d/%ld 蓝%d 金%u\n▶%s %ld/%ld",
+                 s_app.player.level, map, s_app.player.hp,
+                 (long)st.max_hp, s_app.player.mp, (unsigned)s_app.player.gold,
                  m->name, (long)s_app.battle.mob.hp,
                  (long)s_app.battle.mob.max_hp);
     } else {
-        snprintf(buf, cap, "Lv%d %s 血%d/%d 蓝%d 金%u\n【%s】挂机中",
-                 s_app.player.level, map, s_app.player.hp, st.max_hp,
-                 s_app.player.mp, (unsigned)s_app.player.gold, map);
+        snprintf(buf, cap, "Lv%d %s 血%d/%ld 蓝%d 金%u\n【%s】挂机中",
+                 s_app.player.level, map, s_app.player.hp,
+                 (long)st.max_hp, s_app.player.mp, (unsigned)s_app.player.gold,
+                 map);
     }
     int bat = battery_read();
     size_t used = strlen(buf);
@@ -485,18 +489,6 @@ static void refresh_settings(void) {
              s_app.cur_set == 1 ? ">" : " ",
              s_app.player.auto_sell_white ? "开" : "关");
     lv_label_set_text(s_app.view.items_label, buf);
-}
-
-static void refresh_page(void) {
-    switch (s_app.page) {
-    case PAGE_MENU: refresh_menu(); break;
-    case PAGE_CLASS: refresh_class(); break;
-    case PAGE_MAIN: refresh_main(); break;
-    case PAGE_BACKPACK: refresh_backpack(); break;
-    case PAGE_STORE: refresh_store(); break;
-    case PAGE_MAPS: refresh_maps(); break;
-    case PAGE_SETTINGS: refresh_settings(); break;
-    }
 }
 
 static void enter_page(page_t page) {
