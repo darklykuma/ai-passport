@@ -22,6 +22,16 @@ typedef struct {
     lv_obj_t *unit_img[FOG_MAP_H][FOG_MAP_W];     // unit / ghost images
     lv_obj_t *bar_slot[FOG_MAP_H][FOG_MAP_W];     // strength bar slot
     lv_obj_t *bar_fill[FOG_MAP_H][FOG_MAP_W];     // strength bar fill
+    // Shadow of what was last pushed into LVGL. The device's 48 KB LVGL pool
+    // fragments to exhaustion under full-map churn (every refresh once
+    // reallocated ~17 label texts and reset ~160 image sources), so refresh
+    // now touches an object only when its desired state differs. Sentinels
+    // (= the view pointer / 0xFF) force the first apply after build.
+    const void *tile_src[FOG_MAP_H][FOG_MAP_W];   // NULL = tile hidden
+    const void *unit_src[FOG_MAP_H][FOG_MAP_W];   // NULL = unit img hidden
+    uint8_t unit_opa[FOG_MAP_H][FOG_MAP_W];       // LV_OPA_x of the unit img
+    uint8_t border[FOG_MAP_H][FOG_MAP_W];         // fog_border_state in fog_view.c
+    bool bar_shown[FOG_MAP_H][FOG_MAP_W];
 } fog_view_t;
 
 typedef struct {

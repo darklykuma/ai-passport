@@ -111,6 +111,61 @@ static const lv_image_dsc_t *unit_dsc(int cls, bool enemy) {
 #define FOG_BG lv_color_hex(0x07090C)
 #define FOG_GHOST_OPA (LV_OPA_30)
 
+// Per-cell border states pushed into LVGL (see fog_view_t.border). Width 0
+// means no border; color/opa are implied by the state.
+enum {
+    FOG_BORDER_NONE = 0,
+    FOG_BORDER_SEL,           // selected unit outline, 2 px
+    FOG_BORDER_HL_MOVE,       // highlighted move candidate, 2 px
+    FOG_BORDER_HL_ATTACK,     // highlighted attack candidate, 2 px
+    FOG_BORDER_FAINT_MOVE,    // faded move range, 1 px
+    FOG_BORDER_FAINT_ATTACK,  // faded attack range, 1 px
+};
+
+static void cell_border_apply(fog_view_t *v, int y, int x, uint8_t want) {
+    if (v->border[y][x] == want) return;
+    v->border[y][x] = want;
+    lv_obj_t *tile = v->cells[y][x];
+    switch (want) {
+    case FOG_BORDER_SEL:
+        lv_obj_set_style_border_color(tile, FOG_COLOR_CURSOR, 0);
+        lv_obj_set_style_border_width(tile, 2, 0);
+        lv_obj_set_style_border_opa(tile, LV_OPA_COVER, 0);
+        break;
+    case FOG_BORDER_HL_MOVE:
+        lv_obj_set_style_border_color(tile, FOG_COLOR_MOVE, 0);
+        lv_obj_set_style_border_width(tile, 2, 0);
+        lv_obj_set_style_border_opa(tile, LV_OPA_COVER, 0);
+        break;
+    case FOG_BORDER_HL_ATTACK:
+        lv_obj_set_style_border_color(tile, FOG_COLOR_ATTACK, 0);
+        lv_obj_set_style_border_width(tile, 2, 0);
+        lv_obj_set_style_border_opa(tile, LV_OPA_COVER, 0);
+        break;
+    case FOG_BORDER_FAINT_MOVE:
+        lv_obj_set_style_border_color(tile, FOG_COLOR_MOVE, 0);
+        lv_obj_set_style_border_width(tile, 1, 0);
+        lv_obj_set_style_border_opa(tile, FOG_CAND_FADE_OPA, 0);
+        break;
+    case FOG_BORDER_FAINT_ATTACK:
+        lv_obj_set_style_border_color(tile, FOG_COLOR_ATTACK, 0);
+        lv_obj_set_style_border_width(tile, 1, 0);
+        lv_obj_set_style_border_opa(tile, FOG_CAND_FADE_OPA, 0);
+        break;
+    default:
+        lv_obj_set_style_border_width(tile, 0, 0);
+        break;
+    }
+}
+
+// lv_label_set_text always reallocates the text buffer; skip it when the
+// content is unchanged (the main source of pool churn during play).
+static void label_set(lv_obj_t *label, const char *text) {
+    const char *cur = lv_label_get_text(label);
+    if (cur && strcmp(cur, text) == 0) return;
+    lv_label_set_text(label, text);
+}
+
 bool fog_view_build(fog_view_t *v) {
     memset(v, 0, sizeof *v);
     v->screen = lv_obj_create(NULL);
@@ -155,6 +210,14 @@ bool fog_view_build(fog_view_t *v) {
             lv_obj_set_size(unit, FOG_CELL_PX, FOG_CELL_PX);
             lv_obj_add_flag(unit, LV_OBJ_FLAG_HIDDEN);
             v->unit_img[y][x] = unit;
+
+            // Force the first refresh to push real state into LVGL: the tiles
+            // are visible with no source yet, the unit images are hidden.
+            v->tile_src[y][x] = (const void *)v;
+            v->unit_src[y][x] = (const void *)v;
+            v->unit_opa[y][x] = 0;
+            v->border[y][x] = 0xFF;
+            v->bar_shown[y][x] = false;
 
             // Strength bars are created lazily in set_bar(): at most six cells
             // ever hold a visible unit, which keeps the LVGL pool small.
@@ -222,7 +285,7 @@ static void cand_panel_sync(fog_view_t *v, const fog_render_t *r) {
         bool cur = i == r->menu_index;
         char text[32];
         snprintf(text, sizeof text, "%s%s", cur ? "> " : "  ", r->menu_rows[i]);
-        lv_label_set_text(row, text);
+        label_set(row, text);
         lv_color_t bg = lv_color_hex(0x3A3F45);
         if (r->menu_kinds[i] == 0) bg = FOG_COLOR_MOVE;
         else if (r->menu_kinds[i] == 1) bg = FOG_COLOR_ATTACK;
@@ -271,25 +334,31 @@ static void set_bar(fog_view_t *v, int x, int y, const fog_unit_t *u) {
     lv_obj_set_style_bg_color(fill, color, 0);
     // Keep the absolute-scale bar centered: recenter slot inside the cell.
     lv_obj_set_x(slot, (FOG_CELL_PX - slot_w) / 2);
+    v->bar_shown[y][x] = true;
 }
 
 void fog_view_refresh(fog_view_t *v, const fog_render_t *r) {
     const fog_game_t *g = r->game;
     const int player = FOG_SIDE_PLAYER;
     int hl_x = -1, hl_y = -1;
-    lv_color_t hl_color = FOG_COLOR_MOVE;
+    uint8_t hl_state = FOG_BORDER_HL_MOVE;
     if (r->cands && r->cand_index >= 0 && r->cand_index < r->cand_count) {
         const fog_cand_t *c = &r->cands[r->cand_index];
         hl_x = c->x;
         hl_y = c->y;
-        hl_color = c->kind == FOG_CAND_ATTACK ? FOG_COLOR_ATTACK : FOG_COLOR_MOVE;
+        hl_state = c->kind == FOG_CAND_ATTACK ? FOG_BORDER_HL_ATTACK
+                                              : FOG_BORDER_HL_MOVE;
         if (c->kind == FOG_CAND_STANDBY) {              // standby marks the unit
             const fog_unit_t *u = &g->units[player][r->selected];
             hl_x = u->x;
             hl_y = u->y;
-            hl_color = FOG_COLOR_MOVE;
+            hl_state = FOG_BORDER_HL_MOVE;
         }
     }
+
+    const fog_unit_t *sel = r->selected >= 0 ? &g->units[player][r->selected]
+                                             : NULL;
+    bool sel_valid = sel && sel->alive && g->phase != FOG_PHASE_ENEMY;
 
     // Faded range display (9.2 item 4): every non-highlighted candidate gets
     // a 1 px low-opacity border so the whole action range reads at a glance.
@@ -305,56 +374,63 @@ void fog_view_refresh(fog_view_t *v, const fog_render_t *r) {
 
     for (int y = 0; y < FOG_MAP_H; ++y)
         for (int x = 0; x < FOG_MAP_W; ++x) {
+            // Terrain tile: source swap or hide, only on change.
             lv_obj_t *tile = v->cells[y][x];
             bool seen = g->seen[player][y][x] != 0;
             bool explored = g->explored[player][y][x] != 0;
-            if (!explored) {
-                lv_obj_add_flag(tile, LV_OBJ_FLAG_HIDDEN);
-            } else {
-                lv_obj_clear_flag(tile, LV_OBJ_FLAG_HIDDEN);
-                lv_image_set_src(tile, tile_dsc(g->terrain[y][x], !seen));
+            const void *want_tile = explored
+                ? tile_dsc(g->terrain[y][x], !seen) : NULL;
+            if (want_tile != v->tile_src[y][x]) {
+                v->tile_src[y][x] = want_tile;
+                if (want_tile) {
+                    lv_obj_clear_flag(tile, LV_OBJ_FLAG_HIDDEN);
+                    lv_image_set_src(tile, want_tile);
+                } else {
+                    lv_obj_add_flag(tile, LV_OBJ_FLAG_HIDDEN);
+                }
             }
 
-            // Highlight border (candidate / selected unit).
-            const fog_unit_t *sel = &g->units[player][r->selected];
-            bool is_sel = r->selected >= 0 && sel->alive && sel->x == x && sel->y == y
-                          && g->phase != FOG_PHASE_ENEMY;
-            if (is_sel && !(hl_x == x && hl_y == y)) {
-                lv_obj_set_style_border_color(tile, FOG_COLOR_CURSOR, 0);
-                lv_obj_set_style_border_width(tile, 2, 0);
-                lv_obj_set_style_border_opa(tile, LV_OPA_COVER, 0);
-            } else if (hl_x == x && hl_y == y) {
-                lv_obj_set_style_border_color(tile, hl_color, 0);
-                lv_obj_set_style_border_width(tile, 2, 0);
-                lv_obj_set_style_border_opa(tile, LV_OPA_COVER, 0);
-            } else if (faint[y][x]) {
-                lv_obj_set_style_border_color(tile, faint[y][x] == 2 ? FOG_COLOR_ATTACK
-                                                                     : FOG_COLOR_MOVE, 0);
-                lv_obj_set_style_border_width(tile, 1, 0);
-                lv_obj_set_style_border_opa(tile, FOG_CAND_FADE_OPA, 0);
-            } else {
-                lv_obj_set_style_border_width(tile, 0, 0);
-            }
+            // Highlight border (candidate / selected unit); same precedence
+            // as before: the highlight wins over the selection on one cell.
+            uint8_t want_border = FOG_BORDER_NONE;
+            if (hl_x == x && hl_y == y) want_border = hl_state;
+            else if (sel_valid && sel->x == x && sel->y == y)
+                want_border = FOG_BORDER_SEL;
+            else if (faint[y][x] == 1) want_border = FOG_BORDER_FAINT_MOVE;
+            else if (faint[y][x] == 2) want_border = FOG_BORDER_FAINT_ATTACK;
+            cell_border_apply(v, y, x, want_border);
 
-            // Unit / ghost layer.
+            // Unit / ghost layer: source + opacity as one guarded state.
             lv_obj_t *img = v->unit_img[y][x];
             const fog_unit_t *u = fog_unit_at_const(g, x, y);
-            bool ghost = g->ghost[player][y][x] != 0;
+            const void *want_src = NULL;
+            uint8_t want_opa = 0;
             if (u && (u->side == player || fog_can_see_unit(g, player, x, y))) {
-                lv_image_set_src(img, unit_dsc(u->cls, u->side != player));
-                lv_obj_clear_flag(img, LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_style_img_opa(img, LV_OPA_COVER, 0);
-                set_bar(v, x, y, u);
-            } else if (ghost) {
+                want_src = unit_dsc(u->cls, u->side != player);
+                want_opa = LV_OPA_COVER;
+            } else if (g->ghost[player][y][x]) {
                 int cls = g->ghost_cls[player][y][x];
                 cls = cls > 0 ? cls - 1 : FOG_CLASS_SPEAR;
-                lv_image_set_src(img, unit_dsc(cls, true));
-                lv_obj_clear_flag(img, LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_style_img_opa(img, FOG_GHOST_OPA, 0);
-                if (v->bar_slot[y][x])
-                    lv_obj_add_flag(v->bar_slot[y][x], LV_OBJ_FLAG_HIDDEN);
-            } else {
-                lv_obj_add_flag(img, LV_OBJ_FLAG_HIDDEN);
+                want_src = unit_dsc(cls, true);
+                want_opa = FOG_GHOST_OPA;
+            }
+            if (want_src != v->unit_src[y][x] || want_opa != v->unit_opa[y][x]) {
+                v->unit_src[y][x] = want_src;
+                v->unit_opa[y][x] = want_opa;
+                if (want_src) {
+                    lv_obj_clear_flag(img, LV_OBJ_FLAG_HIDDEN);
+                    lv_image_set_src(img, want_src);
+                    lv_obj_set_style_img_opa(img, want_opa, 0);
+                } else {
+                    lv_obj_add_flag(img, LV_OBJ_FLAG_HIDDEN);
+                }
+            }
+
+            // Strength bar follows the visible-unit state.
+            if (want_opa == LV_OPA_COVER) {
+                set_bar(v, x, y, u);
+            } else if (v->bar_shown[y][x]) {
+                v->bar_shown[y][x] = false;
                 if (v->bar_slot[y][x])
                     lv_obj_add_flag(v->bar_slot[y][x], LV_OBJ_FLAG_HIDDEN);
             }
@@ -373,17 +449,17 @@ void fog_view_status(fog_view_t *v, const fog_game_t *g, int battery) {
                  fog_side_alive(g, FOG_SIDE_PLAYER),
                  fog_side_alive(g, FOG_SIDE_ENEMY));
     }
-    lv_label_set_text(v->status_label, text);
+    label_set(v->status_label, text);
 
     if (battery >= 0) {
         char bat[12];
         snprintf(bat, sizeof bat, "%d%%", battery);
-        lv_label_set_text(v->battery_label, bat);
+        label_set(v->battery_label, bat);
     } else {
-        lv_label_set_text(v->battery_label, "");        // graceful degradation
+        label_set(v->battery_label, "");        // graceful degradation
     }
 }
 
 void fog_view_hint(fog_view_t *v, const char *text) {
-    lv_label_set_text(v->hint_label, text);
+    label_set(v->hint_label, text);
 }
