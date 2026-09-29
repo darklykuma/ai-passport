@@ -92,6 +92,7 @@ static struct {
     char prev_menu[176];
     char prev_modal[224];
     int disp_hp, disp_hmax, disp_mp, disp_mmax, disp_ehp, disp_emax;
+    bool disp_ebar;         /* enemy-bar visibility cache (hidden while idle) */
 
     mafa_view_t view;
     QueueHandle_t queue;
@@ -350,36 +351,42 @@ static void drop_modal_refresh(void) {
 // --- Tick (idle auto-battle, PRD 8.3) ----------------------------------------------
 
 /* Main page: five guarded refresh units — header (map + info), the two
- * player bars, the enemy strip, the log, the action menu. */
+ * player bars, the enemy strip, the log, the action menu. Layout contract
+ * (240px wide, real font advances): row 1 is map name (≤90px from x=10)
+ * plus ONE right-aligned info line; kill progress rides the idle enemy
+ * strip, where the enemy bar is hidden and cannot collide with it. */
 static void refresh_main(void) {
-    mafa_stats_t st;
-    mafa_stats(&s_app.player, &st);
     char buf[80];
-    snprintf(buf, sizeof buf, "#F0C04A%s# #9AA3A8 %d/%d#",
-             MAFA_MAP_NAMES[s_app.player.map], (int)s_app.player.kills,
-             MAFA_KILLS_PER_BOSS);
+    snprintf(buf, sizeof buf, "#F0C04A%s#",
+             MAFA_MAP_NAMES[s_app.player.map]);
     label_set(s_app.view.map_label, buf, s_app.prev_map, sizeof s_app.prev_map);
     int bat = battery_read();
-    if (bat >= 0)
-        snprintf(buf, sizeof buf, "Lv.%d %d%%\n金%u", s_app.player.level,
-                 bat, (unsigned)s_app.player.gold);
-    else
-        snprintf(buf, sizeof buf, "Lv.%d\n金%u", s_app.player.level,
-                 (unsigned)s_app.player.gold);
+    snprintf(buf, sizeof buf, "#9AA3A8 Lv.%d %d%%#\n#F0C04A金%u#",
+             s_app.player.level, bat, (unsigned)s_app.player.gold);
     label_set(s_app.view.info_label, buf, s_app.prev_info,
               sizeof s_app.prev_info);
 
+    mafa_stats_t st;
+    mafa_stats(&s_app.player, &st);
     bar_set(s_app.view.hp_bar, s_app.player.hp, st.max_hp, &s_app.disp_hp,
             &s_app.disp_hmax);
-    snprintf(buf, sizeof buf, "%d/%ld", s_app.player.hp, (long)st.max_hp);
+    snprintf(buf, sizeof buf, "%d", s_app.player.hp);
     label_set(s_app.view.hp_text, buf, s_app.prev_hptext,
               sizeof s_app.prev_hptext);
     bar_set(s_app.view.mp_bar, s_app.player.mp, st.max_mp, &s_app.disp_mp,
             &s_app.disp_mmax);
-    snprintf(buf, sizeof buf, "%d/%d", s_app.player.mp, (int)st.max_mp);
+    snprintf(buf, sizeof buf, "%d", s_app.player.mp);
     label_set(s_app.view.mp_text, buf, s_app.prev_mptext,
               sizeof s_app.prev_mptext);
 
+    bool want_bar = s_app.in_battle;
+    if (want_bar != s_app.disp_ebar) {
+        if (want_bar)
+            lv_obj_clear_flag(s_app.view.enemy_bar, LV_OBJ_FLAG_HIDDEN);
+        else
+            lv_obj_add_flag(s_app.view.enemy_bar, LV_OBJ_FLAG_HIDDEN);
+        s_app.disp_ebar = want_bar;
+    }
     if (s_app.in_battle) {
         if (s_app.battle.is_boss)
             snprintf(buf, sizeof buf, "#F0C04A▶%s!#",
@@ -389,9 +396,8 @@ static void refresh_main(void) {
         bar_set(s_app.view.enemy_bar, s_app.battle.mob.hp,
                 s_app.battle.mob.max_hp, &s_app.disp_ehp, &s_app.disp_emax);
     } else {
-        snprintf(buf, sizeof buf, "#9AA3A8 挂机中#");
-        bar_set(s_app.view.enemy_bar, 0, 100, &s_app.disp_ehp,
-                &s_app.disp_emax);
+        snprintf(buf, sizeof buf, "#9AA3A8 挂机中 %d/%d#",
+                 (int)s_app.player.kills, MAFA_KILLS_PER_BOSS);
     }
     label_set(s_app.view.enemy_label, buf, s_app.prev_enemy,
               sizeof s_app.prev_enemy);
@@ -604,6 +610,7 @@ static void enter_page(page_t page) {
     s_app.disp_hp = s_app.disp_hmax = -1;
     s_app.disp_mp = s_app.disp_mmax = -1;
     s_app.disp_ehp = s_app.disp_emax = -1;
+    s_app.disp_ebar = true;               /* force the first idle apply */
     switch (page) {
     case PAGE_MENU:
         mafa_view_page_menu(&s_app.view);
