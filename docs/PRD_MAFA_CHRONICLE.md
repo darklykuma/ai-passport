@@ -4,10 +4,10 @@
 
 # MAFA CHRONICLE PRD
 
-> Document status: **Draft v0.9, awaiting review**
+> Document status: **Draft v1.0, awaiting review**
 > Product carrier: FoloToy AI Passport / ESP32-C3 / 240 × 320 LCD / three ADC buttons (UP/DOWN/OK)
 > Target branch: `feature/mafa-chronicle` (to be created)
-> PRD version: v0.9
+> PRD version: v1.0
 > Updated: 2026-09-29
 
 ---
@@ -255,7 +255,7 @@ One settlement roll per killed monster (see 9.3):
 
 ### 8.7 Maps and unlocking
 
-Three idle maps in P0, unlocked linearly (boss-event victory unlocks the next):
+Three idle maps in P0, unlocked linearly (boss-event victory unlocks the next). Map ids are 1–3 (v1.0); id 0 is the safe zone (8.9), listed first on the map page:
 
 | Map | Suggested level | Monster theme | Boss |
 | --- | --- | --- | --- |
@@ -281,13 +281,14 @@ HP ≤ 0: log "You were killed by…" → the player respawns in the **safe zone
 - **Gold**: 10–20% of carried gold is lost;
 - **Equipped gear is safe** (too harsh for a single-player idle game; potions are safe too).
 
-The safe zone (v0.9) is a fourth map id on top of the three combat maps: always open, no monsters, no boss; switching to it is a voluntary rest option, and combat maps stay locked until their boss falls (8.7).
+The safe zone (v0.9) is map id 0 and heads the map page (v1.0): always open, no monsters, no boss; switching to it is a voluntary rest option, and combat maps stay locked until their boss falls (8.7).
 
 ### 8.10 Save
 
 - NVS, namespace `mafa`, binary struct + magic + version + CRC8; incompatible data is treated as corrupt and only a new game may proceed.
 - **Version 2 (v0.8)**: class / level / XP (32-bit) / gold / books bitmask / potion counts / backpack (8 × {item id, count}) / 3 equipped items / unlocked area / settings toggles (auto-potion, auto-sell-white, auto-boss).
-- **v1 saves load and migrate**: every skill whose unlock level is already reached is granted its book, so old saves never lose learned skills.
+- **Version 3 (v1.0)**: same payload as v2; only the map fields are renumbered (safe zone 3 → 0, combat maps 0–2 → 1–3).
+- **v1/v2 saves load and migrate**: v1 grants every skill whose unlock level is already reached its book; v1/v2 map ids shift into the v3 numbering, so old saves never lose progress.
 - **Autosave points**: after every battle settlement, after store purchases, after equip/unequip. No manual save.
 - Overwriting an existing save with a new game requires confirmation.
 
@@ -397,6 +398,7 @@ Global: UP/DOWN move the cursor, OK confirms, long-press returns to the main scr
 - v0.7 (2026-09-29): first visual pass on the UI (legend-panel style): gold header band (map + boss progress, level/battery/gold, HP/MP bars), enemy strip with its own HP bar, framed log panel, bottom action bar with full-width-glyph column alignment; the glyph pipeline now covers UI symbols (▶ cursor, … ellipsis), font subsets 223 → 231 codepoints.
 - v0.8 (2026-09-29): **skills 2.0 + rebalance** from the second playtest ("too easy, no original-growth feel"): 5 skills per class with distinct forms (passive / proc / nuke / AoE / burn / heal / poison / shield / charge / pets), unlocks gated by level AND skill book (store books 1–2, elite/boss books 3–4, boss first-kill guarantee); battles spawn 1–3 monsters (deeper maps favor packs), the taoist pet taunts; front-fast back-wall XP curve (14→15 wall ≈ 45 % of total, time-to-max ≈ several idle days); white-name death penalty (1–2 backpack stacks + 10–20 % gold, gear safe); potion economy (50/40 gold, level-scaled heals); gold-tier gear boss-only (8 %); boss-kill counter 25 → 40 mobs; save v2 with v1 migration; sim gates recalibrated (battle pace 4–15 s, boss band 45–75 %, ≥1 class in band, no 0 % matchups).
 - v0.9 (2026-09-29): on-device playtest found the death loop (respawn kept 0 HP, dying endlessly). Death now respawns the player in a new **safe zone** (4th map id, always open, no monsters/boss, also a voluntary rest spot) at full HP/MP; idling stays stopped until the player picks the next map themselves — the town kick becomes part of the death cost. Penalties unchanged; map-page cursor only rests on enterable rows.
+- v1.0 (2026-09-29): the safe zone becomes **map id 0** and heads the map page (row "0" + safe-zone name; combat maps renumbered 1–3, making the 8.3 pack-weight table literal). New games start idling in Beech Forest at once instead of resting in town. Save bumps to **v3**: byte layout identical to v2, only the map fields migrate (town 3 → 0, combat 0–2 → 1–3); v1/v2 saves load and migrate automatically. Code replaces the `map*6+5` boss lookup with `mafa_map_boss()`; balance-sim gates unchanged and still met.
 - v0.6 (2026-09-28): on-device feedback added an "auto-boss" settings toggle (boss events are fought automatically instead of prompting); save contents and the settings page updated.
 - v0.5 (2026-09-28): on-device feedback added a gear-overview page (action menu item 2: the three equipped slots plus a stat summary); the action menu grew to six entries.
 - v0.4 (2026-09-28): M2 balance calibration finalized. Taoist rebalanced as a sustain fighter (HP 60+6, attack 12+1; Soul Fire Talisman L3 2.4×/MP14, Heal L7, Poison L12); added boss-fight rules (50% defense pierce, ±20% monster damage roll, fixed-value potions); boss stats finalized (Ape 300/16, Corpse King 400/26, Overlord 1200/22); success metric redefined as "per map at least one class win rate within 20–85%, none locked at 0%".

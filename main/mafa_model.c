@@ -13,35 +13,35 @@
 
 const mafa_item_t MAFA_ITEMS[] = {
     /* map 1: white / green / blue */
-    {"木剑",   MAFA_SLOT_WEAPON,    MAFA_Q_WHITE,  0, 1,   2,  0,  0},
-    {"青铜剑", MAFA_SLOT_WEAPON,    MAFA_Q_GREEN,  0, 2,   4,  0,  0},
-    {"铁剑",   MAFA_SLOT_WEAPON,    MAFA_Q_BLUE,   0, 3,   6,  0,  0},
-    {"布衣",   MAFA_SLOT_ARMOR,     MAFA_Q_WHITE,  0, 1,   0,  1,  5},
-    {"精制布衣", MAFA_SLOT_ARMOR,   MAFA_Q_GREEN,  0, 2,   0,  2, 10},
-    {"轻甲",   MAFA_SLOT_ARMOR,     MAFA_Q_BLUE,   0, 3,   0,  3, 15},
-    {"木珠",   MAFA_SLOT_ACCESSORY, MAFA_Q_WHITE,  0, 1,   1,  0,  0},
-    {"琥珀珠", MAFA_SLOT_ACCESSORY, MAFA_Q_GREEN,  0, 2,   2,  1,  0},
-    {"蓝玉坠", MAFA_SLOT_ACCESSORY, MAFA_Q_BLUE,   0, 3,   3,  0,  0},
+    {"木剑",   MAFA_SLOT_WEAPON,    MAFA_Q_WHITE,  1, 1,   2,  0,  0},
+    {"青铜剑", MAFA_SLOT_WEAPON,    MAFA_Q_GREEN,  1, 2,   4,  0,  0},
+    {"铁剑",   MAFA_SLOT_WEAPON,    MAFA_Q_BLUE,   1, 3,   6,  0,  0},
+    {"布衣",   MAFA_SLOT_ARMOR,     MAFA_Q_WHITE,  1, 1,   0,  1,  5},
+    {"精制布衣", MAFA_SLOT_ARMOR,   MAFA_Q_GREEN,  1, 2,   0,  2, 10},
+    {"轻甲",   MAFA_SLOT_ARMOR,     MAFA_Q_BLUE,   1, 3,   0,  3, 15},
+    {"木珠",   MAFA_SLOT_ACCESSORY, MAFA_Q_WHITE,  1, 1,   1,  0,  0},
+    {"琥珀珠", MAFA_SLOT_ACCESSORY, MAFA_Q_GREEN,  1, 2,   2,  1,  0},
+    {"蓝玉坠", MAFA_SLOT_ACCESSORY, MAFA_Q_BLUE,   1, 3,   3,  0,  0},
     /* map 2: green / blue / purple */
-    {"矿镐",   MAFA_SLOT_WEAPON,    MAFA_Q_GREEN,  1, 1,   8,  0,  0},
-    {"精钢斧", MAFA_SLOT_WEAPON,    MAFA_Q_BLUE,   1, 2,  10,  0,  0},
-    {"修罗",   MAFA_SLOT_WEAPON,    MAFA_Q_PURPLE, 1, 3,  14,  0,  0},
-    {"骷髅甲", MAFA_SLOT_ARMOR,     MAFA_Q_GREEN,  1, 1,   0,  4, 20},
-    {"精钢甲", MAFA_SLOT_ARMOR,     MAFA_Q_BLUE,   1, 2,   0,  5, 28},
-    {"修罗甲", MAFA_SLOT_ARMOR,     MAFA_Q_PURPLE, 1, 3,   0,  7, 35},
-    {"玛瑙坠", MAFA_SLOT_ACCESSORY, MAFA_Q_GREEN,  1, 1,   5,  0,  0},
-    {"骷髅环", MAFA_SLOT_ACCESSORY, MAFA_Q_BLUE,   1, 2,   6,  2,  0},
-    {"蓝翡链", MAFA_SLOT_ACCESSORY, MAFA_Q_PURPLE, 1, 3,   8,  0,  0},
+    {"矿镐",   MAFA_SLOT_WEAPON,    MAFA_Q_GREEN,  2, 1,   8,  0,  0},
+    {"精钢斧", MAFA_SLOT_WEAPON,    MAFA_Q_BLUE,   2, 2,  10,  0,  0},
+    {"修罗",   MAFA_SLOT_WEAPON,    MAFA_Q_PURPLE, 2, 3,  14,  0,  0},
+    {"骷髅甲", MAFA_SLOT_ARMOR,     MAFA_Q_GREEN,  2, 1,   0,  4, 20},
+    {"精钢甲", MAFA_SLOT_ARMOR,     MAFA_Q_BLUE,   2, 2,   0,  5, 28},
+    {"修罗甲", MAFA_SLOT_ARMOR,     MAFA_Q_PURPLE, 2, 3,   0,  7, 35},
+    {"玛瑙坠", MAFA_SLOT_ACCESSORY, MAFA_Q_GREEN,  2, 1,   5,  0,  0},
+    {"骷髅环", MAFA_SLOT_ACCESSORY, MAFA_Q_BLUE,   2, 2,   6,  2,  0},
+    {"蓝翡链", MAFA_SLOT_ACCESSORY, MAFA_Q_PURPLE, 2, 3,   8,  0,  0},
     /* map 3: blue / purple / gold */
-    {"炼狱",   MAFA_SLOT_WEAPON,    MAFA_Q_BLUE,   2, 1,  18,  0,  0},
-    {"雷刃",   MAFA_SLOT_WEAPON,    MAFA_Q_PURPLE, 2, 2,  20,  0,  0},
-    {"屠龙",   MAFA_SLOT_WEAPON,    MAFA_Q_GOLD,   2, 3,  22,  0,  0},
-    {"天魔甲", MAFA_SLOT_ARMOR,     MAFA_Q_BLUE,   2, 1,   0,  9, 45},
-    {"圣战甲", MAFA_SLOT_ARMOR,     MAFA_Q_PURPLE, 2, 2,   0, 11, 55},
-    {"霸主甲", MAFA_SLOT_ARMOR,     MAFA_Q_GOLD,   2, 3,   0, 13, 70},
-    {"紫螺链", MAFA_SLOT_ACCESSORY, MAFA_Q_BLUE,   2, 1,  10,  0,  0},
-    {"龙鳞链", MAFA_SLOT_ACCESSORY, MAFA_Q_PURPLE, 2, 2,  12,  3,  0},
-    {"灵魂链", MAFA_SLOT_ACCESSORY, MAFA_Q_GOLD,   2, 3,  15,  0,  0},
+    {"炼狱",   MAFA_SLOT_WEAPON,    MAFA_Q_BLUE,   3, 1,  18,  0,  0},
+    {"雷刃",   MAFA_SLOT_WEAPON,    MAFA_Q_PURPLE, 3, 2,  20,  0,  0},
+    {"屠龙",   MAFA_SLOT_WEAPON,    MAFA_Q_GOLD,   3, 3,  22,  0,  0},
+    {"天魔甲", MAFA_SLOT_ARMOR,     MAFA_Q_BLUE,   3, 1,   0,  9, 45},
+    {"圣战甲", MAFA_SLOT_ARMOR,     MAFA_Q_PURPLE, 3, 2,   0, 11, 55},
+    {"霸主甲", MAFA_SLOT_ARMOR,     MAFA_Q_GOLD,   3, 3,   0, 13, 70},
+    {"紫螺链", MAFA_SLOT_ACCESSORY, MAFA_Q_BLUE,   3, 1,  10,  0,  0},
+    {"龙鳞链", MAFA_SLOT_ACCESSORY, MAFA_Q_PURPLE, 3, 2,  12,  3,  0},
+    {"灵魂链", MAFA_SLOT_ACCESSORY, MAFA_Q_GOLD,   3, 3,  15,  0,  0},
 };
 const int MAFA_ITEM_COUNT = (int)(sizeof MAFA_ITEMS / sizeof MAFA_ITEMS[0]);
 
@@ -74,30 +74,37 @@ const mafa_skill_t MAFA_SKILLS[MAFA_CLS_COUNT][MAFA_SKILLS_PER_CLASS] = {
 };
 
 const mafa_monster_t MAFA_MONSTERS[] = {
-    {"鸡",       0,  1,   50,  7,  0,   12, MAFA_MSK_NONE,    false},
-    {"鹿",       0,  1,   65,  8,  1,   15, MAFA_MSK_NONE,    false},
-    {"稻草人",   0,  2,   95, 10,  1,   18, MAFA_MSK_FIRE,    false},
-    {"多钩猫",   0,  3,  130, 12,  2,   22, MAFA_MSK_FLURRY,  false},
-    {"森林雪人", 0,  4,  170, 13,  3,   26, MAFA_MSK_HEAVY,   false},
-    {"森林巨猿", 0,  5,  380, 20,  4,  150, MAFA_MSK_ROAR,    true},
-    {"骷髅",     1,  5,   90, 11,  4,   34, MAFA_MSK_NONE,    false},
-    {"矿鼠",     1,  6,   80, 12,  2,   38, MAFA_MSK_FLURRY,  false},
-    {"骷髅战士", 1,  7,  130, 14,  6,   44, MAFA_MSK_HEAVY,   false},
-    {"掷斧骷髅", 1,  8,  120, 15,  5,   50, MAFA_MSK_FIRE,    false},
-    {"洞蝎",     1,  9,  150, 16,  7,   58, MAFA_MSK_STING,   false},
-    {"尸王",     1, 10,  830, 27,  8,  300, MAFA_MSK_ROAR,    true},
-    {"祖玛卫士", 2, 10,  170, 15,  9,   72, MAFA_MSK_HEAVY,   false},
-    {"大老鼠",   2, 11,  150, 16,  6,   80, MAFA_MSK_FLURRY,  false},
-    {"黑色恶蛆", 2, 12,  200, 18, 10,   92, MAFA_MSK_STING,   false},
-    {"契蛾",     2, 13,  190, 20,  8,  104, MAFA_MSK_FIRE,    false},
-    {"祖玛雕像", 2, 14,  260, 22, 12,  118, MAFA_MSK_HEAVY,   false},
-    {"祖玛教主", 2, 15, 1600, 31, 14,  800, MAFA_MSK_HELLFIRE, true},
+    {"鸡",       1,  1,   50,  7,  0,   12, MAFA_MSK_NONE,    false},
+    {"鹿",       1,  1,   65,  8,  1,   15, MAFA_MSK_NONE,    false},
+    {"稻草人",   1,  2,   95, 10,  1,   18, MAFA_MSK_FIRE,    false},
+    {"多钩猫",   1,  3,  130, 12,  2,   22, MAFA_MSK_FLURRY,  false},
+    {"森林雪人", 1,  4,  170, 13,  3,   26, MAFA_MSK_HEAVY,   false},
+    {"森林巨猿", 1,  5,  380, 20,  4,  150, MAFA_MSK_ROAR,    true},
+    {"骷髅",     2,  5,   90, 11,  4,   34, MAFA_MSK_NONE,    false},
+    {"矿鼠",     2,  6,   80, 12,  2,   38, MAFA_MSK_FLURRY,  false},
+    {"骷髅战士", 2,  7,  130, 14,  6,   44, MAFA_MSK_HEAVY,   false},
+    {"掷斧骷髅", 2,  8,  120, 15,  5,   50, MAFA_MSK_FIRE,    false},
+    {"洞蝎",     2,  9,  150, 16,  7,   58, MAFA_MSK_STING,   false},
+    {"尸王",     2, 10,  830, 27,  8,  300, MAFA_MSK_ROAR,    true},
+    {"祖玛卫士", 3, 10,  170, 15,  9,   72, MAFA_MSK_HEAVY,   false},
+    {"大老鼠",   3, 11,  150, 16,  6,   80, MAFA_MSK_FLURRY,  false},
+    {"黑色恶蛆", 3, 12,  200, 18, 10,   92, MAFA_MSK_STING,   false},
+    {"契蛾",     3, 13,  190, 20,  8,  104, MAFA_MSK_FIRE,    false},
+    {"祖玛雕像", 3, 14,  260, 22, 12,  118, MAFA_MSK_HEAVY,   false},
+    {"祖玛教主", 3, 15, 1600, 31, 14,  800, MAFA_MSK_HELLFIRE, true},
 };
 const int MAFA_MONSTER_COUNT = (int)(sizeof MAFA_MONSTERS / sizeof MAFA_MONSTERS[0]);
 
 const char *const MAFA_MAP_NAMES[MAFA_MAP_COUNT] = {
-    "比奇森林", "废矿洞", "祖玛寺庙", "安全区",
+    "安全区", "比奇森林", "废矿洞", "祖玛寺庙",
 };
+
+const mafa_monster_t *mafa_map_boss(uint8_t map) {
+    for (int i = 0; i < MAFA_MONSTER_COUNT; ++i)
+        if (MAFA_MONSTERS[i].map == map && MAFA_MONSTERS[i].boss)
+            return &MAFA_MONSTERS[i];
+    return NULL;
+}
 
 static const uint32_t MAFA_SELL_PRICE[MAFA_Q_COUNT] = {10, 30, 80, 200, 500};
 
@@ -151,8 +158,8 @@ void mafa_player_init(mafa_player_t *p, uint8_t cls, uint32_t seed) {
     p->cls = cls;
     p->level = 1;
     p->gold = 0;
-    p->map = 0;
-    p->unlocked = 0;
+    p->map = MAFA_MAP_SAFE + 1;         /* new games idle at once: Beech */
+    p->unlocked = MAFA_MAP_SAFE + 1;
     p->auto_potion = true;
     p->auto_sell_white = true;
     p->pending_drop = MAFA_DROP_NONE;
@@ -386,8 +393,8 @@ static void spawn_mob(mafa_player_t *p, const mafa_monster_t *base,
  * AoE skills their identity back. */
 static uint8_t roll_pack(mafa_player_t *p, uint8_t map) {
     uint32_t r = rng_next(p) % 10;
-    if (map == 0) return r < 7 ? 1 : 2;
-    if (map == 1) return r < 4 ? 1 : (r < 8 ? 2 : 3);
+    if (map == 1) return r < 7 ? 1 : 2;
+    if (map == 2) return r < 4 ? 1 : (r < 8 ? 2 : 3);
     return r < 2 ? 1 : (r < 6 ? 2 : 3);
 }
 
@@ -424,16 +431,14 @@ bool mafa_boss_ready(const mafa_player_t *p) {
 
 bool mafa_boss_start(mafa_player_t *p, mafa_battle_t *b) {
     if (!mafa_boss_ready(p) || p->pending_drop != MAFA_DROP_NONE) return false;
-    for (int i = 0; i < MAFA_MONSTER_COUNT; ++i)
-        if (MAFA_MONSTERS[i].map == p->map && MAFA_MONSTERS[i].boss) {
-            memset(b, 0, sizeof *b);
-            spawn_mob(p, &MAFA_MONSTERS[i], false, &b->mob[0]);
-            b->mob_n = 1;
-            b->alive_n = 1;
-            b->is_boss = true;
-            return true;
-        }
-    return false;
+    const mafa_monster_t *boss = mafa_map_boss(p->map);
+    if (!boss) return false;
+    memset(b, 0, sizeof *b);
+    spawn_mob(p, boss, false, &b->mob[0]);
+    b->mob_n = 1;
+    b->alive_n = 1;
+    b->is_boss = true;
+    return true;
 }
 
 void mafa_boss_pass(mafa_player_t *p) {
@@ -494,12 +499,12 @@ static void roll_gear_drop(mafa_player_t *p, const mafa_battle_t *b,
     uint8_t tier;
     if (b->is_boss) tier = rng_next(p) % 100 < 8 ? 3 : 2;
     else if (m->elite) tier = rng_next(p) % 100 < 30 ? 3 : 2;
-    else {
-        uint32_t tr = rng_next(p) % 100;
-        if (tr < 60) tier = 1;
-        else if (tr < 92) tier = 2;
-        else tier = m->base->map == 2 ? 2 : 3;   /* trash never drops gold */
-    }
+        else {
+            uint32_t tr = rng_next(p) % 100;
+            if (tr < 60) tier = 1;
+            else if (tr < 92) tier = 2;
+            else tier = m->base->map == 3 ? 2 : 3;   /* trash never drops gold */
+        }
     uint8_t slot = (uint8_t)(rng_next(p) % MAFA_EQ_SLOTS);
     for (int i = 0; i < MAFA_ITEM_COUNT; ++i)
         if (MAFA_ITEMS[i].map == m->base->map && MAFA_ITEMS[i].tier == tier
@@ -536,9 +541,9 @@ static void settle_kill(mafa_player_t *p, mafa_battle_t *b, uint8_t mob_idx,
 
     if (b->is_boss) {
         p->kills = 0;
-        /* Unlock the next COMBAT map; the safe zone is not a progression
-         * step and is open from the start. */
-        if (p->map + 1 < MAFA_MAP_SAFE && p->unlocked < p->map + 1)
+        /* Unlock the next COMBAT map; the safe zone (id 0) is open from
+         * the start and is not a progression step. */
+        if (p->map + 1 < MAFA_MAP_COUNT && p->unlocked < p->map + 1)
             p->unlocked = (uint8_t)(p->map + 1);
     } else {
         p->kills++;
@@ -1032,8 +1037,9 @@ static uint8_t crc8(const uint8_t *d, size_t n) {
     return c;
 }
 
-/* v2 payload: cls level xp32 gold hp mp books pots kills flags drop eq inv
- * spare = 40 bytes (even, room to grow). */
+/* v2/v3 payload: cls level xp32 gold hp mp books pots kills flags drop eq
+ * inv spare = 40 bytes (even, room to grow). v3 only renumbers the map
+ * fields; the byte layout is unchanged. */
 #define MAFA_SAVE_BODY_V2 40
 /* v1 payload (pre skills-2.0): xp16, no books = 36 bytes. */
 #define MAFA_SAVE_BODY_V1 36
@@ -1067,9 +1073,10 @@ size_t mafa_save_serialize(const mafa_player_t *p, uint8_t *buf, size_t cap) {
     return total;
 }
 
-/* Version-aware payload reader: v1 (36 B) has xp16 and no books; v2 (40 B)
- * has xp32 + books. Everything after mp shifts accordingly. */
-static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body) {
+/* Version-aware payload reader: v1 (36 B) has xp16 and no books; v2/v3
+ * (40 B) have xp32 + books. Everything after mp shifts accordingly. */
+static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
+                         uint8_t version) {
     t->cls = r[0];
     t->level = r[1];
     if (t->cls >= MAFA_CLS_COUNT || t->level < 1 || t->level > MAFA_MAX_LEVEL)
@@ -1095,8 +1102,18 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body) {
     uint8_t flags = *r++;
     t->map = flags & 3;
     t->unlocked = (flags >> 2) & 3;
-    /* map may be the safe zone; unlocked tops out at the last combat map. */
-    if (t->map >= MAFA_MAP_COUNT || t->unlocked >= MAFA_MAP_SAFE) return false;
+    if (t->map >= MAFA_MAP_COUNT) return false;
+    if (version >= 3) {
+        /* v3: 0 = safe zone, 1-3 combat maps; unlocked must leave the
+         * player somewhere to fight. */
+        if (t->unlocked < 1) return false;
+    } else {
+        /* v1/v2 → v3 map migration: the safe zone moved from id 3 to 0
+         * and combat maps 0-2 shifted to 1-3. */
+        if (t->unlocked >= 3) return false;     /* old domain topped at 2 */
+        t->map = t->map == 3 ? MAFA_MAP_SAFE : (uint8_t)(t->map + 1);
+        t->unlocked = (uint8_t)(t->unlocked + 1);
+    }
     t->auto_potion = (flags & 0x10) != 0;
     t->auto_sell_white = (flags & 0x20) != 0;
     t->auto_boss = (flags & 0x40) != 0;
@@ -1122,7 +1139,7 @@ bool mafa_save_deserialize(mafa_player_t *p, const uint8_t *buf, size_t len) {
     if (len < 4 + MAFA_SAVE_BODY_V1 + 1) return false;
     if (buf[0] != 'M' || buf[1] != 'F' || buf[2] != 'C') return false;
     size_t body;
-    if (buf[3] == MAFA_SAVE_VERSION) body = MAFA_SAVE_BODY_V2;
+    if (buf[3] == MAFA_SAVE_VERSION || buf[3] == 2) body = MAFA_SAVE_BODY_V2;
     else if (buf[3] == 1) body = MAFA_SAVE_BODY_V1;
     else return false;
     if (len - 5 < body) return false;
@@ -1131,9 +1148,9 @@ bool mafa_save_deserialize(mafa_player_t *p, const uint8_t *buf, size_t len) {
     mafa_player_t t;
     memset(&t, 0, sizeof t);
     t.rng = p->rng;                     /* the live stream is never saved */
-    if (!load_payload(&t, buf + 4, body)) return false;
-    if (body == MAFA_SAVE_BODY_V1) {
-        /* v1 → v2 migration: every skill whose unlock level is reached is
+    if (!load_payload(&t, buf + 4, body, buf[3])) return false;
+    if (buf[3] == 1) {
+        /* v1 → v3 migration: every skill whose unlock level is reached is
          * granted its book, so old saves never lose learned skills. */
         grant_level_books(&t);
     }

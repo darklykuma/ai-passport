@@ -367,10 +367,15 @@ static void modal_close(void) {
     s_app.prev_modal[0] = '\0';
 }
 
+static const char *map_boss_name(uint8_t map) {
+    const mafa_monster_t *boss = mafa_map_boss(map);
+    return boss ? boss->name : "?";
+}
+
 static void boss_modal_refresh(void) {
     char buf[128];
     snprintf(buf, sizeof buf, "【Boss】%s 出现了!\n  %s迎战\n  %s回避",
-             MAFA_MONSTERS[s_app.player.map * 6 + 5].name,
+             map_boss_name(s_app.player.map),
              s_app.cur_modal == 0 ? ">" : "  ",
              s_app.cur_modal == 1 ? ">" : "  ");
     modal_show(buf);
@@ -487,7 +492,7 @@ static void tick_battle(void) {
             s_app.boss_pending = true;
             s_app.cur_modal = 0;
             log_line("#F0C04A 【Boss】%s 出现了!#",
-                     MAFA_MONSTERS[s_app.player.map * 6 + 5].name);
+                     map_boss_name(s_app.player.map));
         }
     }
     if (!s_app.in_battle) {
@@ -512,7 +517,7 @@ static void tick_battle(void) {
             s_app.boss_pending = true;
             s_app.cur_modal = 0;
             log_line("#F0C04A 【Boss】%s 出现了!#",
-                     MAFA_MONSTERS[s_app.player.map * 6 + 5].name);
+                     map_boss_name(s_app.player.map));
         }
     }
 }
@@ -648,7 +653,7 @@ static void refresh_maps(void) {
         bool unlocked = i == MAFA_MAP_SAFE || i <= s_app.player.unlocked;
         char row[40];
         snprintf(row, sizeof row, "%s%d.%s%s",
-                 unlocked && s_app.cur_maps == i ? ">" : " ", i + 1,
+                 unlocked && s_app.cur_maps == i ? ">" : " ", i,
                  MAFA_MAP_NAMES[i], unlocked ? "" : " 锁定");
         strncat(buf, row, sizeof buf - strlen(buf) - 1);
         if (i < MAFA_MAP_COUNT - 1)

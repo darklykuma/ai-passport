@@ -85,7 +85,7 @@ static double boss_win_rate(mafa_player_t *p, uint8_t level, uint8_t map,
         mafa_player_t t;
         mafa_player_init(&t, p->cls, (uint32_t)(91000 + i * 17));
         t.level = level;
-        t.unlocked = 2;
+        t.unlocked = 3;
         t.map = map;
         t.pot_red = 8;                  /* honest mid-progression stock */
         t.pot_blue = 4;
@@ -106,22 +106,23 @@ static double boss_win_rate(mafa_player_t *p, uint8_t level, uint8_t map,
 }
 
 int main(int argc, char **argv) {
-    /* Combat maps only: MAFA_MAP_SAFE is the respawn town, never ground. */
-    static const uint8_t suggested[MAFA_MAP_SAFE] = {4, 9, 14};
+    /* Combat maps only (ids 1-3): MAFA_MAP_SAFE is the respawn town at
+     * id 0, never ground. */
+    static const uint8_t suggested[MAFA_MAP_COUNT] = {0, 4, 9, 14};
     /* Per-map cell verdicts: [map][cls][0]=kill pace ok, [1]=grind not
      * constantly deadly, [2]=boss win rate (0-100), [3]=deep push deadly. */
-    int cells[MAFA_MAP_SAFE][MAFA_CLS_COUNT][4] = {{{0}}};
-    double wins[MAFA_MAP_SAFE][MAFA_CLS_COUNT] = {{0}};
+    int cells[MAFA_MAP_COUNT][MAFA_CLS_COUNT][4] = {{{0}}};
+    double wins[MAFA_MAP_COUNT][MAFA_CLS_COUNT] = {{0}};
     int failures = 0;
 
-    for (int map = 0; map < MAFA_MAP_SAFE; ++map) {
+    for (int map = 1; map < MAFA_MAP_COUNT; ++map) {
         if (argc == 3 && atoi(argv[1]) != map) continue;
         for (int cls = 0; cls < MAFA_CLS_COUNT; ++cls) {
             if (argc == 3 && atoi(argv[2]) != cls) continue;
             mafa_player_t p;
             mafa_player_init(&p, (uint8_t)cls, (uint32_t)(4000 + map * 100 + cls * 10));
             p.level = suggested[map];
-            p.unlocked = 2;
+            p.unlocked = 3;
             p.map = (uint8_t)map;
             p.pot_red = 30;
             p.pot_blue = 30;
@@ -157,7 +158,7 @@ int main(int argc, char **argv) {
             mafa_player_init(&q, (uint8_t)cls,
                              (uint32_t)(7000 + map * 100 + cls * 10));
             q.level = suggested[map] >= 3 ? (uint8_t)(suggested[map] - 2) : 1;
-            q.unlocked = 2;
+            q.unlocked = 3;
             q.map = (uint8_t)map;
             q.pot_red = 8;
             q.pot_blue = 4;
@@ -175,7 +176,7 @@ int main(int argc, char **argv) {
             printf(" deep(L%d) %.1fmin\n", q.level, d_death);
         }
     }
-    for (int map = 0; map < MAFA_MAP_SAFE; ++map) {
+    for (int map = 1; map < MAFA_MAP_COUNT; ++map) {
         int in_band = 0, locked = 0, meta_ok = 1;
         for (int cls = 0; cls < MAFA_CLS_COUNT; ++cls) {
             if (wins[map][cls] <= 0) locked = 1;

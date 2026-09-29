@@ -12,8 +12,8 @@
 #include <stdint.h>
 
 #define MAFA_MAX_LEVEL 15
-#define MAFA_MAP_COUNT 4         /* 0-2 combat maps, 3 = safe zone (town) */
-#define MAFA_MAP_SAFE 3          /* always open, no monsters, no boss */
+#define MAFA_MAP_COUNT 4         /* 0 = safe zone (town), 1-3 combat maps */
+#define MAFA_MAP_SAFE 0          /* always open, no monsters, no boss */
 #define MAFA_BACKPACK 8
 #define MAFA_EQ_SLOTS 3          /* 0 weapon, 1 armor, 2 accessory */
 #define MAFA_SKILLS_PER_CLASS 5
@@ -22,7 +22,7 @@
 #define MAFA_GOLD_CAP 9999
 #define MAFA_INV_EMPTY 0xFF
 #define MAFA_DROP_NONE 0xFF
-#define MAFA_SAVE_VERSION 2
+#define MAFA_SAVE_VERSION 3
 
 typedef enum {
     MAFA_CLS_WARRIOR = 0,
@@ -113,6 +113,9 @@ typedef struct {
 extern const mafa_monster_t MAFA_MONSTERS[];
 extern const int MAFA_MONSTER_COUNT;
 extern const char *const MAFA_MAP_NAMES[MAFA_MAP_COUNT];
+
+/* The map's boss row, or NULL for the safe zone / an unknown id. */
+const mafa_monster_t *mafa_map_boss(uint8_t map);
 
 /* --- Player -------------------------------------------------------------- */
 
@@ -273,7 +276,8 @@ void mafa_switch_map(mafa_player_t *p, uint8_t map);    /* combat maps must
 
 /* NVS-ready serialization (PRD 8.10): magic + version + payload + CRC8.
  * Returns the written size, or 0 when the buffer is too small / data bad.
- * v1 saves (36-byte payload) load and migrate: books for every skill whose
- * unlock level is already reached are granted automatically. */
+ * v1/v2 saves load and migrate: v1 grants books for every skill whose
+ * unlock level is reached; v1/v2 map ids shift into the v3 numbering
+ * (safe zone 3 → 0, combat maps 0-2 → 1-3). */
 size_t mafa_save_serialize(const mafa_player_t *p, uint8_t *buf, size_t cap);
 bool mafa_save_deserialize(mafa_player_t *p, const uint8_t *buf, size_t len);
