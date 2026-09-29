@@ -169,7 +169,7 @@ lv_obj_t *mafa_view_page_menu(mafa_view_t *v) {
     lv_obj_set_style_text_color(sub, MAFA_TEXT_DIM, 0);
     lv_obj_set_width(sub, 180);
     lv_obj_set_style_text_align(sub, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_text(sub, "— 文字传奇 —");
+    lv_label_set_text(sub, "「文字传奇」");
     v->items_label = new_label(v->screen, 80, 180, false);
     list_style(v->items_label);
     return v->screen;
