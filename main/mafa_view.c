@@ -114,7 +114,6 @@ lv_obj_t *mafa_view_page_main(mafa_view_t *v) {
     lv_obj_set_style_text_color(v->info_label, MAFA_TEXT_DIM, 0);
     lv_obj_set_width(v->info_label, 142);
     lv_obj_set_style_text_align(v->info_label, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_set_style_text_line_space(v->info_label, 4, 0);
     /* Bars span 10..140; the current-value number is drawn ON the bar's
      * right end (creation order keeps the label on top; the 19px text line
      * bleeds a few px past the 10px bar onto the dark background). */
@@ -142,13 +141,13 @@ lv_obj_t *mafa_view_page_main(mafa_view_t *v) {
      * fieldset legend (opaque bg punches out the border line). */
     lv_obj_t *logbox = panel(v->screen, 4, 98, 232, 140, MAFA_PANEL_BG,
                              MAFA_PANEL_EDGE);
-    lv_obj_t *caption = new_label(v->screen, 14, 89, false);
+    lv_obj_t *caption = new_label(v->screen, 12, 89, false);
     lv_obj_set_style_text_color(caption, MAFA_TEXT_GOLD, 0);
     lv_obj_set_style_bg_color(caption, MAFA_BG, 0);
     lv_obj_set_style_bg_opa(caption, LV_OPA_COVER, 0);
     lv_obj_set_style_pad_hor(caption, 4, 0);
     lv_label_set_text(caption, "战况");
-    v->log_label = new_label(logbox, 10, 8, false);
+    v->log_label = new_label(logbox, 10, 9, false);
     lv_label_set_recolor(v->log_label, true);
     lv_obj_set_style_text_line_space(v->log_label, 2, 0);
 
@@ -160,7 +159,8 @@ lv_obj_t *mafa_view_page_main(mafa_view_t *v) {
     lv_obj_set_style_border_side(menubar, LV_BORDER_SIDE_TOP, 0);
     lv_obj_set_style_border_width(menubar, 2, 0);
     v->menu_label = new_label(menubar, 12, 12, true);
-    lv_obj_set_style_text_line_space(v->menu_label, 10, 0);
+    lv_label_set_recolor(v->menu_label, true);
+    lv_obj_set_style_text_line_space(v->menu_label, 7, 0);
     return v->screen;
 }
 

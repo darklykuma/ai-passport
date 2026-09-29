@@ -208,19 +208,24 @@ static void compose_log(char *buf, size_t cap) {
  * in the real font advances and pushes row 2 (with the 加速4x speed suffix)
  * to 241px, clipping the last column at the 240px screen edge. Half-width
  * gaps keep the columns aligned (identical gap per row) with 15px spare. */
+/* 2×3 grid in one recolored label (design doc docs/design/mafa/03): the
+ * selected cell renders gold, the rest dim, and columns pad to a fixed
+ * pitch with two ASCII spaces — a full-width gap (20px) used to push the
+ * speed cell past the 240px screen edge. Every row uses the same gap, so
+ * the grid stays aligned wherever the cursor rests. */
 static void compose_main_menu(char *buf, size_t cap) {
     buf[0] = '\0';
     for (int i = 0; i < 6; ++i) {
-        char cell[40];
+        const char *tone = s_app.cur_main == i ? "#F0C04A" : "#9AA3A8";
+        const char *mark = s_app.cur_main == i ? "＞" : "　";
+        char cell[32];
         if (i == 5)
-            snprintf(cell, sizeof cell, "%s加速%s",
-                     s_app.cur_main == i ? "＞" : "　",
+            snprintf(cell, sizeof cell, "%s%s加速%s#", tone, mark,
                      SPEED_NAME[s_app.speed]);
         else
-            snprintf(cell, sizeof cell, "%s%s",
-                     s_app.cur_main == i ? "＞" : "　", MAIN_MENU[i]);
-        if (i % 3) strncat(buf, " ", cap - strlen(buf) - 1);
+            snprintf(cell, sizeof cell, "%s%s%s#", tone, mark, MAIN_MENU[i]);
         strncat(buf, cell, cap - strlen(buf) - 1);
+        if (i % 3 != 2) strncat(buf, "  ", cap - strlen(buf) - 1);
         if (i == 2) strncat(buf, "\n", cap - strlen(buf) - 1);
     }
 }
@@ -395,7 +400,7 @@ static void drop_modal_refresh(void) {
  * plus ONE right-aligned info line; kill progress rides the idle enemy
  * strip, where the enemy bar is hidden and cannot collide with it. */
 static void refresh_main(void) {
-    char buf[80];
+    char buf[160];
     snprintf(buf, sizeof buf, "#F0C04A%s#",
              MAFA_MAP_NAMES[s_app.player.map]);
     label_set(s_app.view.map_label, buf, s_app.prev_map, sizeof s_app.prev_map);
@@ -546,7 +551,10 @@ static void refresh_class(void) {
             strncat(buf, "\n", sizeof buf - strlen(buf) - 1);
     }
     lv_label_set_text(s_app.view.items_label, buf);
-    lv_label_set_text(s_app.view.detail_label, BLURB[s_app.cur_class]);
+    char det[96];
+    snprintf(det, sizeof det, "%s\nLv1 起步,技能书解锁进阶",
+             BLURB[s_app.cur_class]);
+    lv_label_set_text(s_app.view.detail_label, det);
 }
 
 static void refresh_status(void) {
@@ -608,7 +616,7 @@ static void refresh_backpack(void) {
     } else {
         mafa_compare_t cmp;
         mafa_compare(&s_app.player, id, &cmp);
-        snprintf(det, sizeof det, "攻%+d 防%+d 血%+d | 金币 %u",
+        snprintf(det, sizeof det, "攻%+d 防%+d 血%+d\n金币 %u",
                  cmp.d_atk, cmp.d_def, (int)cmp.d_hp,
                  (unsigned)s_app.player.gold);
     }
@@ -647,8 +655,11 @@ static void refresh_maps(void) {
             strncat(buf, "\n", sizeof buf - strlen(buf) - 1);
     }
     lv_label_set_text(s_app.view.items_label, buf);
-    lv_label_set_text(s_app.view.detail_label,
-                      MAFA_MAP_NAMES[s_app.player.map]);
+    char det[96];
+    snprintf(det, sizeof det,
+             "当前:%s\n击杀 %d 触发 Boss\n安全区:无怪,休息回血",
+             MAFA_MAP_NAMES[s_app.player.map], MAFA_KILLS_PER_BOSS);
+    lv_label_set_text(s_app.view.detail_label, det);
 }
 
 static void refresh_settings(void) {
