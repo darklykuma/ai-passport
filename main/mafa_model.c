@@ -95,7 +95,9 @@ const mafa_monster_t MAFA_MONSTERS[] = {
 };
 const int MAFA_MONSTER_COUNT = (int)(sizeof MAFA_MONSTERS / sizeof MAFA_MONSTERS[0]);
 
-const char *const MAFA_MAP_NAMES[MAFA_MAP_COUNT] = {"比奇森林", "废矿洞", "祖玛寺庙"};
+const char *const MAFA_MAP_NAMES[MAFA_MAP_COUNT] = {
+    "比奇森林", "废矿洞", "祖玛寺庙", "安全区",
+};
 
 static const uint32_t MAFA_SELL_PRICE[MAFA_Q_COUNT] = {10, 30, 80, 200, 500};
 
@@ -350,7 +352,8 @@ bool mafa_buy_book(mafa_player_t *p, uint8_t skill_idx) {
 }
 
 void mafa_switch_map(mafa_player_t *p, uint8_t map) {
-    if (map < MAFA_MAP_COUNT && map <= p->unlocked) {
+    bool open = map == MAFA_MAP_SAFE || map <= p->unlocked;
+    if (map < MAFA_MAP_COUNT && open) {
         p->map = map;
         p->kills = 0;
     }
@@ -533,7 +536,9 @@ static void settle_kill(mafa_player_t *p, mafa_battle_t *b, uint8_t mob_idx,
 
     if (b->is_boss) {
         p->kills = 0;
-        if (p->map + 1 < MAFA_MAP_COUNT && p->unlocked < p->map + 1)
+        /* Unlock the next COMBAT map; the safe zone is not a progression
+         * step and is open from the start. */
+        if (p->map + 1 < MAFA_MAP_SAFE && p->unlocked < p->map + 1)
             p->unlocked = (uint8_t)(p->map + 1);
     } else {
         p->kills++;
@@ -891,9 +896,13 @@ static void mob_turn(mafa_player_t *p, mafa_battle_t *b, mafa_events_t *ev) {
     }
 }
 
-/* White-name PvE death (single-player 传奇): lose 1-2 random backpack
- * stacks and 10-20 % of carried gold; equipped gear is safe. */
-static void apply_death_penalty(mafa_player_t *p, mafa_events_t *ev) {
+/* White-name PvE death (single-player 传奇, PRD 8.9): lose 1-2 random
+ * backpack stacks and 10-20 % of carried gold; equipped gear is safe.
+ * The boss counter resets, then the player respawns in the safe zone at
+ * full HP/MP and picks the next map themselves. Full HP is mandatory: the
+ * next battle must never start at 0 HP or the player dies again every
+ * round, shedding the penalty each time. */
+static void settle_player_death(mafa_player_t *p, mafa_events_t *ev) {
     uint8_t occupied[MAFA_BACKPACK], n_occ = 0;
     for (int i = 0; i < MAFA_BACKPACK; ++i)
         if (p->inv_id[i] != MAFA_INV_EMPTY) occupied[n_occ++] = (uint8_t)i;
@@ -914,6 +923,11 @@ static void apply_death_penalty(mafa_player_t *p, mafa_events_t *ev) {
         mafa_ev_push(ev, MAFA_EV_GOLD_LOST, 0, (int32_t)lost, 0);
     }
     p->kills = 0;
+    p->map = MAFA_MAP_SAFE;             /* respawn in town (v0.9) */
+    mafa_stats_t st;
+    mafa_stats(p, &st);
+    p->hp = st.max_hp;
+    if (st.max_mp > 0) p->mp = st.max_mp;
 }
 
 void mafa_battle_round(mafa_player_t *p, mafa_battle_t *b, mafa_events_t *ev) {
@@ -931,7 +945,7 @@ void mafa_battle_round(mafa_player_t *p, mafa_battle_t *b, mafa_events_t *ev) {
             b->over = true;
             b->player_dead = true;
             mafa_ev_push(ev, MAFA_EV_PLAYER_DEATH, 0, 0, 0);
-            apply_death_penalty(p, ev);
+            settle_player_death(p, ev);
             return;
         }
     }
@@ -952,7 +966,7 @@ void mafa_battle_round(mafa_player_t *p, mafa_battle_t *b, mafa_events_t *ev) {
 
     mob_turn(p, b, ev);
     if (b->over) {                      /* player died inside mob_turn */
-        apply_death_penalty(p, ev);
+        settle_player_death(p, ev);
         return;
     }
 
@@ -1081,7 +1095,8 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body) {
     uint8_t flags = *r++;
     t->map = flags & 3;
     t->unlocked = (flags >> 2) & 3;
-    if (t->map >= MAFA_MAP_COUNT || t->unlocked >= MAFA_MAP_COUNT) return false;
+    /* map may be the safe zone; unlocked tops out at the last combat map. */
+    if (t->map >= MAFA_MAP_COUNT || t->unlocked >= MAFA_MAP_SAFE) return false;
     t->auto_potion = (flags & 0x10) != 0;
     t->auto_sell_white = (flags & 0x20) != 0;
     t->auto_boss = (flags & 0x40) != 0;

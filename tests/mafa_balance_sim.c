@@ -33,12 +33,16 @@ static void restock(mafa_player_t *p) {
 
 /* Grind SESSION_BATTLES battles, then report kill/death statistics.
  * Boss-battle losses are tracked separately: the boss win rate measures
- * boss danger; the death interval measures normal-grind survivability. */
-static void session(mafa_player_t *p, long *kills, long *deaths,
+ * boss danger; the death interval measures normal-grind survivability.
+ * After a death the model respawns the player in the safe zone; the sim
+ * walks them straight back to the grinding map (a menu action in the real
+ * app, so it costs no simulated time). */
+static void session(mafa_player_t *p, uint8_t map, long *kills, long *deaths,
                     long *battles, long *rounds) {
     *kills = *deaths = *battles = *rounds = 0;
     for (int i = 0; i < SESSION_BATTLES; ++i) {
         if (p->pending_drop != MAFA_DROP_NONE) mafa_drop_discard(p);
+        if (p->map != map) p->map = map;
         mafa_battle_t *b = &scratch_battle;
         if (!mafa_battle_start(p, b)) continue;
         int dead = run_battle(p, b);
@@ -102,14 +106,15 @@ static double boss_win_rate(mafa_player_t *p, uint8_t level, uint8_t map,
 }
 
 int main(int argc, char **argv) {
-    static const uint8_t suggested[MAFA_MAP_COUNT] = {4, 9, 14};
+    /* Combat maps only: MAFA_MAP_SAFE is the respawn town, never ground. */
+    static const uint8_t suggested[MAFA_MAP_SAFE] = {4, 9, 14};
     /* Per-map cell verdicts: [map][cls][0]=kill pace ok, [1]=grind not
      * constantly deadly, [2]=boss win rate (0-100), [3]=deep push deadly. */
-    int cells[MAFA_MAP_COUNT][MAFA_CLS_COUNT][4] = {{{0}}};
-    double wins[MAFA_MAP_COUNT][MAFA_CLS_COUNT] = {{0}};
+    int cells[MAFA_MAP_SAFE][MAFA_CLS_COUNT][4] = {{{0}}};
+    double wins[MAFA_MAP_SAFE][MAFA_CLS_COUNT] = {{0}};
     int failures = 0;
 
-    for (int map = 0; map < MAFA_MAP_COUNT; ++map) {
+    for (int map = 0; map < MAFA_MAP_SAFE; ++map) {
         if (argc == 3 && atoi(argv[1]) != map) continue;
         for (int cls = 0; cls < MAFA_CLS_COUNT; ++cls) {
             if (argc == 3 && atoi(argv[2]) != cls) continue;
@@ -125,7 +130,7 @@ int main(int argc, char **argv) {
             gear_up(&p, (uint8_t)map, 2);
 
             long kills, deaths, battles, rounds;
-            session(&p, &kills, &deaths, &battles, &rounds);
+            session(&p, (uint8_t)map, &kills, &deaths, &battles, &rounds);
             if (battles == 0 || kills == 0) {
                 printf("SIM FAIL map %d cls %d: stalled (battles %ld)\n",
                        map, cls, battles);
@@ -160,7 +165,7 @@ int main(int argc, char **argv) {
                 q.books |= (uint16_t)(1u << (cls * MAFA_SKILLS_PER_CLASS + s));
             gear_up(&q, (uint8_t)map, 2);
             long dk, dd, db, dr;
-            session(&q, &dk, &dd, &db, &dr);
+            session(&q, (uint8_t)map, &dk, &dd, &db, &dr);
             double d_death = dd == 0
                 ? 9999.0
                 : SECONDS_PER_ROUND * (double)dr / 60.0 / (double)dd;
@@ -170,7 +175,7 @@ int main(int argc, char **argv) {
             printf(" deep(L%d) %.1fmin\n", q.level, d_death);
         }
     }
-    for (int map = 0; map < MAFA_MAP_COUNT; ++map) {
+    for (int map = 0; map < MAFA_MAP_SAFE; ++map) {
         int in_band = 0, locked = 0, meta_ok = 1;
         for (int cls = 0; cls < MAFA_CLS_COUNT; ++cls) {
             if (wins[map][cls] <= 0) locked = 1;

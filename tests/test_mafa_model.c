@@ -403,7 +403,11 @@ static void test_death_penalty_drops_and_gold(void) {
         mafa_battle_round(&p, &b, &ev);
         guard++;
     }
-    assert(b.over && b.player_dead && p.hp == 0);
+    assert(b.over && b.player_dead);
+    mafa_stats_t st;
+    mafa_stats(&p, &st);
+    assert(p.hp == st.max_hp);          /* PRD 8.9: full restoration on death */
+    assert(p.map == MAFA_MAP_SAFE);     /* respawn in town, pick the map */
     assert(guard < 100000);
     assert(p.kills == 0);               /* boss counter reset */
 
@@ -427,7 +431,7 @@ static void test_save_roundtrip_v2(void) {
     p.pot_red = 3;
     p.pot_blue = 4;
     p.unlocked = 1;
-    p.map = 1;
+    p.map = MAFA_MAP_SAFE;              /* v0.9: town survives the roundtrip */
     p.kills = 17;
     p.auto_potion = false;
     p.auto_boss = true;
@@ -449,7 +453,7 @@ static void test_save_roundtrip_v2(void) {
     assert(q.cls == p.cls && q.level == p.level && q.xp == 123456);
     assert(q.gold == p.gold && q.pot_red == 3 && q.pot_blue == 4);
     assert(q.books == p.books);
-    assert(q.unlocked == 1 && q.map == 1 && q.kills == 17);
+    assert(q.unlocked == 1 && q.map == MAFA_MAP_SAFE && q.kills == 17);
     assert(q.auto_potion == false && q.auto_sell_white == true);
     assert(q.auto_boss == true);
     assert(q.equipped[MAFA_SLOT_ARMOR] == 3);
@@ -498,7 +502,7 @@ static void test_v1_save_migration(void) {
 }
 
 static void test_battle_terminates_over_many_maps(void) {
-    for (int map = 0; map < MAFA_MAP_COUNT; ++map) {
+    for (int map = 0; map < MAFA_MAP_SAFE; ++map) {
         for (int cls = 0; cls < MAFA_CLS_COUNT; ++cls) {
             mafa_player_t p;
             mafa_player_init(&p, (uint8_t)cls, 1000 + map * 7 + cls);
@@ -515,6 +519,9 @@ static void test_battle_terminates_over_many_maps(void) {
                 assert(p.hp >= 0);
                 if (p.hp == 0) break;   /* death is a valid ending */
             }
+            /* A death respawns the player in the safe zone; walk back
+             * before facing the boss. */
+            p.map = (uint8_t)map;
             /* Bosses must also terminate (taoist pet + full kit). */
             p.kills = MAFA_KILLS_PER_BOSS;
             mafa_battle_t boss;
@@ -527,6 +534,23 @@ static void test_battle_terminates_over_many_maps(void) {
             }
         }
     }
+}
+
+static void test_safe_zone_no_combat_and_open_door(void) {
+    mafa_player_t p;
+    mafa_player_init(&p, MAFA_CLS_MAGE, 99);
+    assert(p.unlocked == 0);
+    mafa_switch_map(&p, MAFA_MAP_SAFE);     /* the town is open from day 1 */
+    assert(p.map == MAFA_MAP_SAFE && p.kills == 0);
+    mafa_battle_t b;
+    assert(!mafa_battle_start(&p, &b));     /* no spawns in town */
+    p.kills = MAFA_KILLS_PER_BOSS;
+    assert(!mafa_boss_start(&p, &b));       /* no boss in town */
+    mafa_switch_map(&p, 1);                 /* locked map: ignored */
+    assert(p.map == MAFA_MAP_SAFE);
+    mafa_switch_map(&p, 0);                 /* walk back out */
+    assert(p.map == 0);
+    assert(mafa_battle_start(&p, &b));
 }
 
 int main(void) {
@@ -544,6 +568,7 @@ int main(void) {
     test_full_backpack_drop_prompt();
     test_potions_and_store();
     test_death_penalty_drops_and_gold();
+    test_safe_zone_no_combat_and_open_door();
     test_save_roundtrip_v2();
     test_v1_save_migration();
     test_battle_terminates_over_many_maps();

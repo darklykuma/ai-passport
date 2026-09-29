@@ -12,7 +12,8 @@
 #include <stdint.h>
 
 #define MAFA_MAX_LEVEL 15
-#define MAFA_MAP_COUNT 3
+#define MAFA_MAP_COUNT 4         /* 0-2 combat maps, 3 = safe zone (town) */
+#define MAFA_MAP_SAFE 3          /* always open, no monsters, no boss */
 #define MAFA_BACKPACK 8
 #define MAFA_EQ_SLOTS 3          /* 0 weapon, 1 armor, 2 accessory */
 #define MAFA_SKILLS_PER_CLASS 5
@@ -126,8 +127,8 @@ typedef struct {
     uint8_t inv_id[MAFA_BACKPACK];
     uint8_t inv_n[MAFA_BACKPACK];
     uint8_t equipped[MAFA_EQ_SLOTS];    /* item id or MAFA_INV_EMPTY */
-    uint8_t map;            /* current idle map */
-    uint8_t unlocked;       /* highest unlocked map index */
+    uint8_t map;            /* current idle map (MAFA_MAP_SAFE = town) */
+    uint8_t unlocked;       /* highest unlocked combat map index */
     uint16_t kills;         /* mobs killed on the current map, toward boss */
     uint8_t pending_drop;   /* item id awaiting the full-backpack prompt */
     bool auto_potion;       /* settings toggle, default on */
@@ -237,7 +238,8 @@ void mafa_regen(mafa_player_t *p, uint8_t seconds);
 
 /* Spawns a battle against 1-3 monsters of the current map (weight shifts to
  * 3 mobs on deeper maps; elite 1/10 spawns a single boosted mob).
- * Returns false when a drop prompt is still pending or the map is invalid. */
+ * Returns false when a drop prompt is still pending or the map has no
+ * spawns (invalid map or the safe zone). */
 bool mafa_battle_start(mafa_player_t *p, mafa_battle_t *b);
 /* Boss event: returns false when kills < MAFA_KILLS_PER_BOSS or a prompt
  * is pending. mafa_boss_pass resets the kill counter instead of fighting. */
@@ -264,7 +266,10 @@ uint32_t mafa_sell(mafa_player_t *p, uint8_t inv_idx);  /* gold gained */
 uint32_t mafa_sell_all_white(mafa_player_t *p);         /* gold gained */
 bool mafa_buy_potion(mafa_player_t *p, bool red);       /* 50 / 40 gold */
 bool mafa_buy_book(mafa_player_t *p, uint8_t skill_idx);
-void mafa_switch_map(mafa_player_t *p, uint8_t map);    /* must be unlocked */
+void mafa_switch_map(mafa_player_t *p, uint8_t map);    /* combat maps must
+                                                            be unlocked; the
+                                                            safe zone always
+                                                            is */
 
 /* NVS-ready serialization (PRD 8.10): magic + version + payload + CRC8.
  * Returns the written size, or 0 when the buffer is too small / data bad.

@@ -336,6 +336,7 @@ static void handle_events(const mafa_events_t *ev) {
             break;
         case MAFA_EV_PLAYER_DEATH:
             log_line("#E05A48 你被 %s 杀死了…#", ev_mob_name(ev, i));
+            log_line("#9AA3A8 满血回到安全区#");
             settled = true;
             break;
         default:
@@ -450,6 +451,8 @@ static void refresh_main(void) {
         if (hp > hpmax) hp = hpmax;
         bar_set(s_app.view.enemy_bar, hp, hpmax, &s_app.disp_ehp,
                 &s_app.disp_emax);
+    } else if (s_app.player.map == MAFA_MAP_SAFE) {
+        snprintf(buf, sizeof buf, "#9AA3A8 休息中,请选地图#");
     } else {
         snprintf(buf, sizeof buf, "#9AA3A8 挂机中 %d/%d#",
                  (int)s_app.player.kills, MAFA_KILLS_PER_BOSS);
@@ -631,10 +634,10 @@ static void refresh_store(void) {
 }
 
 static void refresh_maps(void) {
-    char buf[128];
+    char buf[160];
     buf[0] = '\0';
     for (int i = 0; i < MAFA_MAP_COUNT; ++i) {
-        bool unlocked = i <= s_app.player.unlocked;
+        bool unlocked = i == MAFA_MAP_SAFE || i <= s_app.player.unlocked;
         char row[40];
         snprintf(row, sizeof row, "%s%d.%s%s",
                  unlocked && s_app.cur_maps == i ? ">" : " ", i + 1,
@@ -907,14 +910,23 @@ static void process_event(const input_event_t *ev) {
         if (long_ok) { enter_page(PAGE_MAIN); break; }
         if (!click) break;
         if (ev->btn == BSP_BTN_UP || ev->btn == BSP_BTN_DOWN) {
-            int max = s_app.player.unlocked;
-            s_app.cur_maps = (s_app.cur_maps + 1) % (max + 1);
+            /* The cursor only rests on rows the player may enter: the
+             * safe zone plus unlocked combat maps. */
+            do {
+                s_app.cur_maps = ev->btn == BSP_BTN_UP
+                    ? (s_app.cur_maps + 1) % MAFA_MAP_COUNT
+                    : (s_app.cur_maps + MAFA_MAP_COUNT - 1) % MAFA_MAP_COUNT;
+            } while (s_app.cur_maps != MAFA_MAP_SAFE
+                     && s_app.cur_maps > s_app.player.unlocked);
         } else if (ev->btn == BSP_BTN_OK) {
             mafa_switch_map(&s_app.player, (uint8_t)s_app.cur_maps);
             save_now();
             enter_page(PAGE_MAIN);
-            log_clear("【%s】开始挂机",
-                      MAFA_MAP_NAMES[s_app.player.map]);
+            if (s_app.player.map == MAFA_MAP_SAFE)
+                log_clear("【%s】休息中", MAFA_MAP_NAMES[s_app.player.map]);
+            else
+                log_clear("【%s】开始挂机",
+                          MAFA_MAP_NAMES[s_app.player.map]);
             refresh_main();
             break;
         }

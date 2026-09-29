@@ -4,10 +4,10 @@
 
 # MAFA CHRONICLE PRD
 
-> Document status: **Draft v0.8, awaiting review**
+> Document status: **Draft v0.9, awaiting review**
 > Product carrier: FoloToy AI Passport / ESP32-C3 / 240 × 320 LCD / three ADC buttons (UP/DOWN/OK)
 > Target branch: `feature/mafa-chronicle` (to be created)
-> PRD version: v0.8
+> PRD version: v0.9
 > Updated: 2026-09-29
 
 ---
@@ -191,7 +191,7 @@ Three classes, chosen at game start, immutable. Stats: HP / MP / attack / defens
 - **Critical**: 10% chance, attack ×1.5; the log marks it with a "CRIT" prefix.
 - **Skills auto-cast** by the priority policy in 8.4; log lines open with the skill name.
 - **Auto-potion** (settings toggle, default on): red potion below 50% HP, blue potion below 30% MP. Potions restore level-scaled flat amounts (8.8) so one potion always answers roughly one mob hit, early and late.
-- **Death**: HP ≤ 0 → log "You were killed by…" → full restoration, idling continues; death penalties per 8.9.
+- **Death**: HP ≤ 0 → log "You were killed by…" → respawn in the safe zone at full HP/MP, the player picks the next map themselves; death penalties per 8.9.
 - **Combat log**: the latest 6 lines scrolling; kills/drops/level-ups/boss events use accent colors. Monster packs show as "▶multi-hook-cat×3" with a pooled HP bar; the pet announces itself through log lines.
 - Monster AI (P0): normal attack; below 30% HP, a 50% chance to use its monster skill (see table 9.2).
 - **Auto-sell-white** (settings toggle, default on): white drops convert to gold at sell price immediately, never occupying the backpack; green and above go to the backpack for the player to judge.
@@ -275,11 +275,13 @@ Three idle maps in P0, unlocked linearly (boss-event victory unlocks the next):
 
 ### 8.9 Death
 
-HP ≤ 0: log "You were killed by…" → full restoration, idling continues on the current map, the boss kill counter resets, and the white-name PvE penalty from the original applies (v0.8):
+HP ≤ 0: log "You were killed by…" → the player respawns in the **safe zone** at full HP/MP (v0.9) and idling stops until they pick the next map from the map page themselves — getting kicked back to town is part of the death cost. The boss kill counter resets, and the white-name PvE penalty from the original applies (v0.8):
 
 - **Backpack**: 1–2 random stacks are lost permanently (no corpse run in an idle game);
 - **Gold**: 10–20% of carried gold is lost;
 - **Equipped gear is safe** (too harsh for a single-player idle game; potions are safe too).
+
+The safe zone (v0.9) is a fourth map id on top of the three combat maps: always open, no monsters, no boss; switching to it is a voluntary rest option, and combat maps stay locked until their boss falls (8.7).
 
 ### 8.10 Save
 
@@ -394,6 +396,7 @@ Global: UP/DOWN move the cursor, OK confirms, long-press returns to the main scr
 - v0.3 (2026-09-28): skills expanded from 1 to 3 per class (L3/L7/L12), with burn/poison DoT effects and per-class auto-cast priorities; added sell-price details; copy budget raised to 600 characters.
 - v0.7 (2026-09-29): first visual pass on the UI (legend-panel style): gold header band (map + boss progress, level/battery/gold, HP/MP bars), enemy strip with its own HP bar, framed log panel, bottom action bar with full-width-glyph column alignment; the glyph pipeline now covers UI symbols (▶ cursor, … ellipsis), font subsets 223 → 231 codepoints.
 - v0.8 (2026-09-29): **skills 2.0 + rebalance** from the second playtest ("too easy, no original-growth feel"): 5 skills per class with distinct forms (passive / proc / nuke / AoE / burn / heal / poison / shield / charge / pets), unlocks gated by level AND skill book (store books 1–2, elite/boss books 3–4, boss first-kill guarantee); battles spawn 1–3 monsters (deeper maps favor packs), the taoist pet taunts; front-fast back-wall XP curve (14→15 wall ≈ 45 % of total, time-to-max ≈ several idle days); white-name death penalty (1–2 backpack stacks + 10–20 % gold, gear safe); potion economy (50/40 gold, level-scaled heals); gold-tier gear boss-only (8 %); boss-kill counter 25 → 40 mobs; save v2 with v1 migration; sim gates recalibrated (battle pace 4–15 s, boss band 45–75 %, ≥1 class in band, no 0 % matchups).
+- v0.9 (2026-09-29): on-device playtest found the death loop (respawn kept 0 HP, dying endlessly). Death now respawns the player in a new **safe zone** (4th map id, always open, no monsters/boss, also a voluntary rest spot) at full HP/MP; idling stays stopped until the player picks the next map themselves — the town kick becomes part of the death cost. Penalties unchanged; map-page cursor only rests on enterable rows.
 - v0.6 (2026-09-28): on-device feedback added an "auto-boss" settings toggle (boss events are fought automatically instead of prompting); save contents and the settings page updated.
 - v0.5 (2026-09-28): on-device feedback added a gear-overview page (action menu item 2: the three equipped slots plus a stat summary); the action menu grew to six entries.
 - v0.4 (2026-09-28): M2 balance calibration finalized. Taoist rebalanced as a sustain fighter (HP 60+6, attack 12+1; Soul Fire Talisman L3 2.4×/MP14, Heal L7, Poison L12); added boss-fight rules (50% defense pierce, ±20% monster damage roll, fixed-value potions); boss stats finalized (Ape 300/16, Corpse King 400/26, Overlord 1200/22); success metric redefined as "per map at least one class win rate within 20–85%, none locked at 0%".
