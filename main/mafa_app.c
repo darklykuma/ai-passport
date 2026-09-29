@@ -782,7 +782,7 @@ static void input_main(bsp_btn_t btn, bool click) {
     if (btn == BSP_BTN_UP)
         s_app.cur_main = (s_app.cur_main + 5) % 6;
     else if (btn == BSP_BTN_DOWN)
-        s_app.cur_main = (s_app.cur_main + 1) % 5;
+        s_app.cur_main = (s_app.cur_main + 1) % 6;
     else if (btn == BSP_BTN_OK) {
         switch (s_app.cur_main) {
         case 0: enter_page(PAGE_BACKPACK); return;
