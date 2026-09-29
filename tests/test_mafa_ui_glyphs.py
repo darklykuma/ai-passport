@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""MAFA CHRONICLE glyph coverage gate: every CJK character used by the UI
-sources must be in the tracked charset (which drives the subset fonts), and
-the tracked generated fonts must cover every codepoint of that charset.
-Regenerate with tools/gen_mafa_charset.py + tools/gen_mafa_fonts.sh."""
+"""MAFA CHRONICLE glyph coverage gate: every CJK character and UI symbol
+(…, ▶) used by the UI sources must be in the tracked charset (which drives
+the subset fonts), and the tracked generated fonts must cover every
+codepoint of that charset. Regenerate with tools/gen_mafa_charset.py +
+tools/gen_mafa_fonts.sh. Keep this regex in sync with the one in
+tools/gen_mafa_charset.py."""
 
 from __future__ import annotations
 
@@ -18,7 +20,9 @@ FONT_SOURCES = (
     ROOT / "assets" / "fonts" / "mafa_font_20.c",
 )
 
-CJK = re.compile(r"[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uff01-\uffee]")
+CJK = re.compile(
+    r"[\u2026\u25a0-\u25ff\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uff01-\uffee]"
+)
 
 UI_SOURCES = (
     ROOT / "main" / "mafa_app.c",

@@ -15,8 +15,12 @@ SOURCES = [
 ]
 OUT = ROOT / "assets" / "fonts" / "mafa_charset.txt"
 
-# CJK ideographs plus full-width punctuation the UI copy may use.
-CJK = re.compile(r"[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uff01-\uffee]")
+# CJK ideographs, full-width punctuation, and the UI symbols the copy uses
+# (… ellipsis, ▶ cursor — geometric shapes). Everything matched here must be
+# covered by the subset fonts, so extend only with glyphs the fonts carry.
+CJK = re.compile(
+    r"[\u2026\u25a0-\u25ff\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uff01-\uffee]"
+)
 
 chars = set()
 for src in SOURCES:

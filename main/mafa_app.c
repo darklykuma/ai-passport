@@ -82,10 +82,16 @@ static struct {
 
     char log[LOG_LINES][LOG_LINE_CAP];
 
-    char prev_status[112];
+    /* Diff shadows, wiped on page entry; bar caches init to -1 there. */
+    char prev_map[64];
+    char prev_info[48];
+    char prev_hptext[16];
+    char prev_mptext[16];
+    char prev_enemy[64];
     char prev_log[LOG_LINES * LOG_LINE_CAP + LOG_LINES];
     char prev_menu[176];
     char prev_modal[224];
+    int disp_hp, disp_hmax, disp_mp, disp_mmax, disp_ehp, disp_emax;
 
     mafa_view_t view;
     QueueHandle_t queue;
@@ -168,30 +174,24 @@ static void label_set(lv_obj_t *label, const char *text, char *prev, size_t cap)
     lv_label_set_text(label, text);
 }
 
-// --- Composers ------------------------------------------------------------------
-
-static void compose_status(char *buf, size_t cap) {
-    mafa_stats_t st;
-    mafa_stats(&s_app.player, &st);
-    const char *map = MAFA_MAP_NAMES[s_app.player.map];
-    if (s_app.in_battle) {
-        const mafa_monster_t *m = s_app.battle.mob.base;
-        snprintf(buf, cap, "Lv%d %s 血%d/%ld 蓝%d 金%u\n▶%s %ld/%ld",
-                 s_app.player.level, map, s_app.player.hp,
-                 (long)st.max_hp, s_app.player.mp, (unsigned)s_app.player.gold,
-                 m->name, (long)s_app.battle.mob.hp,
-                 (long)s_app.battle.mob.max_hp);
-    } else {
-        snprintf(buf, cap, "Lv%d %s 血%d/%ld 蓝%d 金%u\n【%s】挂机中",
-                 s_app.player.level, map, s_app.player.hp,
-                 (long)st.max_hp, s_app.player.mp, (unsigned)s_app.player.gold,
-                 map);
+/* Guarded bar update: range first (levels and gear move the max; an empty
+ * MP pool gets a 0..1 range so LVGL never divides by zero), then the value,
+ * each only when they actually changed. */
+static void bar_set(lv_obj_t *bar, long v, long vmax, int *prev_v,
+                    int *prev_max) {
+    if (vmax < 1) vmax = 1;
+    if (v > vmax) v = vmax;
+    if (*prev_max != vmax) {
+        lv_bar_set_range(bar, 0, (int)vmax);
+        *prev_max = (int)vmax;
     }
-    int bat = battery_read();
-    size_t used = strlen(buf);
-    if (bat >= 0 && used + 8 < cap)
-        snprintf(buf + used, cap - used, " %d%%", bat);
+    if (*prev_v != v) {
+        lv_bar_set_value(bar, v, LV_ANIM_OFF);
+        *prev_v = (int)v;
+    }
 }
+
+// --- Composers ------------------------------------------------------------------
 
 static void compose_log(char *buf, size_t cap) {
     buf[0] = '\0';
@@ -202,18 +202,23 @@ static void compose_log(char *buf, size_t cap) {
     }
 }
 
+/* 2×3 grid. Every column prefix is exactly one full-width glyph (＞ or 　)
+ * and cells are joined by full-width spaces, so the three columns stay
+ * aligned in the proportional font regardless of where the cursor is. */
 static void compose_main_menu(char *buf, size_t cap) {
     buf[0] = '\0';
     for (int i = 0; i < 6; ++i) {
-        char row[32];
+        char cell[40];
         if (i == 5)
-            snprintf(row, sizeof row, "%s加速(%s)",
-                     s_app.cur_main == i ? ">" : "  ", SPEED_NAME[s_app.speed]);
+            snprintf(cell, sizeof cell, "%s加速%s",
+                     s_app.cur_main == i ? "＞" : "　",
+                     SPEED_NAME[s_app.speed]);
         else
-            snprintf(row, sizeof row, "%s%s",
-                     s_app.cur_main == i ? ">" : "  ", MAIN_MENU[i]);
-        strncat(buf, row, cap - strlen(buf) - 1);
-        if (i < 5) strncat(buf, "\n", cap - strlen(buf) - 1);
+            snprintf(cell, sizeof cell, "%s%s",
+                     s_app.cur_main == i ? "＞" : "　", MAIN_MENU[i]);
+        if (i % 3) strncat(buf, "　", cap - strlen(buf) - 1);
+        strncat(buf, cell, cap - strlen(buf) - 1);
+        if (i == 2) strncat(buf, "\n", cap - strlen(buf) - 1);
     }
 }
 
@@ -342,11 +347,53 @@ static void drop_modal_refresh(void) {
 
 // --- Tick (idle auto-battle, PRD 8.3) ----------------------------------------------
 
+/* Main page: five guarded refresh units — header (map + info), the two
+ * player bars, the enemy strip, the log, the action menu. */
 static void refresh_main(void) {
-    char buf[112];
-    compose_status(buf, sizeof buf);
-    label_set(s_app.view.status_label, buf, s_app.prev_status,
-              sizeof s_app.prev_status);
+    mafa_stats_t st;
+    mafa_stats(&s_app.player, &st);
+    char buf[80];
+    snprintf(buf, sizeof buf, "#F0C04A%s# #9AA3A8 %d/%d#",
+             MAFA_MAP_NAMES[s_app.player.map], (int)s_app.player.kills,
+             MAFA_KILLS_PER_BOSS);
+    label_set(s_app.view.map_label, buf, s_app.prev_map, sizeof s_app.prev_map);
+    int bat = battery_read();
+    if (bat >= 0)
+        snprintf(buf, sizeof buf, "Lv.%d %d%%\n金%u", s_app.player.level,
+                 bat, (unsigned)s_app.player.gold);
+    else
+        snprintf(buf, sizeof buf, "Lv.%d\n金%u", s_app.player.level,
+                 (unsigned)s_app.player.gold);
+    label_set(s_app.view.info_label, buf, s_app.prev_info,
+              sizeof s_app.prev_info);
+
+    bar_set(s_app.view.hp_bar, s_app.player.hp, st.max_hp, &s_app.disp_hp,
+            &s_app.disp_hmax);
+    snprintf(buf, sizeof buf, "%d/%ld", s_app.player.hp, (long)st.max_hp);
+    label_set(s_app.view.hp_text, buf, s_app.prev_hptext,
+              sizeof s_app.prev_hptext);
+    bar_set(s_app.view.mp_bar, s_app.player.mp, st.max_mp, &s_app.disp_mp,
+            &s_app.disp_mmax);
+    snprintf(buf, sizeof buf, "%d/%d", s_app.player.mp, (int)st.max_mp);
+    label_set(s_app.view.mp_text, buf, s_app.prev_mptext,
+              sizeof s_app.prev_mptext);
+
+    if (s_app.in_battle) {
+        if (s_app.battle.is_boss)
+            snprintf(buf, sizeof buf, "#F0C04A▶%s!#",
+                     s_app.battle.mob.base->name);
+        else
+            snprintf(buf, sizeof buf, "▶%s", s_app.battle.mob.base->name);
+        bar_set(s_app.view.enemy_bar, s_app.battle.mob.hp,
+                s_app.battle.mob.max_hp, &s_app.disp_ehp, &s_app.disp_emax);
+    } else {
+        snprintf(buf, sizeof buf, "#9AA3A8 挂机中#");
+        bar_set(s_app.view.enemy_bar, 0, 100, &s_app.disp_ehp,
+                &s_app.disp_emax);
+    }
+    label_set(s_app.view.enemy_label, buf, s_app.prev_enemy,
+              sizeof s_app.prev_enemy);
+
     char logbuf[sizeof s_app.prev_log];
     compose_log(logbuf, sizeof logbuf);
     label_set(s_app.view.log_label, logbuf, s_app.prev_log, sizeof s_app.prev_log);
@@ -544,10 +591,17 @@ static void enter_page(page_t page) {
     lv_obj_t *prev = s_app.view.screen;   /* deleted after the new screen is
                                              loaded (fog load_screen order) */
     s_app.page = page;
-    memset(s_app.prev_status, 0, sizeof s_app.prev_status);
+    memset(s_app.prev_map, 0, sizeof s_app.prev_map);
+    memset(s_app.prev_info, 0, sizeof s_app.prev_info);
+    memset(s_app.prev_hptext, 0, sizeof s_app.prev_hptext);
+    memset(s_app.prev_mptext, 0, sizeof s_app.prev_mptext);
+    memset(s_app.prev_enemy, 0, sizeof s_app.prev_enemy);
     memset(s_app.prev_log, 0, sizeof s_app.prev_log);
     memset(s_app.prev_menu, 0, sizeof s_app.prev_menu);
     memset(s_app.prev_modal, 0, sizeof s_app.prev_modal);
+    s_app.disp_hp = s_app.disp_hmax = -1;
+    s_app.disp_mp = s_app.disp_mmax = -1;
+    s_app.disp_ehp = s_app.disp_emax = -1;
     switch (page) {
     case PAGE_MENU:
         mafa_view_page_menu(&s_app.view);
