@@ -232,7 +232,7 @@ lv_obj_t *mafa_view_page_backpack(mafa_view_t *v) {
 lv_obj_t *mafa_view_page_store(mafa_view_t *v) {
     memset(v, 0, sizeof *v);
     v->screen = base_screen();
-    title_band(v->screen, "药店");
+    title_band(v->screen, "商店");
     lv_obj_t *list = panel(v->screen, 6, 42, 228, 270, MAFA_PANEL_BG,
                            MAFA_PANEL_EDGE);
     v->items_label = new_label(list, 12, 10, false);

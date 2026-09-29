@@ -231,6 +231,17 @@ static const mafa_skill_t *skill_of(uint8_t idx) {
     return &MAFA_SKILLS[s_app.player.cls][idx];
 }
 
+/* Name of the mob an event refers to (b = mob index). */
+static const char *ev_mob_name(const mafa_events_t *ev, int i) {
+    uint8_t m = (uint8_t)ev->e[i].b;
+    if (m >= s_app.battle.mob_n) m = 0;
+    return s_app.battle.mob[m].base->name;
+}
+
+static const char *pet_name(void) {
+    return s_app.battle.pet_tier == 2 ? "神兽" : "骷髅";
+}
+
 static void handle_events(const mafa_events_t *ev) {
     bool settled = false;
     for (int i = 0; i < ev->n; ++i) {
@@ -255,14 +266,16 @@ static void handle_events(const mafa_events_t *ev) {
                 log_line("【%s】发动!", skill_of(id)->name);
             break;
         case MAFA_EV_DOT_TICK:
-            log_line("持续伤害 %d 点", a);
+            log_line("#E05A48 %s 受 %d 持续伤害#",
+                     ev_mob_name(ev, i), a);
             break;
         case MAFA_EV_MOB_HIT:
             log_line("#E05A48 %s 反击,你受 %d 伤害#",
-                     s_app.battle.mob.base->name, a);
+                     ev_mob_name(ev, i), a);
             break;
         case MAFA_EV_MOB_SKILL:
-            log_line("#E05A48 【%s】你受 %d 伤害!#",
+            log_line("#E05A48 %s【%s】你受 %d 伤害!#",
+                     ev_mob_name(ev, i),
                      id == MAFA_MSK_FIRE ? "火攻"
                      : id == MAFA_MSK_FLURRY ? "连击"
                      : id == MAFA_MSK_HEAVY ? "重击"
@@ -278,9 +291,23 @@ static void handle_events(const mafa_events_t *ev) {
             log_line("#5FC85F %s +%d#",
                      id == 1 ? "红药" : id == 2 ? "蓝药" : "治愈", a);
             break;
+        case MAFA_EV_PET_HIT:
+            log_line("#9AA3A8 %s 攻击%s,造成 %d 伤害#",
+                     pet_name(), ev_mob_name(ev, i), a);
+            break;
+        case MAFA_EV_PET_GUARD:
+            log_line("#9AA3A8 %s 替你挡下 %d 伤害#",
+                     pet_name(), a);
+            break;
+        case MAFA_EV_PET_SUMMON:
+            log_line("#5FC85F %s 出现!#", id == 2 ? "神兽" : "骷髅");
+            break;
+        case MAFA_EV_PET_DOWN:
+            log_line("#E05A48 %s 倒下了!#", pet_name());
+            break;
         case MAFA_EV_MOB_KILLED:
             log_line("#F0C04A %s 倒下!经验+%d#",
-                     s_app.battle.mob.base->name, a);
+                     ev_mob_name(ev, i), a);
             settled = true;
             break;
         case MAFA_EV_LEVELUP:
@@ -297,8 +324,19 @@ static void handle_events(const mafa_events_t *ev) {
             settled = true;
             break;
         }
+        case MAFA_EV_BOOK:
+            log_line("#F0C04A 习得【%s】!#", skill_of(id)->name);
+            settled = true;
+            break;
+        case MAFA_EV_DEATH_DROP:
+            log_line("#E05A48 失去 %s#", MAFA_ITEMS[id].name);
+            break;
+        case MAFA_EV_GOLD_LOST:
+            log_line("#E05A48 损失 %d 金#", a);
+            break;
         case MAFA_EV_PLAYER_DEATH:
-            log_line("#E05A48 你被 %s 杀死了…#", s_app.battle.mob.base->name);
+            log_line("#E05A48 你被 %s 杀死了…#", ev_mob_name(ev, i));
+            settled = true;
             break;
         default:
             break;
@@ -388,13 +426,30 @@ static void refresh_main(void) {
         s_app.disp_ebar = want_bar;
     }
     if (s_app.in_battle) {
+        /* First-alive mob name × living count; the bar shows the pack's
+         * pooled HP. The pet is followed through its log lines (summon /
+         * guard / down) — the strip row is too narrow for a suffix. */
+        uint8_t first = MAFA_MOBS_MAX;
+        int32_t hp = 0, hpmax = 0;
+        for (int i = 0; i < s_app.battle.mob_n; ++i) {
+            if (!s_app.battle.mob[i].alive) continue;
+            if (first == MAFA_MOBS_MAX) first = (uint8_t)i;
+            hp += s_app.battle.mob[i].hp;
+            hpmax += s_app.battle.mob[i].max_hp;
+        }
+        const char *mob_name = first < s_app.battle.mob_n
+            ? s_app.battle.mob[first].base->name : "?";
         if (s_app.battle.is_boss)
-            snprintf(buf, sizeof buf, "#F0C04A▶%s!#",
-                     s_app.battle.mob.base->name);
+            snprintf(buf, sizeof buf, "#F0C04A▶%s!#", mob_name);
+        else if (s_app.battle.alive_n > 1)
+            snprintf(buf, sizeof buf, "▶%s×%d", mob_name,
+                     s_app.battle.alive_n);
         else
-            snprintf(buf, sizeof buf, "▶%s", s_app.battle.mob.base->name);
-        bar_set(s_app.view.enemy_bar, s_app.battle.mob.hp,
-                s_app.battle.mob.max_hp, &s_app.disp_ehp, &s_app.disp_emax);
+            snprintf(buf, sizeof buf, "▶%s", mob_name);
+        if (hpmax < 1) hpmax = 1;
+        if (hp > hpmax) hp = hpmax;
+        bar_set(s_app.view.enemy_bar, hp, hpmax, &s_app.disp_ehp,
+                &s_app.disp_emax);
     } else {
         snprintf(buf, sizeof buf, "#9AA3A8 挂机中 %d/%d#",
                  (int)s_app.player.kills, MAFA_KILLS_PER_BOSS);
@@ -418,7 +473,7 @@ static void tick_battle(void) {
             if (mafa_boss_start(&s_app.player, &b)) {
                 s_app.battle = b;
                 s_app.in_battle = true;
-                log_line("#F0C04A 【Boss】%s!#", b.mob.base->name);
+                log_line("#F0C04A 【Boss】%s!#", b.mob[0].base->name);
             }
         } else {
             s_app.boss_pending = true;
@@ -430,9 +485,11 @@ static void tick_battle(void) {
     if (!s_app.in_battle) {
         if (!mafa_battle_start(&s_app.player, &s_app.battle)) return;
         s_app.in_battle = true;
-        const mafa_monster_t *m = s_app.battle.mob.base;
-        if (s_app.battle.mob.elite)
+        const mafa_monster_t *m = s_app.battle.mob[0].base;
+        if (s_app.battle.mob[0].elite)
             log_line("【精英】%s 出现!", m->name);
+        else if (s_app.battle.mob_n > 1)
+            log_line("遭遇 %s 等 %d 只!", m->name, s_app.battle.mob_n);
         else
             log_line("遭遇 %s!", m->name);
     }
@@ -474,8 +531,8 @@ static void refresh_class(void) {
         "战士  高血高防", "法师  高攻脆皮", "道士  攻守兼备",
     };
     static const char *BLURB[MAFA_CLS_COUNT] = {
-        "技能:攻杀/半月/烈火", "技能:雷电/火墙/冰咆哮",
-        "技能:火符/治愈/施毒",
+        "基础/攻杀/刺杀/半月/烈火", "火球/雷电/火墙/盾/冰咆哮",
+        "治愈/骷髅/施毒/火符/神兽",
     };
     char buf[96];
     buf[0] = '\0';
@@ -556,10 +613,19 @@ static void refresh_backpack(void) {
 }
 
 static void refresh_store(void) {
-    char buf[96];
-    snprintf(buf, sizeof buf, "%s红药 30HP 20金\n%s蓝药 15MP 25金\n金币 %u",
+    /* Rows: red, blue, then the two store books of the player's class. */
+    char buf[192];
+    const mafa_skill_t *sk = MAFA_SKILLS[s_app.player.cls];
+    snprintf(buf, sizeof buf,
+             "%s红药 50金\n%s蓝药 40金\n%s%s %u金%s\n%s%s %u金%s\n金币 %u",
              s_app.cur_store == 0 ? ">" : " ",
              s_app.cur_store == 1 ? ">" : " ",
+             s_app.cur_store == 2 ? ">" : " ", sk[1].name,
+             (unsigned)mafa_book_price(s_app.player.cls, 1),
+             mafa_skill_known(&s_app.player, 1) ? " 已学" : "",
+             s_app.cur_store == 3 ? ">" : " ", sk[2].name,
+             (unsigned)mafa_book_price(s_app.player.cls, 2),
+             mafa_skill_known(&s_app.player, 2) ? " 已学" : "",
              (unsigned)s_app.player.gold);
     lv_label_set_text(s_app.view.items_label, buf);
 }
@@ -665,7 +731,7 @@ static void input_main(bsp_btn_t btn, bool click) {
                 if (mafa_boss_start(&s_app.player, &b)) {
                     s_app.battle = b;
                     s_app.in_battle = true;
-                    log_line("【Boss】%s!", b.mob.base->name);
+                    log_line("【Boss】%s!", b.mob[0].base->name);
                 }
                 s_app.boss_pending = false;
                 modal_close();
@@ -817,11 +883,24 @@ static void process_event(const input_event_t *ev) {
         if (long_ok) { enter_page(PAGE_MAIN); break; }
         if (!click) break;
         if (ev->btn == BSP_BTN_UP)
-            s_app.cur_store = (s_app.cur_store + 1) % 2;
+            s_app.cur_store = (s_app.cur_store + MAFA_STORE_ROWS - 1)
+                              % MAFA_STORE_ROWS;
         else if (ev->btn == BSP_BTN_DOWN)
-            s_app.cur_store = (s_app.cur_store + 1) % 2;
-        else if (ev->btn == BSP_BTN_OK)
-            mafa_buy_potion(&s_app.player, s_app.cur_store == 0);
+            s_app.cur_store = (s_app.cur_store + 1) % MAFA_STORE_ROWS;
+        else if (ev->btn == BSP_BTN_OK) {
+            if (s_app.cur_store == 0)
+                mafa_buy_potion(&s_app.player, true);
+            else if (s_app.cur_store == 1)
+                mafa_buy_potion(&s_app.player, false);
+            else {
+                uint8_t skill_idx = (uint8_t)(s_app.cur_store - 1);
+                if (mafa_buy_book(&s_app.player, skill_idx)
+                    && s_app.player.level >= MAFA_SKILLS[s_app.player.cls][skill_idx].unlock)
+                    log_line("#F0C04A 习得【%s】!#",
+                             MAFA_SKILLS[s_app.player.cls][skill_idx].name);
+            }
+            save_now();
+        }
         refresh_store();
         break;
     case PAGE_MAPS:
