@@ -21,8 +21,10 @@ FONT_SOURCES = (
 )
 
 CJK = re.compile(
-    r"[\u2026\u25a0-\u25ff\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uff01-\uffee]"
+    r"[\u2026\u00d7\u25a0-\u25ff\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uff01-\uffee]"
 )
+
+LITERAL = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
 UI_SOURCES = (
     ROOT / "main" / "mafa_app.c",
@@ -49,6 +51,27 @@ class MafaUiGlyphs(unittest.TestCase):
             "run tools/gen_mafa_charset.py to prune: "
             f"{''.join(sorted(charset - used))}",
         )
+
+    def test_string_literals_fully_covered(self) -> None:
+        # The regex above is the pipeline's coverage: any non-ASCII char in
+        # a UI string literal outside it (×, ★, emoji...) never reaches the
+        # subset fonts and renders as tofu on device. The ▶ and × boxes
+        # both shipped this way; keep the regexes and this test in sync.
+        for path in UI_SOURCES:
+            src = path.read_text(encoding="utf-8")
+            uncovered = {}
+            for m in LITERAL.finditer(src):
+                for ch in m.group(1):
+                    if ord(ch) > 0x7E and not CJK.match(ch):
+                        uncovered.setdefault(ch, 0)
+                        uncovered[ch] += 1
+            self.assertFalse(
+                uncovered,
+                f"{path.name} uses string characters outside the charset "
+                f"regex - they render as tofu on device; extend the "
+                f"coverage regex in this test and "
+                f"tools/gen_mafa_charset.py, then regenerate the fonts: "
+                f"{ {f'U+{ord(k):04X}({k})': v for k, v in uncovered.items()} }")
 
     def test_generated_fonts_cover_charset(self) -> None:
         charset = set(CJK.findall(CHARSET_FILE.read_text(encoding="utf-8")))

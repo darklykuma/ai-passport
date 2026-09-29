@@ -16,10 +16,11 @@ SOURCES = [
 OUT = ROOT / "assets" / "fonts" / "mafa_charset.txt"
 
 # CJK ideographs, full-width punctuation, and the UI symbols the copy uses
-# (… ellipsis, ▶ cursor — geometric shapes). Everything matched here must be
-# covered by the subset fonts, so extend only with glyphs the fonts carry.
+# (… ellipsis, × multiply, ▶ cursor — geometric shapes). Everything matched
+# here must be covered by the subset fonts, so extend only with glyphs the
+# fonts carry. Keep this regex in sync with tests/test_mafa_ui_glyphs.py.
 CJK = re.compile(
-    r"[\u2026\u25a0-\u25ff\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uff01-\uffee]"
+    r"[\u2026\u00d7\u25a0-\u25ff\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uff01-\uffee]"
 )
 
 chars = set()
