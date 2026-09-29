@@ -222,9 +222,12 @@ for s, c in rows:
 save(img, "07-status")
 
 # ---- 8. backpack -----------------------------------------------------------
+# The device font's real line height is 20 (LH16 here approximates 19), so
+# the list panel mirrors the code's 208px: 8 rows at pitch 24 fit with a
+# symmetric 10px pad instead of riding the bottom border.
 img, d = new_page()
 title_band(d, "背包")
-panel(d, 6, 42, 228, 196, PANEL_BG, PANEL_EDGE)
+panel(d, 6, 42, 228, 208, PANEL_BG, PANEL_EDGE)
 items = [("＞1.修罗 x1", None), ("  2.天魔神甲 x1", None), ("  3.红药 x3", None),
          ("  4.蓝药 x2", None), ("  5.绿宝石戒指 x1", "green"), ("  6.灵魂项链 x1", "blue"),
          ("  7.空", DIM), ("  8.空", DIM)]
@@ -233,9 +236,9 @@ for s, q in items:
     color = q if isinstance(q, tuple) else QUAL.get(q, MAIN)
     text(d, (18, y), s, F16, color)
     y += LH16 + 4
-panel(d, 6, 246, 228, 66, PANEL_BG, PANEL_EDGE)
-text(d, (18, 256), "攻+12 防+8 血+40", F16, DIM)
-text(d, (18, 280), "金币 2380", F16, DIM)
+panel(d, 6, 256, 228, 56, PANEL_BG, PANEL_EDGE)
+text(d, (18, 264), "攻+12 防+8 血+40", F16, DIM)
+text(d, (18, 288), "金币 2380", F16, DIM)
 save(img, "08-backpack")
 
 # ---- 9. store: potions + the two class books --------------------------------

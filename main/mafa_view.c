@@ -220,15 +220,18 @@ lv_obj_t *mafa_view_page_backpack(mafa_view_t *v) {
     memset(v, 0, sizeof *v);
     v->screen = base_screen();
     title_band(v->screen, "背包");
-    lv_obj_t *list = panel(v->screen, 6, 42, 228, 196, MAFA_PANEL_BG,
+    /* The device font's real line height is 20 (the mockups approximate it
+     * at 19): 8 rows at pitch 20+4 need 188px, so the list grows to 208 for
+     * a symmetric 10px pad — the old 196 left row 8 on the bottom border. */
+    lv_obj_t *list = panel(v->screen, 6, 42, 228, 208, MAFA_PANEL_BG,
                            MAFA_PANEL_EDGE);
     v->items_label = new_label(list, 12, 10, false);
     list_style(v->items_label);
     /* 8 rows need a tighter lead than the shared 6. */
     lv_obj_set_style_text_line_space(v->items_label, 4, 0);
-    lv_obj_t *detail = panel(v->screen, 6, 246, 228, 66, MAFA_PANEL_BG,
+    lv_obj_t *detail = panel(v->screen, 6, 256, 228, 56, MAFA_PANEL_BG,
                              MAFA_PANEL_EDGE);
-    v->detail_label = new_label(detail, 12, 10, false);
+    v->detail_label = new_label(detail, 8, 8, false);
     lv_obj_set_style_text_color(v->detail_label, MAFA_TEXT_DIM, 0);
     return v->screen;
 }
