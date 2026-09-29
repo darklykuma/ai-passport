@@ -702,7 +702,7 @@ static void refresh_maps(void) {
 static void refresh_settings(void) {
     char buf[128];
     int bat = battery_read();
-    char bat_s[8];
+    char bat_s[12];   /* room for the full int range: GCC counts "%d%%" as 12 */
     if (bat < 0)
         strcpy(bat_s, "--");
     else
