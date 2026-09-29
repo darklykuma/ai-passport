@@ -203,8 +203,10 @@ static void compose_log(char *buf, size_t cap) {
 }
 
 /* 2×3 grid. Every column prefix is exactly one full-width glyph (＞ or 　)
- * and cells are joined by full-width spaces, so the three columns stay
- * aligned in the proportional font regardless of where the cursor is. */
+ * and cells are joined by an ASCII space — a full-width gap measures 20px
+ * in the real font advances and pushes row 2 (with the 加速4x speed suffix)
+ * to 241px, clipping the last column at the 240px screen edge. Half-width
+ * gaps keep the columns aligned (identical gap per row) with 15px spare. */
 static void compose_main_menu(char *buf, size_t cap) {
     buf[0] = '\0';
     for (int i = 0; i < 6; ++i) {
@@ -216,7 +218,7 @@ static void compose_main_menu(char *buf, size_t cap) {
         else
             snprintf(cell, sizeof cell, "%s%s",
                      s_app.cur_main == i ? "＞" : "　", MAIN_MENU[i]);
-        if (i % 3) strncat(buf, "　", cap - strlen(buf) - 1);
+        if (i % 3) strncat(buf, " ", cap - strlen(buf) - 1);
         strncat(buf, cell, cap - strlen(buf) - 1);
         if (i == 2) strncat(buf, "\n", cap - strlen(buf) - 1);
     }
