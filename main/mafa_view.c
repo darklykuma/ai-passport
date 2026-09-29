@@ -111,8 +111,9 @@ lv_obj_t *mafa_view_page_main(mafa_view_t *v) {
     v->map_label = new_label(header, 10, 6, true);
     lv_label_set_recolor(v->map_label, true);
     /* Info column, TWO lines, right-aligned (the bar numbers now live on
-     * the bars, so this zone is bar-free): worst line "Lv.15 100%" 73px /
-     * "金65535" 61px in the 142px box — nothing collides at any value. */
+     * the bars, so this zone is bar-free): worst lines "Lv.14 100%" 73px
+     * (the percent is XP toward the next level; the cap shows bare
+     * "Lv.15") / "金65535" 61px in the 142px box — nothing collides. */
     v->info_label = new_label(header, 92, 6, false);
     lv_label_set_recolor(v->info_label, true);
     lv_obj_set_style_text_color(v->info_label, MAFA_TEXT_DIM, 0);

@@ -78,10 +78,12 @@ def main_chrome(d):
     text_c(d, 32, 90, "战况", F16, GOLD)
     panel(d, 0, 238, W, 82, (0x0C, 0x0F, 0x13), GOLD_EDGE, radius=0, top_border=True, bw=2)
 
-def header(d, mapname, level, bat, gold, hp, hpmax, mp, mpmax):
+def header(d, mapname, level, xp_pct, gold, hp, hpmax, mp, mpmax):
     text(d, (10, 6), mapname, F20, GOLD)
-    # info_label y=6, line height 19, line_space 0 -> line2 top = 25
-    text_r(d, 234, 6, f"Lv.{level} {bat}%", F16, DIM)
+    # info_label y=6, line height 19, line_space 0 -> line2 top = 25.
+    # The percent is XP progress toward the next level (battery readout
+    # moved to the settings page); at the cap the line is bare "Lv.15".
+    text_r(d, 234, 6, f"Lv.{level} {xp_pct}%", F16, DIM)
     text_r(d, 234, 25, f"金{gold}", F16, GOLD)
     bar(d, 10, 33, 130, 10, hp/hpmax, HP_GREEN)
     text_r(d, 136, 28, str(hp), F16, MAIN)
@@ -296,6 +298,8 @@ panel(d, 6, 42, 228, 270, PANEL_BG, PANEL_EDGE)
 sets = [("＞自动喝药:开", MAIN), ("  自动卖白:开", MAIN), ("  自动Boss:关", MAIN)]
 for i, (s, c) in enumerate(sets):
     text(d, (18, 52 + i * (LH16 + 6)), s, F16, c)
+# informational battery row (no cursor), one blank row below the toggles
+text(d, (18, 52 + 4 * (LH16 + 6)), "电量 96%", F16, DIM)
 save(img, "11-settings")
 
 # ---- 12. PROPOSAL: skills listed on the gear page ---------------------------

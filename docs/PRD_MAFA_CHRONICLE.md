@@ -24,7 +24,7 @@
 
 MAFA CHRONICLE is a **single-player idle text RPG** (text-legend style) running on the FoloToy AI Passport. The player picks one of three classes (warrior / mage / taoist), picks a map, and the character **fights monsters automatically**; combat streams past as a scrolling log. The player's decisions happen outside combat — equipping, selling, buying potions, switching to deeper maps, answering boss events — living the loop of **fight → loot → equip → idle on deeper maps**.
 
-The screen keeps the classic text-legend three bands, dressed in gold-edged panel chrome (v0.7): a header band (map name with boss kill progress, level / battery / gold, HP and MP bars), an enemy strip with its own HP bar (the name turns gold during boss fights), the scrolling combat log in the middle (the game's "picture", framed with a small gold caption), and a bottom action bar. Every chrome object is created once per screen and diff-refreshed — no per-tick allocation. Three buttons are the entire input.
+The screen keeps the classic text-legend three bands, dressed in gold-edged panel chrome (v0.7): a header band (map name with boss kill progress, level with XP percent toward the next level, gold, HP and MP bars), an enemy strip with its own HP bar (the name turns gold during boss fights), the scrolling combat log in the middle (the game's "picture", framed with a small gold caption), and a bottom action bar. Every chrome object is created once per screen and diff-refreshed — no per-tick allocation. Three buttons are the entire input.
 
 ### 1.3 Core value
 
@@ -146,7 +146,7 @@ Boot ─▶ [Continue / New game] (new game → pick class)
      │        ├─ Gear (equipped three slots + stat summary)                │
      │        ├─ Store (buy red / buy blue)                                │
      │        ├─ Map (unlocked list; switching moves the idle spot)        │
-     │        ├─ Settings (auto-potion / auto-sell-white / auto-boss)       │
+     │        ├─ Settings (3 toggles + battery readout)                    │
      │        └─ Speed (1x / 2x / 4x)                                      │
      └─ Boss event prompt (fight / pass) ◀── kill-count trigger ───────────┘
 ```
@@ -339,7 +339,7 @@ Quality colors: white `#C8C8C8` / green `#5FC85F` / blue `#4FA8F2` / purple `#B0
 
 ## 10. Interaction spec
 
-Global: UP/DOWN move the cursor, OK confirms, long-press returns to the main screen. List cursors use a `>` prefix plus highlight; the idle log auto-scrolls and needs no input.
+Global: UP/DOWN move the cursor, OK confirms, long-press returns to the main screen. List cursors use a `>` prefix plus highlight; the idle log auto-scrolls and needs no input. The settings page ends with a non-navigable battery readout: UP/DOWN moves only the three toggle rows (v1.1).
 
 | Screen | UP/DOWN | OK | Long-press |
 | --- | --- | --- | --- |
@@ -399,6 +399,7 @@ Global: UP/DOWN move the cursor, OK confirms, long-press returns to the main scr
 - v0.8 (2026-09-29): **skills 2.0 + rebalance** from the second playtest ("too easy, no original-growth feel"): 5 skills per class with distinct forms (passive / proc / nuke / AoE / burn / heal / poison / shield / charge / pets), unlocks gated by level AND skill book (store books 1–2, elite/boss books 3–4, boss first-kill guarantee); battles spawn 1–3 monsters (deeper maps favor packs), the taoist pet taunts; front-fast back-wall XP curve (14→15 wall ≈ 45 % of total, time-to-max ≈ several idle days); white-name death penalty (1–2 backpack stacks + 10–20 % gold, gear safe); potion economy (50/40 gold, level-scaled heals); gold-tier gear boss-only (8 %); boss-kill counter 25 → 40 mobs; save v2 with v1 migration; sim gates recalibrated (battle pace 4–15 s, boss band 45–75 %, ≥1 class in band, no 0 % matchups).
 - v0.9 (2026-09-29): on-device playtest found the death loop (respawn kept 0 HP, dying endlessly). Death now respawns the player in a new **safe zone** (4th map id, always open, no monsters/boss, also a voluntary rest spot) at full HP/MP; idling stays stopped until the player picks the next map themselves — the town kick becomes part of the death cost. Penalties unchanged; map-page cursor only rests on enterable rows.
 - v1.0 (2026-09-29): the safe zone becomes **map id 0** and heads the map page (row "0" + safe-zone name; combat maps renumbered 1–3, making the 8.3 pack-weight table literal). New games start idling in Beech Forest at once instead of resting in town. Save bumps to **v3**: byte layout identical to v2, only the map fields migrate (town 3 → 0, combat 0–2 → 1–3); v1/v2 saves load and migrate automatically. Code replaces the `map*6+5` boss lookup with `mafa_map_boss()`; balance-sim gates unchanged and still met.
+- v1.1 (2026-09-29): the header percent now shows **XP progress toward the next level** ("Lv.8 87%") instead of the battery — playtest feedback was that level-up timing was invisible, decisive on the 14→15 wall (≈45 % of total grind). At the cap the line shrinks to bare "Lv.15". The battery readout moved to the settings page as a non-navigable info row. Design mockups 03/11 re-rendered to match; font subsets regenerated for the new battery label.
 - v0.6 (2026-09-28): on-device feedback added an "auto-boss" settings toggle (boss events are fought automatically instead of prompting); save contents and the settings page updated.
 - v0.5 (2026-09-28): on-device feedback added a gear-overview page (action menu item 2: the three equipped slots plus a stat summary); the action menu grew to six entries.
 - v0.4 (2026-09-28): M2 balance calibration finalized. Taoist rebalanced as a sustain fighter (HP 60+6, attack 12+1; Soul Fire Talisman L3 2.4×/MP14, Heal L7, Poison L12); added boss-fight rules (50% defense pierce, ±20% monster damage roll, fixed-value potions); boss stats finalized (Ape 300/16, Corpse King 400/26, Overlord 1200/22); success metric redefined as "per map at least one class win rate within 20–85%, none locked at 0%".

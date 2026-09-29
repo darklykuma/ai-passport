@@ -400,7 +400,7 @@ static void drop_modal_refresh(void) {
 
 // --- Tick (idle auto-battle, PRD 8.3) ----------------------------------------------
 
-/* Main page: five guarded refresh units — header (map + info), the two
+/* Main page: five guarded refresh units — header (map + level/XP%), the two
  * player bars, the enemy strip, the log, the action menu. Layout contract
  * (240px wide, real font advances): row 1 is map name (≤90px from x=10)
  * plus ONE right-aligned info line; kill progress rides the idle enemy
@@ -410,9 +410,17 @@ static void refresh_main(void) {
     snprintf(buf, sizeof buf, "#F0C04A %s#",
              MAFA_MAP_NAMES[s_app.player.map]);
     label_set(s_app.view.map_label, buf, s_app.prev_map, sizeof s_app.prev_map);
-    int bat = battery_read();
-    snprintf(buf, sizeof buf, "#9AA3A8 Lv.%d %d%%#\n#F0C04A 金%u#",
-             s_app.player.level, bat, (unsigned)s_app.player.gold);
+    /* Header percent = XP progress toward the next level (design 03: "Lv.8
+     * 87%"); the battery readout lives on the settings page instead. At the
+     * cap there is no next level, so the line shrinks to bare "Lv.15". */
+    uint32_t xp_next = mafa_xp_to_next(s_app.player.level);
+    if (xp_next > 0)
+        snprintf(buf, sizeof buf, "#9AA3A8 Lv.%d %d%%#\n#F0C04A 金%u#",
+                 s_app.player.level, (int)(s_app.player.xp * 100 / xp_next),
+                 (unsigned)s_app.player.gold);
+    else
+        snprintf(buf, sizeof buf, "#9AA3A8 Lv.%d#\n#F0C04A 金%u#",
+                 s_app.player.level, (unsigned)s_app.player.gold);
     label_set(s_app.view.info_label, buf, s_app.prev_info,
               sizeof s_app.prev_info);
 
@@ -693,14 +701,22 @@ static void refresh_maps(void) {
 
 static void refresh_settings(void) {
     char buf[128];
+    int bat = battery_read();
+    char bat_s[8];
+    if (bat < 0)
+        strcpy(bat_s, "--");
+    else
+        snprintf(bat_s, sizeof bat_s, "%d%%", bat);
+    /* The battery line is informational: three cursor rows stay navigable. */
     snprintf(buf, sizeof buf,
-             "%s自动喝药:%s\n%s自动卖白:%s\n%s自动Boss:%s",
+             "%s自动喝药:%s\n%s自动卖白:%s\n%s自动Boss:%s\n\n#9AA3A8 电量 %s#",
              s_app.cur_set == 0 ? "＞" : "  ",
              s_app.player.auto_potion ? "开" : "关",
              s_app.cur_set == 1 ? "＞" : "  ",
              s_app.player.auto_sell_white ? "开" : "关",
              s_app.cur_set == 2 ? "＞" : "  ",
-             s_app.player.auto_boss ? "开" : "关");
+             s_app.player.auto_boss ? "开" : "关",
+             bat_s);
     lv_label_set_text(s_app.view.items_label, buf);
 }
 
