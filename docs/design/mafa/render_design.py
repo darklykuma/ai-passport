@@ -205,22 +205,42 @@ text(d, (60, 140), "＞迎战", F16, GOLD)
 text(d, (60, 170), "  回避", F16, MAIN)
 save(img, "06-modal-boss")
 
-# ---- 7. status (gear) ------------------------------------------------------
+# ---- 7. gear page: equipment + potions + skills (v1.2) ----------------------
+# One page answers "where are my potions" and "which skills do I have / are
+# they on": 3 equip rows, a dim stat line, a potion-count line, then the 5
+# class skills. Skill rows show state on the right of a two-space gap:
+# 常驻 (passive/proc, not toggleable), 开/关 (toggle, OK flips),
+# "书店300金" (buyable store book), "Lv12 Boss" (locked: level gate first,
+# then the drop source). Device rendering is one recolored label; rows use
+# a left-aligned state after two ASCII spaces (proportional font keeps no
+# right column). 10 rows at pitch 24 fit the 270px panel (bottom 246+20).
 img, d = new_page()
 title_band(d, "装备")
 panel(d, 6, 42, 228, 270, PANEL_BG, PANEL_EDGE)
-rows = [
+gear = [
     ("＞武器:修罗 攻+12", MAIN),
     ("  衣服:天魔神甲 防+8 血+40", MAIN),
     ("  首饰:绿宝石戒指 攻+4 防+2", MAIN),
-    ("", DIM),
-    ("攻 28  防 10", DIM),
-    ("血 233/260  蓝 58/90", DIM),
+    ("攻28 防10 血233/260 蓝58/90", DIM),
 ]
 y = 52
-for s, c in rows:
-    if s: text(d, (18, y), s, F16, c)
-    y += LH16 + 6
+for s, c in gear:
+    text(d, (18, y), s, F16, c)
+    y += LH16 + 5
+# potion line: red count in red, blue count in blue, one row
+text(d, (18, y), "红药x3", F16, RED)
+text(d, (18 + d.textlength("红药x3  ", font=F16), y), "蓝药x2", F16, MP_BLUE)
+y += LH16 + 5
+skills = [
+    ("  基础剑术  常驻", DIM),
+    ("  攻杀剑术  常驻", DIM),
+    ("＞刺杀剑术  开", MAIN),
+    ("  半月弯刀  群攻 关", MAIN),
+    ("  烈火剑法  Lv12 Boss", DIM),
+]
+for s, c in skills:
+    text(d, (18, y), s, F16, c)
+    y += LH16 + 5
 save(img, "07-status")
 
 # ---- 8. backpack -----------------------------------------------------------
@@ -243,13 +263,16 @@ text(d, (18, 264), "攻+12 防+8 血+40", F16, DIM)
 text(d, (18, 288), "金币 2380", F16, DIM)
 save(img, "08-backpack")
 
-# ---- 9. store: potions + the two class books --------------------------------
+# ---- 9. store: potions (with holdings) + the two class books ----------------
+# v1.2: potion rows carry the current stack (x3 / x2) so a purchase is
+# visible at once; book rows may add "LvX" when the player is under the
+# unlock level (buying early is allowed but the skill stays locked).
 img, d = new_page()
 title_band(d, "药店")
 panel(d, 6, 42, 228, 270, PANEL_BG, PANEL_EDGE)
 store = [
-    ("＞红药 50金", MAIN),
-    ("  蓝药 40金", MAIN),
+    ("＞红药 50金 x3", MAIN),
+    ("  蓝药 40金 x2", MAIN),
     ("  攻杀剑术 300金 已学", DIM),
     ("  刺杀剑术 800金", MAIN),
     ("", DIM),
@@ -291,40 +314,77 @@ loglines(d, [
 action_bar(d, 2)
 save(img, "13-main-safe")
 
-# ---- 11. settings -----------------------------------------------------------
+# ---- 11. settings: toggles + adjustable auto-potion thresholds (v1.2) -------
+# 5 cursor rows: the auto-potion trigger percentages are editable in place
+# (OK enters edit, UP/DOWN steps 10%, OK saves); the auto-sell row shows the
+# enabled quality set ("自动卖:白"); the battery readout stays a
+# non-navigable dim row after a blank row.
 img, d = new_page()
 title_band(d, "设置")
 panel(d, 6, 42, 228, 270, PANEL_BG, PANEL_EDGE)
-sets = [("＞自动喝药:开", MAIN), ("  自动卖白:开", MAIN), ("  自动Boss:关", MAIN)]
+sets = [
+    ("＞自动喝药:开", MAIN),
+    ("  红药线:50%", MAIN),
+    ("  蓝药线:30%", MAIN),
+    ("  自动卖:白", MAIN),
+    ("  自动Boss:开", MAIN),
+]
 for i, (s, c) in enumerate(sets):
     text(d, (18, 52 + i * (LH16 + 6)), s, F16, c)
-# informational battery row (no cursor), one blank row below the toggles
-text(d, (18, 52 + 4 * (LH16 + 6)), "电量 96%", F16, DIM)
+text(d, (18, 52 + 6 * (LH16 + 6)), "电量 96%", F16, DIM)
 save(img, "11-settings")
 
-# ---- 12. PROPOSAL: skills listed on the gear page ---------------------------
-# Not implemented yet: 5 skills have no viewing surface outside the store's
-# 已学 marks. The gear panel has ~170px free below the summary — room for a
-# divider + 5 skill rows showing book state (已学/书店/精英/Boss).
+# ---- 14. settings, threshold edit state (v1.2) -------------------------------
+# OK on a threshold row enters edit: the value gains <brackets> and turns
+# gold, UP/DOWN step it by 10 (clamped 20-80), OK confirms and saves. Other
+# rows dim while editing so the focus is unambiguous.
 img, d = new_page()
-title_band(d, "装备")
+title_band(d, "设置")
 panel(d, 6, 42, 228, 270, PANEL_BG, PANEL_EDGE)
-rows = [
-    ("＞武器:修罗 攻+12", MAIN),
-    ("  衣服:天魔神甲 防+8 血+40", MAIN),
-    ("  首饰:绿宝石戒指 攻+4 防+2", MAIN),
-    ("攻28 防10  血233/260 蓝58/90", DIM),
-    ("· · · · · · · · · · · · · · ·", PANEL_EDGE),
-    ("  基础剑术      已学", DIM),
-    ("  攻杀剑术      已学", DIM),
-    ("  刺杀剑术      书店 800金", GOLD),
-    ("  半月弯刀      Lv9·精英", DIM),
-    ("  烈火剑法      Lv12·Boss", DIM),
+edit = [
+    ("  自动喝药:开", DIM),
+    ("＞红药线:", MAIN),
+    ("  蓝药线:30%", DIM),
+    ("  自动卖白:开", DIM),
+    ("  自动Boss:开", DIM),
 ]
-y = 50
-for s, c in rows:
-    if s: text(d, (18, y), s, F16, c)
-    y += LH16 + 3
-save(img, "12-skills-proposal")
+y = 52
+for s, c in edit:
+    text(d, (18, y), s, F16, c)
+    y += LH16 + 6
+text(d, (18 + d.textlength("＞红药线:", font=F16), 52 + LH16 + 6), "<50%>", F16, GOLD)
+text(d, (18, 52 + 6 * (LH16 + 6)), "电量 96%", F16, DIM)
+save(img, "14-settings-edit")
+
+# ---- 15. settings, auto-sell quality picker (v1.2) ---------------------------
+# OK on the auto-sell row opens the picker: 白/绿/蓝/紫 toggle one bit each
+# (every name drawn in its quality color — color is the quality language),
+# gold is never auto-sold (legendary drops always reach the player). 完成
+# saves and leaves edit; other settings dim while the picker is open.
+img, d = new_page()
+title_band(d, "设置")
+panel(d, 6, 42, 228, 270, PANEL_BG, PANEL_EDGE)
+dim_top = ["  自动喝药:开", "  红药线:50%", "  蓝药线:30%"]
+y = 52
+for s in dim_top:
+    text(d, (18, y), s, F16, DIM)
+    y += LH16 + 5
+picker = [
+    ("＞", "白", QUAL["white"], "  开", MAIN),
+    ("  ", "绿", QUAL["green"], "  开", MAIN),
+    ("  ", "蓝", QUAL["blue"], "  关", DIM),
+    ("  ", "紫", QUAL["purple"], "  关", DIM),
+]
+for mark, name, qc, state, sc in picker:
+    text(d, (18, y), mark, F16, MAIN)
+    text(d, (18 + d.textlength(mark, font=F16), y), name, F16, qc)
+    text(d, (18 + d.textlength(mark + name, font=F16), y), state, F16, sc)
+    y += LH16 + 5
+text(d, (18, y), "  完成", F16, GOLD)
+y += LH16 + 5
+text(d, (18, y), "  自动Boss:开", F16, DIM)
+y += LH16 + 5
+text(d, (18, y), "电量 96%", F16, DIM)
+save(img, "15-settings-sell")
 
 print("all mockups rendered")

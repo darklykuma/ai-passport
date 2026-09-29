@@ -143,10 +143,10 @@ Boot ─▶ [Continue / New game] (new game → pick class)
      ┌── Main screen: idle on map (status bar + combat log + action menu) ──┐
      │   action menu: Backpack / Gear / Store / Map / Settings / Speed      │
      │        ├─ Backpack (equip / sell / sell-all-whites)                 │
-     │        ├─ Gear (equipped three slots + stat summary)                │
-     │        ├─ Store (buy red / buy blue)                                │
+     │        ├─ Gear (equip slots + potions + skills on/off)              │
+     │        ├─ Store (potions + class books, shows holdings)             │
      │        ├─ Map (unlocked list; switching moves the idle spot)        │
-     │        ├─ Settings (3 toggles + battery readout)                    │
+     │        ├─ Settings (toggles + potion thresholds + battery)          │
      │        └─ Speed (1x / 2x / 4x)                                      │
      └─ Boss event prompt (fight / pass) ◀── kill-count trigger ───────────┘
 ```
@@ -190,16 +190,19 @@ Three classes, chosen at game start, immutable. Stats: HP / MP / attack / defens
 - **Normal attack**: `damage = max(1, floor(attack × U(0.9, 1.1)) − defense)`; U is an integer random over 0.9–1.1.
 - **Critical**: 10% chance, attack ×1.5; the log marks it with a "CRIT" prefix.
 - **Skills auto-cast** by the priority policy in 8.4; log lines open with the skill name.
-- **Auto-potion** (settings toggle, default on): red potion below 50% HP, blue potion below 30% MP. Potions restore level-scaled flat amounts (8.8) so one potion always answers roughly one mob hit, early and late.
+- **Auto-potion** (settings toggle, default on): red potion when HP falls below the **red line**, blue potion when MP falls below the **blue line** (v1.2: both thresholds are adjustable on the settings page, 20–80% in steps of 10; defaults 50% HP / 30% MP). Potions restore level-scaled flat amounts (8.8) so one potion always answers roughly one mob hit, early and late.
 - **Death**: HP ≤ 0 → log "You were killed by…" → respawn in the safe zone at full HP/MP, the player picks the next map themselves; death penalties per 8.9.
 - **Combat log**: the latest 6 lines scrolling; kills/drops/level-ups/boss events use accent colors. Monster packs show as "▶multi-hook-cat×3" with a pooled HP bar; the pet announces itself through log lines.
 - Monster AI (P0): normal attack; below 30% HP, a 50% chance to use its monster skill (see table 9.2).
-- **Auto-sell-white** (settings toggle, default on): white drops convert to gold at sell price immediately, never occupying the backpack; green and above go to the backpack for the player to judge.
+- **Auto-sell (v1.2, replaces auto-sell-white)**: a **selectable set of qualities** converts its drops to gold at sell price immediately, never occupying the backpack; everything else goes to the backpack for the player to judge. Pickable: white / green / blue / purple — one bit each, default **white only** (the old behavior). **Gold is never auto-sold**: legendary drops always reach the player. The settings row summarizes the set ("自动卖:白"); OK opens an in-place picker listing the four colors in their quality colors plus a done row (mockup 15).
 
 ### 8.4 Skills
 
 - **Five per class (v0.8)**, with distinct forms: passive, proc, single-target nuke, AoE nuke, AoE burn, heal, poison, shield, charge, and the taoist pets. Skills unlock by **level AND skill book** (8.5): skill 1 of each class is free, the rest need their book (store or drop). Once unlocked they cast fully automatically.
 - Warrior uses cooldowns (no MP); mage/taoist use MP.
+- **Skill state is always visible (v1.2)**: the gear page lists all five class skills below the equipment, each with its live state — "always on" (passive/proc), "on/off" (active; OK toggles), "store 300" (buyable book), or the lock reason "Lv12 boss" / "elite/boss" (level gate first, then the drop source). A book may be **banked before its unlock level** (drops and purchases don't check level); the skill activates at the level-up that reaches the gate — the gear page is what makes that waiting state visible, instead of a one-shot log line.
+- **Active skills can be switched off (v1.2)**: OK on a skill row toggles it (passive/proc rows are fixed); the auto-cast policy skips switched-off skills. Switching every active skill off leaves plain attacks — a legitimate choice, not an error.
+- **AoE forms are crowd-only by design**: Half-Moon Sweep / Frost Howl cast only with **2+ living monsters** (a 0.9× swing on a lone target would be weaker than a normal attack). Map 1 spawns a lone monster ≈70% of the time, so these skills light up mostly from map 2 onward; the gear page's "AoE" hint is where that condition lives.
 
 | Class | Skill | Unlock | Book | Effect | Cost |
 | --- | --- | --- | --- | --- | --- |
@@ -221,7 +224,7 @@ Three classes, chosen at game start, immutable. Stats: HP / MP / attack / defens
 
 **Pets (taoist identity)**: a battle-side entity (HP/attack/defense scaling with player level; skeleton at L7 ≈ 93 HP / 11 atk, divine beast at L13 ≈ 201 HP / 25 atk). While alive it **taunts**: every monster swing hits the pet instead of the player. The pet attacks the first living mob each round. When it falls there is a 6-round wait before re-summoning; monster STING poison only applies when a hit lands on the player.
 
-**Auto-cast policy** (each round takes the first available by priority):
+**Auto-cast policy** (each round takes the first available by priority; skills switched off on the gear page are skipped, v1.2):
 
 - Warrior: Flame Blade charge > Half-Moon Sweep (2+ monsters) > Assassination.
 - Mage: Magic Shield (none active and HP < 70%) > Frost Howl (2+ monsters) > Thunder > Firewall (not already burning) > Fire Ball.
@@ -241,8 +244,8 @@ Burn/poison and similar effects attach to a per-monster effect list, resolved ea
 - **Backpack 8 slots**; identical stackable items merge; **when full**, a new drop opens a three-key prompt (replace / discard / pass) and idling pauses during the prompt.
 - **Equipment comparison**: selecting a backpack item shows the equipped piece vs the new one side by side (attack/defense/HP deltas); OK equips, long-press returns.
 - No level requirements in P0; equip/unequip applies immediately and triggers autosave.
-- **Consumables**: red and blue potions (stackable).
-- **Skill books (v0.8)**: not backpack items — a bitmask in the save. Books 1–2 per class are sold in the store (the main gold sink); books 3–4 come only from elite drops (≈20%) and a **boss first-kill guarantee** (skill 3, then skill 4).
+- **Consumables**: red and blue potions (stackable). Counts are visible on the **gear page** (v1.2, "红药x3 蓝药x2" line) and ride the store rows (v1.2), so a purchase is confirmed at a glance.
+- **Skill books (v0.8)**: not backpack items — a bitmask in the save. Books 1–2 per class are sold in the store (the main gold sink); books 3–4 come only from elite drops (≈20%) and a **boss first-kill guarantee** (skill 3, then skill 4). Books may be banked before their unlock level; the skill casts only from that level on, and the gear page shows the waiting state (8.4).
 
 ### 8.6 Drops
 
@@ -270,7 +273,7 @@ Three idle maps in P0, unlocked linearly (boss-event victory unlocks the next). 
 ### 8.8 Store
 
 - No separate town screen in P0: the main screen is the camp, and the store is one action-menu entry. HP/MP regenerate slowly while not in combat (+10/s).
-- Store: red potion **50** gold (+30+2/level HP), blue potion **40** gold (+15+1/level MP), and the two store skill books of the player's class (300 / 800 gold); gold cap 9999.
+- Store: red potion **50** gold (+30+2/level HP), blue potion **40** gold (+15+1/level MP), and the two store skill books of the player's class (300 / 800 gold); gold cap 9999. Rows show the potion stack already held ("红药 50金 x3") and a "Lv X" hint on a book whose unlock level is above the player's (v1.2) — buying early is allowed, the skill simply waits.
 - Potion economy (v0.8): a mid-map kill funds roughly one potion — supply is a decision, not a given.
 
 ### 8.9 Death
@@ -288,7 +291,7 @@ The safe zone (v0.9) is map id 0 and heads the map page (v1.0): always open, no 
 - NVS, namespace `mafa`, binary struct + magic + version + CRC8; incompatible data is treated as corrupt and only a new game may proceed.
 - **Version 2 (v0.8)**: class / level / XP (32-bit) / gold / books bitmask / potion counts / backpack (8 × {item id, count}) / 3 equipped items / unlocked area / settings toggles (auto-potion, auto-sell-white, auto-boss).
 - **Version 3 (v1.0)**: same payload as v2; only the map fields are renumbered (safe zone 3 → 0, combat maps 0–2 → 1–3).
-- **v1/v2 saves load and migrate**: v1 grants every skill whose unlock level is already reached its book; v1/v2 map ids shift into the v3 numbering, so old saves never lose progress.
+- **Version 4 (v1.2)**: extends the payload with the per-class **skill switches** (bitmask, one bit per skill of the player's class), the two **auto-potion thresholds** (red/blue %, defaults 50/30, clamped 20–80), and the **auto-sell quality set** (4-bit mask white/green/blue/purple, default white-only — the old flags byte's white bit maps onto it during migration). Defaults for everyone else: **v1/v2/v3 saves load and migrate** — v1 grants every skill whose unlock level is already reached its book; v1/v2 map ids shift into the v3 numbering; the old auto-sell-white flag becomes the white bit on or off. Old saves never lose progress.
 - **Autosave points**: after every battle settlement, after store purchases, after equip/unequip. No manual save.
 - Overwriting an existing save with a new game requires confirmation.
 
@@ -339,19 +342,19 @@ Quality colors: white `#C8C8C8` / green `#5FC85F` / blue `#4FA8F2` / purple `#B0
 
 ## 10. Interaction spec
 
-Global: UP/DOWN move the cursor, OK confirms, long-press returns to the main screen. List cursors use a `>` prefix plus highlight; the idle log auto-scrolls and needs no input. The settings page ends with a non-navigable battery readout: UP/DOWN moves only the three toggle rows (v1.1).
+Global: UP/DOWN move the cursor, OK confirms, long-press returns to the main screen. List cursors use a `>` prefix plus highlight; the idle log auto-scrolls and needs no input. The settings page ends with a non-navigable battery readout: UP/DOWN moves the five cursor rows (v1.2 — toggles plus the two potion thresholds).
 
 | Screen | UP/DOWN | OK | Long-press |
 | --- | --- | --- | --- |
 | Main menu (continue/new) | move cursor | confirm | — |
 | Pick class | move | confirm | back to menu |
 | Main screen (idling) | move action-menu cursor | open Backpack/Gear/Store/Map/Settings/Speed | — |
-| Gear overview | move cursor | back to main screen | — |
+| Gear (equip + potions + skills) | move cursor over the 3 slots and 5 skill rows | on an equip slot: back to main screen; on a skill: toggle on/off (v1.2; passive/proc rows fixed) | back to main screen |
 | Main screen — speed | — | cycles 1x → 2x → 4x | — |
 | Backpack | move | select (equip/sell submenu, with comparison) | back to main screen |
 | Store | move | buy | back to main screen |
 | Map list | move | go to that map | back to main screen |
-| Settings | move | toggle (auto-potion / auto-sell-white / auto-boss) | back to main screen |
+| Settings | move | toggle; on a threshold row OK enters edit — value turns gold in `<50%>` brackets, other rows dim, UP/DOWN step 10% within 20–80, OK saves; on the auto-sell row OK opens the quality picker — UP/DOWN moves over 白/绿/蓝/紫 plus 完成, OK toggles a color / saves (v1.2) | back to main screen (also leaves edit, saving) |
 | Boss event prompt | move | fight / pass | — |
 | Backpack-full drop prompt | move | replace / discard | pass the drop |
 
@@ -400,6 +403,7 @@ Global: UP/DOWN move the cursor, OK confirms, long-press returns to the main scr
 - v0.9 (2026-09-29): on-device playtest found the death loop (respawn kept 0 HP, dying endlessly). Death now respawns the player in a new **safe zone** (4th map id, always open, no monsters/boss, also a voluntary rest spot) at full HP/MP; idling stays stopped until the player picks the next map themselves — the town kick becomes part of the death cost. Penalties unchanged; map-page cursor only rests on enterable rows.
 - v1.0 (2026-09-29): the safe zone becomes **map id 0** and heads the map page (row "0" + safe-zone name; combat maps renumbered 1–3, making the 8.3 pack-weight table literal). New games start idling in Beech Forest at once instead of resting in town. Save bumps to **v3**: byte layout identical to v2, only the map fields migrate (town 3 → 0, combat 0–2 → 1–3); v1/v2 saves load and migrate automatically. Code replaces the `map*6+5` boss lookup with `mafa_map_boss()`; balance-sim gates unchanged and still met.
 - v1.1 (2026-09-29): the header percent now shows **XP progress toward the next level** ("Lv.8 87%") instead of the battery — playtest feedback was that level-up timing was invisible, decisive on the 14→15 wall (≈45 % of total grind). At the cap the line shrinks to bare "Lv.15". The battery readout moved to the settings page as a non-navigable info row. Design mockups 03/11 re-rendered to match; font subsets regenerated for the new battery label.
+- v1.2 (2026-09-29): playtest feedback round — four visibility/control gaps closed. (1) **Potion counts became visible**: a potions line on the gear page and holdings on the store rows (they previously existed only as invisible counters). (2) **Auto-potion thresholds became adjustable**: the fixed 50% HP / 30% MP triggers turned into settings rows (red line / blue line), editable in place, 20–80% in steps of 10; save v4 carries the thresholds and per-class skill switches, v1–v3 saves load with defaults. (3) **"Learned but never cast" explained**: a host probe showed the cast logic has no bug — Half-Moon Sweep fires in 100 % of multi-mob battles at L9 with the book, but books can be banked before the unlock level (0 casts at L8 despite 118 multi-mob battles) and map 1 spawns lone monsters ≈70 % of the time while AoE is crowd-only by design. The fix is visibility, not numbers: the gear page now lists all five skills with live state (always-on / on-off toggle / store price / "Lv12 boss"-style lock reason, plus an AoE tag on crowd-only skills). (4) **Skills became toggleable** (OK on a skill row; passive/proc fixed). (5) **Auto-sell became a selectable color set** (white/green/blue/purple bits, default white-only, gold never auto-sold): the settings row shows the enabled colors and OK opens an in-place quality picker; save v4 carries the 4-bit set and older saves map the old white-only flag onto it. Mockup 07 became the final gear-page design (absorbing the old 12-skills-proposal, now removed), 09/11 re-rendered, 14 added for the threshold edit state, 15 for the auto-sell picker.
 - v0.6 (2026-09-28): on-device feedback added an "auto-boss" settings toggle (boss events are fought automatically instead of prompting); save contents and the settings page updated.
 - v0.5 (2026-09-28): on-device feedback added a gear-overview page (action menu item 2: the three equipped slots plus a stat summary); the action menu grew to six entries.
 - v0.4 (2026-09-28): M2 balance calibration finalized. Taoist rebalanced as a sustain fighter (HP 60+6, attack 12+1; Soul Fire Talisman L3 2.4×/MP14, Heal L7, Poison L12); added boss-fight rules (50% defense pierce, ±20% monster damage roll, fixed-value potions); boss stats finalized (Ape 300/16, Corpse King 400/26, Overlord 1200/22); success metric redefined as "per map at least one class win rate within 20–85%, none locked at 0%".

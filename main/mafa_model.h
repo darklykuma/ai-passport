@@ -22,7 +22,12 @@
 #define MAFA_GOLD_CAP 9999
 #define MAFA_INV_EMPTY 0xFF
 #define MAFA_DROP_NONE 0xFF
-#define MAFA_SAVE_VERSION 3
+#define MAFA_SAVE_VERSION 4
+/* Auto-potion trigger lines are settable in steps of 10 (PRD 10, v1.2). */
+#define MAFA_POT_PCT_MIN 20
+#define MAFA_POT_PCT_MAX 80
+#define MAFA_POT_HP_PCT_DEFAULT 50
+#define MAFA_POT_MP_PCT_DEFAULT 30
 
 typedef enum {
     MAFA_CLS_WARRIOR = 0,
@@ -135,9 +140,15 @@ typedef struct {
     uint16_t kills;         /* mobs killed on the current map, toward boss */
     uint8_t pending_drop;   /* item id awaiting the full-backpack prompt */
     bool auto_potion;       /* settings toggle, default on */
-    bool auto_sell_white;   /* settings toggle, default on */
+    uint8_t auto_sell;      /* quality bitmask, bit = 1 << quality: drops of
+                               these qualities sell at once; gold never
+                               (default: white only) */
     bool auto_boss;         /* settings toggle: answer boss events without
                                the prompt (PRD 10 settings) */
+    uint8_t pot_hp_pct;     /* auto-red below this % HP (20..80, default 50) */
+    uint8_t pot_mp_pct;     /* auto-blue below this % MP (20..80, default 30) */
+    uint8_t skills_off;     /* bit i = skill i of the player's class switched
+                               off on the gear page (passive/proc are fixed) */
     uint32_t rng;           /* splitmix32 state */
 } mafa_player_t;
 
@@ -276,8 +287,10 @@ void mafa_switch_map(mafa_player_t *p, uint8_t map);    /* combat maps must
 
 /* NVS-ready serialization (PRD 8.10): magic + version + payload + CRC8.
  * Returns the written size, or 0 when the buffer is too small / data bad.
- * v1/v2 saves load and migrate: v1 grants books for every skill whose
- * unlock level is reached; v1/v2 map ids shift into the v3 numbering
- * (safe zone 3 → 0, combat maps 0-2 → 1-3). */
+ * Older saves load and migrate (PRD 8.10, v1.2): v1 grants books for every
+ * skill whose unlock level is reached; v1/v2 map ids shift into the v3
+ * numbering (safe zone 3 → 0, combat maps 0-2 → 1-3); v1-v3 read as v4 with
+ * default thresholds/switches and the old auto-sell-white flag mapped onto
+ * the quality mask's white bit. */
 size_t mafa_save_serialize(const mafa_player_t *p, uint8_t *buf, size_t cap);
 bool mafa_save_deserialize(mafa_player_t *p, const uint8_t *buf, size_t len);

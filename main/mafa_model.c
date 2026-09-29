@@ -161,7 +161,9 @@ void mafa_player_init(mafa_player_t *p, uint8_t cls, uint32_t seed) {
     p->map = MAFA_MAP_SAFE + 1;         /* new games idle at once: Beech */
     p->unlocked = MAFA_MAP_SAFE + 1;
     p->auto_potion = true;
-    p->auto_sell_white = true;
+    p->auto_sell = 0x01;                /* white only (PRD 8.3, v1.2) */
+    p->pot_hp_pct = MAFA_POT_HP_PCT_DEFAULT;
+    p->pot_mp_pct = MAFA_POT_MP_PCT_DEFAULT;
     p->pending_drop = MAFA_DROP_NONE;
     for (int i = 0; i < MAFA_EQ_SLOTS; ++i) p->equipped[i] = MAFA_INV_EMPTY;
     for (int i = 0; i < MAFA_BACKPACK; ++i) p->inv_id[i] = MAFA_INV_EMPTY;
@@ -509,8 +511,11 @@ static void roll_gear_drop(mafa_player_t *p, const mafa_battle_t *b,
     for (int i = 0; i < MAFA_ITEM_COUNT; ++i)
         if (MAFA_ITEMS[i].map == m->base->map && MAFA_ITEMS[i].tier == tier
             && MAFA_ITEMS[i].slot == slot) {
-            if (MAFA_ITEMS[i].quality == MAFA_Q_WHITE && p->auto_sell_white) {
-                uint32_t g = MAFA_SELL_PRICE[MAFA_Q_WHITE];
+            uint8_t q = MAFA_ITEMS[i].quality;
+            /* The auto-sell quality set (v1.2); gold never auto-sells —
+             * legendary drops always reach the player. */
+            if (q != MAFA_Q_GOLD && (p->auto_sell >> q) & 1) {
+                uint32_t g = MAFA_SELL_PRICE[q];
                 add_gold(p, g);
                 mafa_ev_push(ev, MAFA_EV_DROP, (uint8_t)i, 2, 0);
             } else if (mafa_inv_add(p, (uint8_t)i)) {
@@ -609,7 +614,7 @@ static bool try_potion(mafa_player_t *p, mafa_events_t *ev) {
     if (!p->auto_potion) return false;
     mafa_stats_t st;
     mafa_stats(p, &st);
-    if (p->hp * 2 < st.max_hp && p->pot_red > 0) {
+    if (p->hp * 100 < st.max_hp * p->pot_hp_pct && p->pot_red > 0) {
         p->pot_red--;
         int32_t heal = MAFA_RED_HEAL(p->level);
         p->hp += (int16_t)heal;
@@ -617,7 +622,8 @@ static bool try_potion(mafa_player_t *p, mafa_events_t *ev) {
         mafa_ev_push(ev, MAFA_EV_HEAL, 1, heal, 0);
         return true;
     }
-    if (st.max_mp > 0 && p->mp * 10 < st.max_mp * 3 && p->pot_blue > 0) {
+    if (st.max_mp > 0 && p->mp * 100 < st.max_mp * p->pot_mp_pct
+        && p->pot_blue > 0) {
         p->pot_blue--;
         int32_t fill = MAFA_BLUE_MP(p->level);
         p->mp += (int16_t)fill;
@@ -652,7 +658,8 @@ static const mafa_skill_t *pick_skill(mafa_player_t *p, mafa_battle_t *b,
     /* Per-class priority over castable skills; PASSIVE/PROC never cast.
      * Gates keep each form honest: AoE only into a crowd, shield when hurt
      * and none up, pet while down, heal when hurt, poison once, and the
-     * taoist talisman only with mana to spare. */
+     * taoist talisman only with mana to spare. Skills switched off on the
+     * gear page (skills_off, v1.2) are skipped here. */
     static const uint8_t ORDER[MAFA_CLS_COUNT][MAFA_SKILLS_PER_CLASS] = {
         {4, 3, 2, 0xFF, 0xFF},          /* warrior: 烈火 半月 刺杀 */
         {3, 4, 1, 2, 0},                /* mage: 盾 冰咆哮 雷电 火墙 火球 */
@@ -665,6 +672,7 @@ static const mafa_skill_t *pick_skill(mafa_player_t *p, mafa_battle_t *b,
         const mafa_skill_t *s = &sk[i];
         if (s->kind == MAFA_SK_PASSIVE || s->kind == MAFA_SK_PROC) continue;
         if (!mafa_skill_known(p, i) || b->cd[i] > 0) continue;
+        if (p->skills_off & (1u << i)) continue;
         if (s->mp > 0 && p->mp < s->mp) continue;
         switch (s->kind) {
         case MAFA_SK_AOE:
@@ -1037,6 +1045,9 @@ static uint8_t crc8(const uint8_t *d, size_t n) {
     return c;
 }
 
+/* v4 payload (v1.2): v2 body + skills_off + pot_hp_pct + pot_mp_pct +
+ * auto_sell = 44 bytes (even, the old spare byte put to work). */
+#define MAFA_SAVE_BODY_V4 44
 /* v2/v3 payload: cls level xp32 gold hp mp books pots kills flags drop eq
  * inv spare = 40 bytes (even, room to grow). v3 only renumbers the map
  * fields; the byte layout is unchanged. */
@@ -1045,7 +1056,7 @@ static uint8_t crc8(const uint8_t *d, size_t n) {
 #define MAFA_SAVE_BODY_V1 36
 
 size_t mafa_save_serialize(const mafa_player_t *p, uint8_t *buf, size_t cap) {
-    const size_t total = 4 + MAFA_SAVE_BODY_V2 + 1;
+    const size_t total = 4 + MAFA_SAVE_BODY_V4 + 1;
     if (cap < total) return 0;
     buf[0] = 'M'; buf[1] = 'F'; buf[2] = 'C'; buf[3] = MAFA_SAVE_VERSION;
     uint8_t *w = buf + 4;
@@ -1061,20 +1072,24 @@ size_t mafa_save_serialize(const mafa_player_t *p, uint8_t *buf, size_t cap) {
     *w++ = p->kills & 0xFF; *w++ = p->kills >> 8;
     *w++ = (uint8_t)(p->map | (p->unlocked << 2)
                      | (p->auto_potion ? 0x10 : 0)
-                     | (p->auto_sell_white ? 0x20 : 0)
                      | (p->auto_boss ? 0x40 : 0));
     *w++ = p->pending_drop;
     for (int i = 0; i < MAFA_EQ_SLOTS; ++i) *w++ = p->equipped[i];
     for (int i = 0; i < MAFA_BACKPACK; ++i) { *w++ = p->inv_id[i]; *w++ = p->inv_n[i]; }
+    *w++ = p->skills_off & 0x1F;
+    *w++ = p->pot_hp_pct;
+    *w++ = p->pot_mp_pct;
+    *w++ = p->auto_sell & 0x0F;
     *w++ = 0;   /* spare keeps the payload even and leaves room to grow */
     size_t body = (size_t)(w - (buf + 4));
-    if (body != MAFA_SAVE_BODY_V2) return 0;
+    if (body != MAFA_SAVE_BODY_V4) return 0;
     buf[4 + body] = crc8(buf + 4, body);
     return total;
 }
 
 /* Version-aware payload reader: v1 (36 B) has xp16 and no books; v2/v3
- * (40 B) have xp32 + books. Everything after mp shifts accordingly. */
+ * (40 B) have xp32 + books; v4 (44 B) adds the skills_off / threshold /
+ * auto-sell tail. Everything after mp shifts accordingly. */
 static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
                          uint8_t version) {
     t->cls = r[0];
@@ -1082,7 +1097,7 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
     if (t->cls >= MAFA_CLS_COUNT || t->level < 1 || t->level > MAFA_MAX_LEVEL)
         return false;
     r += 2;
-    if (body == MAFA_SAVE_BODY_V2) {
+    if (body >= MAFA_SAVE_BODY_V2) {
         t->xp = (uint32_t)r[0] | ((uint32_t)r[1] << 8)
                 | ((uint32_t)r[2] << 16) | ((uint32_t)r[3] << 24);
         r += 4;
@@ -1093,7 +1108,7 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
     t->gold = (uint16_t)(r[0] | (r[1] << 8)); r += 2;
     t->hp = (int16_t)(r[0] | (r[1] << 8)); r += 2;
     t->mp = (int16_t)(r[0] | (r[1] << 8)); r += 2;
-    if (body == MAFA_SAVE_BODY_V2) {
+    if (body >= MAFA_SAVE_BODY_V2) {
         t->books = (uint16_t)(r[0] | (r[1] << 8));
         r += 2;
     }
@@ -1115,8 +1130,13 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
         t->unlocked = (uint8_t)(t->unlocked + 1);
     }
     t->auto_potion = (flags & 0x10) != 0;
-    t->auto_sell_white = (flags & 0x20) != 0;
     t->auto_boss = (flags & 0x40) != 0;
+    /* v1-v3 defaults; the v4 tail below overwrites them. The old white-only
+     * auto-sell flag maps onto the quality mask's white bit. */
+    t->auto_sell = (flags & 0x20) ? 0x01 : 0x00;
+    t->pot_hp_pct = MAFA_POT_HP_PCT_DEFAULT;
+    t->pot_mp_pct = MAFA_POT_MP_PCT_DEFAULT;
+    t->skills_off = 0;
     t->pending_drop = *r++;
     if (t->pending_drop != MAFA_DROP_NONE
         && t->pending_drop >= MAFA_ITEM_COUNT) return false;
@@ -1132,6 +1152,16 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
             && (t->inv_id[i] >= MAFA_ITEM_COUNT || t->inv_n[i] == 0)) return false;
         if (t->inv_id[i] == MAFA_INV_EMPTY) t->inv_n[i] = 0;
     }
+    if (body == MAFA_SAVE_BODY_V4) {
+        t->skills_off = (uint8_t)(*r++ & 0x1F);
+        t->pot_hp_pct = *r++;
+        t->pot_mp_pct = *r++;
+        if (t->pot_hp_pct < MAFA_POT_PCT_MIN || t->pot_hp_pct > MAFA_POT_PCT_MAX)
+            return false;
+        if (t->pot_mp_pct < MAFA_POT_PCT_MIN || t->pot_mp_pct > MAFA_POT_PCT_MAX)
+            return false;
+        t->auto_sell = (uint8_t)(*r & 0x0F);
+    }
     return true;
 }
 
@@ -1139,7 +1169,8 @@ bool mafa_save_deserialize(mafa_player_t *p, const uint8_t *buf, size_t len) {
     if (len < 4 + MAFA_SAVE_BODY_V1 + 1) return false;
     if (buf[0] != 'M' || buf[1] != 'F' || buf[2] != 'C') return false;
     size_t body;
-    if (buf[3] == MAFA_SAVE_VERSION || buf[3] == 2) body = MAFA_SAVE_BODY_V2;
+    if (buf[3] == MAFA_SAVE_VERSION) body = MAFA_SAVE_BODY_V4;
+    else if (buf[3] == 3 || buf[3] == 2) body = MAFA_SAVE_BODY_V2;
     else if (buf[3] == 1) body = MAFA_SAVE_BODY_V1;
     else return false;
     if (len - 5 < body) return false;

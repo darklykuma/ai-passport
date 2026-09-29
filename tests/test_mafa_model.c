@@ -356,7 +356,7 @@ static void test_inventory_equip_and_compare(void) {
 static void test_full_backpack_drop_prompt(void) {
     mafa_player_t p;
     mafa_player_init(&p, MAFA_CLS_WARRIOR, 1234);
-    p.auto_sell_white = false;          /* force the prompt path */
+    p.auto_sell = 0;                    /* sell nothing: force the prompt path */
     /* Eight distinct items fill every backpack slot. */
     static const uint8_t ids[MAFA_BACKPACK] = {1, 9, 10, 11, 12, 13, 18, 24};
     for (int i = 0; i < MAFA_BACKPACK; ++i)
@@ -428,7 +428,7 @@ static void test_death_penalty_drops_and_gold(void) {
     assert(p.gold <= 900 && p.gold >= 790);
 }
 
-static void test_save_roundtrip_v3(void) {
+static void test_save_roundtrip_v4(void) {
     mafa_player_t p;
     mafa_player_init(&p, MAFA_CLS_TAOIST, 77);
     p.level = 9;
@@ -441,6 +441,10 @@ static void test_save_roundtrip_v3(void) {
     p.kills = 17;
     p.auto_potion = false;
     p.auto_boss = true;
+    p.pot_hp_pct = 70;                  /* v1.2 settings ride the payload */
+    p.pot_mp_pct = 40;
+    p.skills_off = (uint8_t)(1u << 2);  /* 灵魂火符 switched off */
+    p.auto_sell = 0x05;                 /* white + blue sell at once */
     grant_books(&p, 2);                 /* books for idx 1 and 2 */
     assert(mafa_inv_add(&p, 11));
     assert(mafa_inv_add(&p, 3));
@@ -451,8 +455,8 @@ static void test_save_roundtrip_v3(void) {
 
     uint8_t buf[64];
     size_t n = mafa_save_serialize(&p, buf, sizeof buf);
-    assert(n == 4 + MAFA_SAVE_BODY_V2 + 1);     /* v3 shares the v2 layout */
-    assert(buf[3] == MAFA_SAVE_VERSION && buf[3] == 3);
+    assert(n == 4 + MAFA_SAVE_BODY_V4 + 1);
+    assert(buf[3] == MAFA_SAVE_VERSION && buf[3] == 4);
 
     mafa_player_t q;
     mafa_player_init(&q, MAFA_CLS_WARRIOR, 1);
@@ -461,8 +465,9 @@ static void test_save_roundtrip_v3(void) {
     assert(q.gold == p.gold && q.pot_red == 3 && q.pot_blue == 4);
     assert(q.books == p.books);
     assert(q.unlocked == 1 && q.map == MAFA_MAP_SAFE && q.kills == 17);
-    assert(q.auto_potion == false && q.auto_sell_white == true);
-    assert(q.auto_boss == true);
+    assert(q.auto_potion == false && q.auto_boss == true);
+    assert(q.pot_hp_pct == 70 && q.pot_mp_pct == 40);
+    assert(q.skills_off == (1u << 2) && q.auto_sell == 0x05);
     assert(q.equipped[MAFA_SLOT_ARMOR] == 3);
     assert(q.hp == 111 && q.mp == 22);
     assert(q.rng > 0);                  /* the live stream is kept, not saved */
@@ -471,6 +476,48 @@ static void test_save_roundtrip_v3(void) {
     assert(!mafa_save_deserialize(&q, buf, n));
     /* Deserialization failure must not disturb the live player. */
     assert(q.cls == MAFA_CLS_TAOIST && q.gold == 456);
+
+    /* The threshold lines are domain-checked: a forged out-of-range value
+     * is rejected like any other corrupt field. */
+    assert(mafa_save_serialize(&p, buf, sizeof buf));
+    p.pot_hp_pct = 90;
+    assert(mafa_save_serialize(&p, buf, sizeof buf));
+    assert(!mafa_save_deserialize(&q, buf, n));
+}
+
+static void test_init_defaults_v4(void) {
+    mafa_player_t p;
+    mafa_player_init(&p, MAFA_CLS_MAGE, 5);
+    assert(p.auto_sell == 0x01);        /* white only (the old behavior) */
+    assert(p.pot_hp_pct == 50 && p.pot_mp_pct == 30);
+    assert(p.skills_off == 0);          /* every skill starts switched on */
+}
+
+static void test_v3_save_migration_to_v4(void) {
+    /* v3 saves (40-byte body) read as v4 with default thresholds/switches;
+     * the old flags byte's auto-sell-white bit maps onto the white bit. */
+    uint8_t buf[64];
+    mafa_player_t p;
+    mafa_player_init(&p, MAFA_CLS_WARRIOR, 8);
+    assert(mafa_save_serialize(&p, buf, sizeof buf));
+    buf[3] = 3;                         /* rewind the header to v3 */
+    buf[4 + MAFA_SAVE_BODY_V2] = crc8(buf + 4, MAFA_SAVE_BODY_V2);
+
+    mafa_player_t q;
+    mafa_player_init(&q, MAFA_CLS_MAGE, 9);
+    assert(mafa_save_deserialize(&q, buf, 4 + MAFA_SAVE_BODY_V2 + 1));
+    assert(q.pot_hp_pct == MAFA_POT_HP_PCT_DEFAULT);
+    assert(q.pot_mp_pct == MAFA_POT_MP_PCT_DEFAULT);
+    assert(q.skills_off == 0);
+    assert(q.auto_sell == 0x00);        /* v4 flags carry no sell bit */
+
+    /* An old save with 自动卖白 on (flags 0x20) maps to white-only. */
+    assert(mafa_save_serialize(&p, buf, sizeof buf));
+    buf[3] = 3;
+    buf[4 + 18] |= 0x20;                /* the v2/v3 flags byte */
+    buf[4 + MAFA_SAVE_BODY_V2] = crc8(buf + 4, MAFA_SAVE_BODY_V2);
+    assert(mafa_save_deserialize(&q, buf, 4 + MAFA_SAVE_BODY_V2 + 1));
+    assert(q.auto_sell == 0x01);
 }
 
 static void test_v1_save_migration(void) {
@@ -508,6 +555,9 @@ static void test_v1_save_migration(void) {
     assert(!mafa_skill_known(&p, 4));   /* 冰咆哮 L13: still needs the book */
     uint16_t expected = (uint16_t)((1u << 6) | (1u << 7) | (1u << 8));
     assert(p.books == expected);
+    /* The v1 flags byte had 自动卖白 on (0x30 = potion + sell). */
+    assert(p.auto_sell == 0x01);
+    assert(p.pot_hp_pct == MAFA_POT_HP_PCT_DEFAULT && p.pot_mp_pct == 30);
 }
 
 static void test_v2_save_map_migration(void) {
@@ -528,17 +578,197 @@ static void test_v2_save_map_migration(void) {
         }
         assert(mafa_save_serialize(&p, buf, sizeof buf));
         buf[3] = 2;                     /* rewind the header to v2 */
+        if (c == 0) buf[4 + 18] |= 0x20;        /* old 自动卖白 flag on */
         buf[4 + MAFA_SAVE_BODY_V2] = crc8(buf + 4, MAFA_SAVE_BODY_V2);
 
         mafa_player_t q;
         mafa_player_init(&q, MAFA_CLS_MAGE, 6);
         assert(mafa_save_deserialize(&q, buf, 4 + MAFA_SAVE_BODY_V2 + 1));
+        assert(q.auto_sell == (c == 0 ? 0x01 : 0x00));
         if (c == 0) {
             assert(q.map == 3 && q.unlocked == 2);
         } else {
             assert(q.map == MAFA_MAP_SAFE && q.unlocked == 1);
         }
     }
+}
+
+static void test_auto_potion_thresholds(void) {
+    mafa_player_t p;
+    mafa_player_init(&p, MAFA_CLS_MAGE, 55);
+    mafa_battle_t b;
+    mafa_events_t ev;
+
+    /* 75 % HP with the red line at 80 %: the potion fires. */
+    p.level = 5;
+    p.pot_red = 5;
+    p.pot_blue = 5;
+    p.pot_hp_pct = 80;
+    mafa_stats_t st;
+    mafa_stats(&p, &st);
+    p.hp = (int16_t)(st.max_hp * 3 / 4);
+    assert(mafa_battle_start(&p, &b));
+    mafa_battle_round(&p, &b, &ev);
+    bool healed = false;
+    for (int i = 0; i < ev.n; ++i)
+        if (ev.e[i].kind == MAFA_EV_HEAL && ev.e[i].id == 1) healed = true;
+    assert(healed && p.pot_red == 4);
+
+    /* 75 % HP with the red line at 20 %: the potion stays put. */
+    mafa_player_init(&p, MAFA_CLS_MAGE, 55);
+    p.level = 5;
+    p.pot_red = 5;
+    p.pot_blue = 5;
+    p.pot_hp_pct = 20;
+    mafa_stats(&p, &st);
+    p.hp = (int16_t)(st.max_hp * 3 / 4);
+    assert(mafa_battle_start(&p, &b));
+    mafa_battle_round(&p, &b, &ev);
+    healed = false;
+    for (int i = 0; i < ev.n; ++i)
+        if (ev.e[i].kind == MAFA_EV_HEAL && ev.e[i].id == 1) healed = true;
+    assert(!healed && p.pot_red == 5);
+
+    /* The blue line: a quarter tank with the default 30 % line drinks. */
+    mafa_player_init(&p, MAFA_CLS_MAGE, 55);
+    p.level = 5;
+    p.pot_red = 0;                      /* keep the red branch out of the way */
+    p.pot_blue = 5;
+    mafa_stats(&p, &st);
+    p.hp = st.max_hp;
+    p.mp = (int16_t)(st.max_mp / 4);
+    assert(mafa_battle_start(&p, &b));
+    mafa_battle_round(&p, &b, &ev);
+    healed = false;
+    for (int i = 0; i < ev.n; ++i)
+        if (ev.e[i].kind == MAFA_EV_HEAL && ev.e[i].id == 2) healed = true;
+    assert(healed && p.pot_blue == 4);
+}
+
+static void test_skill_toggle_respected(void) {
+    /* 半月弯刀 (idx 3) switched off: zero casts across the multi-mob
+     * battles the gear gate would normally light up in. */
+    int casts = 0;
+    for (int round = 0; round < 2; ++round) {
+        for (int i = 0; i < 60; ++i) {
+            mafa_player_t p;
+            mafa_player_init(&p, MAFA_CLS_WARRIOR, (uint32_t)(31337 + i));
+            p.level = 12;
+            grant_books(&p, 4);
+            p.skills_off = round == 0 ? (uint8_t)(1u << 3) : 0;
+            p.unlocked = 3;
+            p.map = 3;
+            mafa_battle_t b;
+            if (!mafa_battle_start(&p, &b) || b.mob_n < 2) continue;
+            mafa_events_t ev;
+            int guard = 0;
+            while (!b.over && guard++ < 1000) {
+                mafa_battle_round(&p, &b, &ev);
+                for (int k = 0; k < ev.n; ++k)
+                    if (ev.e[k].kind == MAFA_EV_SKILL_HIT && ev.e[k].id == 3)
+                        casts++;
+                mafa_stats_t st;
+                mafa_stats(&p, &st);
+                if (p.hp < st.max_hp) p.hp = (int16_t)st.max_hp;
+                if (p.pending_drop != MAFA_DROP_NONE) mafa_drop_discard(&p);
+            }
+        }
+        if (round == 0) assert(casts == 0);     /* off: never casts */
+    }
+    assert(casts > 0);                          /* on: the same seeds cast */
+}
+
+static void test_auto_sell_quality_mask(void) {
+    /* Every quality enabled: the first drops sell at once, never stored. */
+    int sold = 0;
+    for (int i = 0; i < 120 && sold == 0; ++i) {
+        mafa_player_t p;
+        mafa_player_init(&p, MAFA_CLS_WARRIOR, (uint32_t)(90210 + i));
+        p.level = 12;                   /* survive map 3 long enough to loot */
+        p.auto_sell = 0x0F;
+        p.unlocked = 3;
+        p.map = 3;
+        mafa_battle_t b;
+        if (!mafa_battle_start(&p, &b)) continue;
+        mafa_events_t ev;
+        int guard = 0;
+        while (!b.over && guard++ < 1000) {
+            mafa_battle_round(&p, &b, &ev);
+            for (int k = 0; k < ev.n; ++k)
+                if (ev.e[k].kind == MAFA_EV_DROP) {
+                    /* Map-3 elites can still roll gold tier: gold stores,
+                     * everything else in the mask sells. */
+                    if (MAFA_ITEMS[ev.e[k].id].quality == MAFA_Q_GOLD)
+                        assert(ev.e[k].a == 1);
+                    else {
+                        assert(ev.e[k].a == 2);     /* sold, not stored */
+                        sold++;
+                    }
+                }
+            if (p.pending_drop != MAFA_DROP_NONE) mafa_drop_discard(&p);
+        }
+    }
+    assert(sold > 0);
+
+    /* Nothing enabled: every drop takes backpack space instead. */
+    int stored = 0;
+    for (int i = 0; i < 120 && stored == 0; ++i) {
+        mafa_player_t p;
+        mafa_player_init(&p, MAFA_CLS_WARRIOR, (uint32_t)(90210 + i));
+        p.level = 12;
+        p.auto_sell = 0;
+        p.unlocked = 3;
+        p.map = 3;
+        mafa_battle_t b;
+        if (!mafa_battle_start(&p, &b)) continue;
+        mafa_events_t ev;
+        int guard = 0;
+        while (!b.over && guard++ < 1000) {
+            mafa_battle_round(&p, &b, &ev);
+            for (int k = 0; k < ev.n; ++k)
+                if (ev.e[k].kind == MAFA_EV_DROP) {
+                    assert(ev.e[k].a != 2);     /* stored or prompted */
+                    stored++;
+                }
+            if (p.pending_drop != MAFA_DROP_NONE) mafa_drop_discard(&p);
+        }
+    }
+    assert(stored > 0);
+
+    /* Gold never auto-sells, even with the full mask: map-3 boss tier-3
+     * rolls are gold quality and must reach the backpack (a==1). */
+    int gold_drops = 0;
+    for (int i = 0; i < 300 && gold_drops == 0; ++i) {
+        mafa_player_t p;
+        mafa_player_init(&p, MAFA_CLS_WARRIOR, (uint32_t)(5150 + i));
+        p.level = 15;
+        grant_books(&p, 4);
+        p.auto_sell = 0x0F;
+        p.unlocked = 3;
+        p.map = 3;
+        p.pot_red = 30;
+        p.pot_blue = 30;
+        p.kills = MAFA_KILLS_PER_BOSS;
+        mafa_battle_t b;
+        if (!mafa_boss_start(&p, &b)) continue;
+        mafa_events_t ev;
+        int guard = 0;
+        while (!b.over && guard++ < 100000) {
+            mafa_battle_round(&p, &b, &ev);
+            for (int k = 0; k < ev.n; ++k)
+                if (ev.e[k].kind == MAFA_EV_DROP) {
+                    if (MAFA_ITEMS[ev.e[k].id].quality == MAFA_Q_GOLD) {
+                        assert(ev.e[k].a == 1);  /* stored, never sold */
+                        gold_drops++;
+                    } else {
+                        assert(ev.e[k].a == 2);
+                    }
+                }
+            if (p.pending_drop != MAFA_DROP_NONE) mafa_drop_discard(&p);
+            if (b.player_dead) break;       /* respawn and try again */
+        }
+    }
+    assert(gold_drops > 0);
 }
 
 static void test_battle_terminates_over_many_maps(void) {
@@ -609,9 +839,14 @@ int main(void) {
     test_inventory_equip_and_compare();
     test_full_backpack_drop_prompt();
     test_potions_and_store();
+    test_auto_potion_thresholds();
+    test_skill_toggle_respected();
+    test_auto_sell_quality_mask();
     test_death_penalty_drops_and_gold();
     test_safe_zone_no_combat_and_open_door();
-    test_save_roundtrip_v3();
+    test_init_defaults_v4();
+    test_save_roundtrip_v4();
+    test_v3_save_migration_to_v4();
     test_v1_save_migration();
     test_v2_save_map_migration();
     test_battle_terminates_over_many_maps();

@@ -52,6 +52,14 @@ static const char *Q_COLOR[MAFA_Q_COUNT] = {
     "#C8C8C8", "#5FC85F", "#4FA8F2", "#B06CF0", "#F0C04A",
 };
 
+/* Auto-sell picker rows (design 15): one quality name per row, drawn in its
+ * own quality color. Each constant carries the parser-consumed space; the
+ * closing # lives at the format site. */
+static const char *SELL_PICK_COLOR[4] = {
+    "#C8C8C8 ", "#5FC85F ", "#4FA8F2 ", "#B06CF0 ",
+};
+static const char *SELL_PICK_NAME[4] = {"白", "绿", "蓝", "紫"};
+
 static const uint32_t PACE_MS[3] = {1500, 750, 375};   /* 1x/2x/4x (8.3) */
 static const char *SPEED_NAME[3] = {"1x", "2x", "4x"};
 static const char *MAIN_MENU[6] = {"背包", "装备", "商店", "地图", "设置", "加速"};
@@ -66,7 +74,10 @@ static struct {
     bool confirm_new;       // menu: overwrite-save confirmation shown
     int cur_class;
     int cur_main;           // action menu cursor (0..5)
-    int cur_status;
+    int cur_status;         /* gear page cursor: 0-2 equip slots, 3-7 skills */
+    int set_edit;           /* settings edit mode: 0 none, 1 potion line,
+                               2 auto-sell picker */
+    int cur_pick;           /* auto-sell picker cursor: 0-3 colors, 4 done */
     int cur_pack;
     bool packsub;           // backpack action submenu open
     int cur_packsub;        // 0 equip, 1 sell
@@ -576,9 +587,18 @@ static void refresh_class(void) {
     lv_label_set_text(s_app.view.detail_label, det);
 }
 
+/* Gear page (design 07, v1.2): the three equip slots with their cursor
+ * stops, then a dim stat line, a potion line (counts used to be invisible),
+ * and the five class skills with their live state. Skill rows answer the
+ * "learned but never cast" confusion in place: 常驻 for passive/proc,
+ * 开/关 toggles, the store price, or the lock reason "Lv12 Boss" — the AoE
+ * rows add 群攻, the crowd-only gate made visible. */
 static void refresh_status(void) {
     static const char *SLOT_NAME[MAFA_EQ_SLOTS] = {"武器", "衣服", "首饰"};
-    char buf[224];
+    static const char *BOOK_SRC[MAFA_SKILLS_PER_CLASS] = {
+        "", "书店300金", "书店800金", "精英/Boss", "Boss",
+    };
+    char buf[640];
     int n = 0;
     for (int i = 0; i < MAFA_EQ_SLOTS; ++i) {
         uint8_t id = s_app.player.equipped[i];
@@ -598,14 +618,41 @@ static void refresh_status(void) {
             n += snprintf(buf + n, sizeof buf - n, "%s%s:%s 攻%+d 防%+d\n",
                           mark, SLOT_NAME[i], it->name, it->atk, it->def);
     }
-    /* Design 07: the totals sit after a blank row, dim, split across two
-     * lines with 血/蓝 shown as current/max. */
     mafa_stats_t st;
     mafa_stats(&s_app.player, &st);
-    snprintf(buf + n, sizeof buf - n,
-             "\n#9AA3A8 攻 %d  防 %d#\n#9AA3A8 血 %d/%ld  蓝 %ld/%ld#",
-             st.atk, st.def, s_app.player.hp, (long)st.max_hp,
-             (long)s_app.player.mp, (long)st.max_mp);
+    n += snprintf(buf + n, sizeof buf - n,
+                  "#9AA3A8 攻%d 防%d 血%d/%ld 蓝%ld/%ld#\n",
+                  st.atk, st.def, s_app.player.hp, (long)st.max_hp,
+                  (long)s_app.player.mp, (long)st.max_mp);
+    n += snprintf(buf + n, sizeof buf - n,
+                  "#E05A48 红药x%u# #4FA8F2 蓝药x%u#\n",
+                  (unsigned)s_app.player.pot_red,
+                  (unsigned)s_app.player.pot_blue);
+    for (int i = 0; i < MAFA_SKILLS_PER_CLASS; ++i) {
+        const mafa_skill_t *sk = &MAFA_SKILLS[s_app.player.cls][i];
+        const char *mark
+            = s_app.cur_status == MAFA_EQ_SLOTS + i ? "＞" : "  ";
+        char state[32];
+        size_t m = 0;
+        if (sk->kind == MAFA_SK_AOE)
+            m += (size_t)snprintf(state + m, sizeof state - m, "群攻 ");
+        if (!mafa_skill_known(&s_app.player, (uint8_t)i)) {
+            if (s_app.player.level < sk->unlock)
+                m += (size_t)snprintf(state + m, sizeof state - m, "Lv%u ",
+                                      (unsigned)sk->unlock);
+            snprintf(state + m, sizeof state - m, "%s", BOOK_SRC[i]);
+            n += snprintf(buf + n, sizeof buf - n, "#9AA3A8 %s%s  %s#\n",
+                          mark, sk->name, state);
+        } else if (sk->kind == MAFA_SK_PASSIVE
+                   || sk->kind == MAFA_SK_PROC) {
+            n += snprintf(buf + n, sizeof buf - n, "#9AA3A8 %s%s  %s常驻#\n",
+                          mark, sk->name, state);
+        } else {
+            n += snprintf(buf + n, sizeof buf - n, "%s%s  %s%s\n",
+                          mark, sk->name, state,
+                          (s_app.player.skills_off >> i) & 1 ? "关" : "开");
+        }
+    }
     lv_label_set_text(s_app.view.items_label, buf);
 }
 
@@ -651,25 +698,35 @@ static void refresh_backpack(void) {
 
 static void refresh_store(void) {
     /* Rows: red, blue, then the two store books of the player's class.
-     * Design 09: learned books go dim, and the gold count sits after a
-     * blank row in gold. */
+     * Design 09 (v1.2): potion rows carry the stack already held, learned
+     * books go dim, under-level books show their unlock level, and the
+     * gold count sits after a blank row in gold. */
     char buf[256];
     const mafa_skill_t *sk = MAFA_SKILLS[s_app.player.cls];
     char book[2][64];
     for (int i = 0; i < 2; ++i) {
         const char *mark = s_app.cur_store == i + 2 ? "＞" : "  ";
-        if (mafa_skill_known(&s_app.player, (uint8_t)(i + 1)))
+        uint8_t idx = (uint8_t)(i + 1);
+        if (mafa_skill_known(&s_app.player, idx))
             snprintf(book[i], sizeof book[i], "#9AA3A8 %s%s %u金 已学#",
-                     mark, sk[i + 1].name,
-                     (unsigned)mafa_book_price(s_app.player.cls, (uint8_t)(i + 1)));
+                     mark, sk[idx].name,
+                     (unsigned)mafa_book_price(s_app.player.cls, idx));
+        else if (s_app.player.level < sk[idx].unlock)
+            snprintf(book[i], sizeof book[i], "%s%s %u金 Lv%u",
+                     mark, sk[idx].name,
+                     (unsigned)mafa_book_price(s_app.player.cls, idx),
+                     (unsigned)sk[idx].unlock);
         else
             snprintf(book[i], sizeof book[i], "%s%s %u金",
-                     mark, sk[i + 1].name,
-                     (unsigned)mafa_book_price(s_app.player.cls, (uint8_t)(i + 1)));
+                     mark, sk[idx].name,
+                     (unsigned)mafa_book_price(s_app.player.cls, idx));
     }
-    snprintf(buf, sizeof buf, "%s红药 50金\n%s蓝药 40金\n%s\n%s\n\n#F0C04A 金币 %u#",
+    snprintf(buf, sizeof buf,
+             "%s红药 50金 x%u\n%s蓝药 40金 x%u\n%s\n%s\n\n#F0C04A 金币 %u#",
              s_app.cur_store == 0 ? "＞" : "  ",
+             (unsigned)s_app.player.pot_red,
              s_app.cur_store == 1 ? "＞" : "  ",
+             (unsigned)s_app.player.pot_blue,
              book[0], book[1], (unsigned)s_app.player.gold);
     lv_label_set_text(s_app.view.items_label, buf);
 }
@@ -699,24 +756,94 @@ static void refresh_maps(void) {
     lv_label_set_text(s_app.view.detail_label, det);
 }
 
+/* Settings (design 11/14/15, v1.2): five cursor rows — the auto-potion
+ * toggle, its two editable trigger lines, the auto-sell quality set, and
+ * auto-boss — with the battery as a non-navigable dim row. Three render
+ * modes: plain, potion-line edit (value gold in <brackets>, others dim),
+ * and the auto-sell picker (four quality-colored names + 完成). */
 static void refresh_settings(void) {
-    char buf[128];
+    char buf[512];
+    int n = 0;
     int bat = battery_read();
     char bat_s[12];   /* room for the full int range: GCC counts "%d%%" as 12 */
     if (bat < 0)
         strcpy(bat_s, "--");
     else
         snprintf(bat_s, sizeof bat_s, "%d%%", bat);
-    /* The battery line is informational: three cursor rows stay navigable. */
-    snprintf(buf, sizeof buf,
-             "%s自动喝药:%s\n%s自动卖白:%s\n%s自动Boss:%s\n\n#9AA3A8 电量 %s#",
-             s_app.cur_set == 0 ? "＞" : "  ",
-             s_app.player.auto_potion ? "开" : "关",
-             s_app.cur_set == 1 ? "＞" : "  ",
-             s_app.player.auto_sell_white ? "开" : "关",
-             s_app.cur_set == 2 ? "＞" : "  ",
-             s_app.player.auto_boss ? "开" : "关",
-             bat_s);
+
+    if (s_app.set_edit == 2) {
+        /* Auto-sell picker: the other rows dim, the four quality names
+         * wear their quality colors, 完成 closes. */
+        n += snprintf(buf + n, sizeof buf - n, "#9AA3A8 %s自动喝药:%s#\n",
+                      "  ", s_app.player.auto_potion ? "开" : "关");
+        n += snprintf(buf + n, sizeof buf - n, "#9AA3A8 %s红药线:%u%%#\n",
+                      "  ", (unsigned)s_app.player.pot_hp_pct);
+        n += snprintf(buf + n, sizeof buf - n, "#9AA3A8 %s蓝药线:%u%%#\n",
+                      "  ", (unsigned)s_app.player.pot_mp_pct);
+        for (int i = 0; i < 4; ++i)
+            n += snprintf(buf + n, sizeof buf - n, "%s%s%s  %s#\n",
+                          s_app.cur_pick == i ? "＞" : "  ",
+                          SELL_PICK_COLOR[i], SELL_PICK_NAME[i],
+                          (s_app.player.auto_sell >> i) & 1 ? "开" : "关");
+        n += snprintf(buf + n, sizeof buf - n, "%s#F0C04A 完成#\n",
+                      s_app.cur_pick == 4 ? "＞" : "  ");
+        n += snprintf(buf + n, sizeof buf - n, "#9AA3A8 %s自动Boss:%s#\n",
+                      "  ", s_app.player.auto_boss ? "开" : "关");
+        snprintf(buf + n, sizeof buf - n, "#9AA3A8 电量 %s#", bat_s);
+        lv_label_set_text(s_app.view.items_label, buf);
+        return;
+    }
+
+    bool editing = s_app.set_edit == 1;
+    /* Auto-sell summary: the enabled quality names, or 关. */
+    char sold[13] = {0};
+    for (int i = 0; i < 4; ++i)
+        if ((s_app.player.auto_sell >> i) & 1)
+            strncat(sold, SELL_PICK_NAME[i], sizeof sold - strlen(sold) - 1);
+    if (sold[0] == '\0') strcpy(sold, "关");
+
+    if (editing) {
+        /* design 14: the edited line keeps its cursor and shows the value
+         * gold in <brackets>; every other row dims. */
+        n += snprintf(buf + n, sizeof buf - n, "#9AA3A8 %s自动喝药:%s#\n",
+                      "  ", s_app.player.auto_potion ? "开" : "关");
+        n += snprintf(buf + n, sizeof buf - n, "%s红药线:",
+                      s_app.cur_set == 1 ? "＞" : "  ");
+        if (s_app.cur_set == 1)
+            n += snprintf(buf + n, sizeof buf - n, "#F0C04A <%u%%>#\n",
+                          (unsigned)s_app.player.pot_hp_pct);
+        else
+            n += snprintf(buf + n, sizeof buf - n, "#9AA3A8 %s%u%%#\n",
+                          "  ", (unsigned)s_app.player.pot_hp_pct);
+        n += snprintf(buf + n, sizeof buf - n, "%s蓝药线:",
+                      s_app.cur_set == 2 ? "＞" : "  ");
+        if (s_app.cur_set == 2)
+            n += snprintf(buf + n, sizeof buf - n, "#F0C04A <%u%%>#\n",
+                          (unsigned)s_app.player.pot_mp_pct);
+        else
+            n += snprintf(buf + n, sizeof buf - n, "#9AA3A8 %s%u%%#\n",
+                          "  ", (unsigned)s_app.player.pot_mp_pct);
+        n += snprintf(buf + n, sizeof buf - n, "#9AA3A8 %s自动卖:%s#\n",
+                      "  ", sold);
+        n += snprintf(buf + n, sizeof buf - n, "#9AA3A8 %s自动Boss:%s#\n",
+                      "  ", s_app.player.auto_boss ? "开" : "关");
+    } else {
+        n += snprintf(buf + n, sizeof buf - n, "%s自动喝药:%s\n",
+                      s_app.cur_set == 0 ? "＞" : "  ",
+                      s_app.player.auto_potion ? "开" : "关");
+        n += snprintf(buf + n, sizeof buf - n, "%s红药线:%u%%\n",
+                      s_app.cur_set == 1 ? "＞" : "  ",
+                      (unsigned)s_app.player.pot_hp_pct);
+        n += snprintf(buf + n, sizeof buf - n, "%s蓝药线:%u%%\n",
+                      s_app.cur_set == 2 ? "＞" : "  ",
+                      (unsigned)s_app.player.pot_mp_pct);
+        n += snprintf(buf + n, sizeof buf - n, "%s自动卖:%s\n",
+                      s_app.cur_set == 3 ? "＞" : "  ", sold);
+        n += snprintf(buf + n, sizeof buf - n, "%s自动Boss:%s\n",
+                      s_app.cur_set == 4 ? "＞" : "  ",
+                      s_app.player.auto_boss ? "开" : "关");
+    }
+    snprintf(buf + n, sizeof buf - n, "\n#9AA3A8 电量 %s#", bat_s);
     lv_label_set_text(s_app.view.items_label, buf);
 }
 
@@ -771,7 +898,11 @@ static void enter_page(page_t page) {
     case PAGE_BACKPACK: refresh_backpack(); break;
     case PAGE_STORE: refresh_store(); break;
     case PAGE_MAPS: refresh_maps(); break;
-    case PAGE_SETTINGS: refresh_settings(); break;
+    case PAGE_SETTINGS:
+        s_app.set_edit = 0;               /* every entry starts plain */
+        s_app.cur_pick = 0;
+        refresh_settings();
+        break;
     case PAGE_STATUS: refresh_status(); break;
     }
 }
@@ -903,12 +1034,28 @@ static void process_event(const input_event_t *ev) {
         input_main(ev->btn, click);
         break;
     case PAGE_STATUS:
-        if (long_ok || (click && ev->btn == BSP_BTN_OK)) {
-            enter_page(PAGE_MAIN);
-            break;
+        if (long_ok) { enter_page(PAGE_MAIN); break; }
+        if (!click) break;
+        if (ev->btn == BSP_BTN_UP)
+            s_app.cur_status = (s_app.cur_status + 7) % 8;
+        else if (ev->btn == BSP_BTN_DOWN)
+            s_app.cur_status = (s_app.cur_status + 1) % 8;
+        else if (ev->btn == BSP_BTN_OK) {
+            if (s_app.cur_status < MAFA_EQ_SLOTS) {
+                enter_page(PAGE_MAIN);      /* slots: OK still leaves */
+                break;
+            }
+            /* Skill row: OK toggles it (v1.2); passive/proc rows are
+             * fixed, unknown rows have nothing to toggle yet. */
+            uint8_t idx = (uint8_t)(s_app.cur_status - MAFA_EQ_SLOTS);
+            const mafa_skill_t *sk = &MAFA_SKILLS[s_app.player.cls][idx];
+            if (mafa_skill_known(&s_app.player, idx)
+                && sk->kind != MAFA_SK_PASSIVE
+                && sk->kind != MAFA_SK_PROC) {
+                s_app.player.skills_off ^= (uint8_t)(1u << idx);
+                save_now();
+            }
         }
-        if (ev->btn == BSP_BTN_UP || ev->btn == BSP_BTN_DOWN)
-            s_app.cur_status = (s_app.cur_status + 1) % MAFA_EQ_SLOTS;
         refresh_status();
         break;
     case PAGE_BACKPACK:
@@ -989,17 +1136,63 @@ static void process_event(const input_event_t *ev) {
         refresh_maps();
         break;
     case PAGE_SETTINGS:
-        if (long_ok) { enter_page(PAGE_MAIN); break; }
+        if (long_ok) {
+            if (s_app.set_edit != 0) save_now();   /* leaving edit saves */
+            enter_page(PAGE_MAIN);
+            break;
+        }
         if (!click) break;
-        if (ev->btn == BSP_BTN_UP)
-            s_app.cur_set = (s_app.cur_set + 2) % 3;
-        else if (ev->btn == BSP_BTN_DOWN)
-            s_app.cur_set = (s_app.cur_set + 1) % 3;
-        else if (ev->btn == BSP_BTN_OK) {
-            if (s_app.cur_set == 0) s_app.player.auto_potion = !s_app.player.auto_potion;
-            else if (s_app.cur_set == 1) s_app.player.auto_sell_white = !s_app.player.auto_sell_white;
-            else s_app.player.auto_boss = !s_app.player.auto_boss;
-            save_now();
+        if (s_app.set_edit == 1) {
+            /* Potion-line edit (design 14): UP/DOWN step 10 %, OK saves. */
+            uint8_t *pct = s_app.cur_set == 1 ? &s_app.player.pot_hp_pct
+                                              : &s_app.player.pot_mp_pct;
+            if (ev->btn == BSP_BTN_UP) {
+                if (*pct < MAFA_POT_PCT_MAX) *pct = (uint8_t)(*pct + 10);
+            } else if (ev->btn == BSP_BTN_DOWN) {
+                if (*pct > MAFA_POT_PCT_MIN) *pct = (uint8_t)(*pct - 10);
+            } else if (ev->btn == BSP_BTN_OK) {
+                s_app.set_edit = 0;
+                save_now();
+            }
+        } else if (s_app.set_edit == 2) {
+            /* Auto-sell picker (design 15): OK flips a quality; 完成
+             * closes the picker. */
+            if (ev->btn == BSP_BTN_UP)
+                s_app.cur_pick = (s_app.cur_pick + 4) % 5;
+            else if (ev->btn == BSP_BTN_DOWN)
+                s_app.cur_pick = (s_app.cur_pick + 1) % 5;
+            else if (ev->btn == BSP_BTN_OK) {
+                if (s_app.cur_pick < 4)
+                    s_app.player.auto_sell ^= (uint8_t)(1u << s_app.cur_pick);
+                else
+                    s_app.set_edit = 0;
+                save_now();
+            }
+        } else {
+            if (ev->btn == BSP_BTN_UP)
+                s_app.cur_set = (s_app.cur_set + 4) % 5;
+            else if (ev->btn == BSP_BTN_DOWN)
+                s_app.cur_set = (s_app.cur_set + 1) % 5;
+            else if (ev->btn == BSP_BTN_OK) {
+                switch (s_app.cur_set) {
+                case 0:
+                    s_app.player.auto_potion = !s_app.player.auto_potion;
+                    save_now();
+                    break;
+                case 1:
+                case 2:
+                    s_app.set_edit = 1;
+                    break;
+                case 3:
+                    s_app.set_edit = 2;
+                    s_app.cur_pick = 0;
+                    break;
+                default:
+                    s_app.player.auto_boss = !s_app.player.auto_boss;
+                    save_now();
+                    break;
+                }
+            }
         }
         refresh_settings();
         break;
