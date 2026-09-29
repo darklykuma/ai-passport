@@ -216,7 +216,7 @@ static void compose_log(char *buf, size_t cap) {
 static void compose_main_menu(char *buf, size_t cap) {
     buf[0] = '\0';
     for (int i = 0; i < 6; ++i) {
-        const char *tone = s_app.cur_main == i ? "#F0C04A" : "#9AA3A8";
+        const char *tone = s_app.cur_main == i ? "#F0C04A " : "#9AA3A8 ";
         const char *mark = s_app.cur_main == i ? "＞" : "　";
         char cell[32];
         if (i == 5)
@@ -321,7 +321,7 @@ static void handle_events(const mafa_events_t *ev) {
         case MAFA_EV_DROP: {
             const mafa_item_t *it = &MAFA_ITEMS[id];
             if (a == 1)
-                log_line("【掉落】%s%s%s!", Q_COLOR[it->quality], it->name, "#");
+                log_line("【掉落】%s %s%s!", Q_COLOR[it->quality], it->name, "#");
             else if (a == 2)
                 log_line("白装售出 +%d 金", (int)mafa_sell_price(id));
             else
@@ -401,11 +401,11 @@ static void drop_modal_refresh(void) {
  * strip, where the enemy bar is hidden and cannot collide with it. */
 static void refresh_main(void) {
     char buf[160];
-    snprintf(buf, sizeof buf, "#F0C04A%s#",
+    snprintf(buf, sizeof buf, "#F0C04A %s#",
              MAFA_MAP_NAMES[s_app.player.map]);
     label_set(s_app.view.map_label, buf, s_app.prev_map, sizeof s_app.prev_map);
     int bat = battery_read();
-    snprintf(buf, sizeof buf, "#9AA3A8 Lv.%d %d%%#\n#F0C04A金%u#",
+    snprintf(buf, sizeof buf, "#9AA3A8 Lv.%d %d%%#\n#F0C04A 金%u#",
              s_app.player.level, bat, (unsigned)s_app.player.gold);
     label_set(s_app.view.info_label, buf, s_app.prev_info,
               sizeof s_app.prev_info);
@@ -446,7 +446,7 @@ static void refresh_main(void) {
         const char *mob_name = first < s_app.battle.mob_n
             ? s_app.battle.mob[first].base->name : "?";
         if (s_app.battle.is_boss)
-            snprintf(buf, sizeof buf, "#F0C04A▶%s!#", mob_name);
+            snprintf(buf, sizeof buf, "#F0C04A ▶%s!#", mob_name);
         else if (s_app.battle.alive_n > 1)
             snprintf(buf, sizeof buf, "▶%s×%d", mob_name,
                      s_app.battle.alive_n);

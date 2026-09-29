@@ -81,6 +81,7 @@ run_static_checks() {
     PYTHONDONTWRITEBYTECODE=1 python3 tests/test_fog_assets.py
     PYTHONDONTWRITEBYTECODE=1 python3 tests/test_fog_ui_glyphs.py
     PYTHONDONTWRITEBYTECODE=1 python3 tests/test_mafa_ui_glyphs.py
+    PYTHONDONTWRITEBYTECODE=1 python3 tests/test_mafa_recolor.py
     rm -rf "${test_dir}"
     echo "Host tests: PASS"
 }
