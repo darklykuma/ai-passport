@@ -373,11 +373,12 @@ static const char *map_boss_name(uint8_t map) {
 }
 
 static void boss_modal_refresh(void) {
-    char buf[128];
-    snprintf(buf, sizeof buf, "【Boss】%s 出现了!\n  %s迎战\n  %s回避",
+    /* Design 06: gold title, gold highlighted action, plain other row. */
+    char buf[160];
+    snprintf(buf, sizeof buf, "#F0C04A 【Boss】%s 出现了!#\n%s\n%s",
              map_boss_name(s_app.player.map),
-             s_app.cur_modal == 0 ? ">" : "  ",
-             s_app.cur_modal == 1 ? ">" : "  ");
+             s_app.cur_modal == 0 ? "#F0C04A ＞迎战#" : "  迎战",
+             s_app.cur_modal == 1 ? "#F0C04A ＞回避#" : "  回避");
     modal_show(buf);
 }
 
@@ -388,12 +389,12 @@ static void drop_modal_refresh(void) {
     for (int i = 0; i < MAFA_BACKPACK && n > 0 && n < (int)sizeof buf; ++i) {
         uint8_t id = s_app.player.inv_id[i];
         n += snprintf(buf + n, sizeof buf - n, "%s%d.%s\n",
-                      s_app.cur_modal == i ? ">" : " ", i + 1,
+                      s_app.cur_modal == i ? "＞" : "  ", i + 1,
                       id == MAFA_INV_EMPTY ? "空" : MAFA_ITEMS[id].name);
     }
     if (n > 0 && n < (int)sizeof buf)
         snprintf(buf + n, sizeof buf - n, "%s丢弃",
-                 s_app.cur_modal == MAFA_BACKPACK ? ">" : " ");
+                 s_app.cur_modal == MAFA_BACKPACK ? "＞" : "  ");
     modal_show(buf);
 }
 
@@ -528,14 +529,14 @@ static void refresh_menu(void) {
     char buf[96];
     if (s_app.confirm_new)
         snprintf(buf, sizeof buf, "覆盖现有存档?\n%s是\n%s否",
-                 s_app.cur_menu == 0 ? ">" : "  ",
-                 s_app.cur_menu == 1 ? ">" : "  ");
+                 s_app.cur_menu == 0 ? "＞" : "  ",
+                 s_app.cur_menu == 1 ? "＞" : "  ");
     else if (s_app.has_save)
         snprintf(buf, sizeof buf, "%s继续游戏\n%s新游戏",
-                 s_app.cur_menu == 0 ? ">" : "  ",
-                 s_app.cur_menu == 1 ? ">" : "  ");
+                 s_app.cur_menu == 0 ? "＞" : "  ",
+                 s_app.cur_menu == 1 ? "＞" : "  ");
     else
-        snprintf(buf, sizeof buf, "%s新游戏", s_app.cur_menu == 0 ? ">" : "  ");
+        snprintf(buf, sizeof buf, "%s新游戏", s_app.cur_menu == 0 ? "＞" : "  ");
     lv_label_set_text(s_app.view.items_label, buf);
 }
 
@@ -547,11 +548,16 @@ static void refresh_class(void) {
         "基础/攻杀/刺杀/半月/烈火", "火球/雷电/火墙/盾/冰咆哮",
         "治愈/骷髅/施毒/火符/神兽",
     };
-    char buf[96];
+    char buf[128];
     buf[0] = '\0';
     for (int i = 0; i < MAFA_CLS_COUNT; ++i) {
-        strncat(buf, i == s_app.cur_class ? ">" : "  ", sizeof buf - strlen(buf) - 1);
-        strncat(buf, ROWS[i], sizeof buf - strlen(buf) - 1);
+        char row[48];
+        /* Design 02: the highlighted row is gold, the rest plain. */
+        if (i == s_app.cur_class)
+            snprintf(row, sizeof row, "#F0C04A ＞%s#", ROWS[i]);
+        else
+            snprintf(row, sizeof row, "  %s", ROWS[i]);
+        strncat(buf, row, sizeof buf - strlen(buf) - 1);
         if (i < MAFA_CLS_COUNT - 1)
             strncat(buf, "\n", sizeof buf - strlen(buf) - 1);
     }
@@ -568,7 +574,7 @@ static void refresh_status(void) {
     int n = 0;
     for (int i = 0; i < MAFA_EQ_SLOTS; ++i) {
         uint8_t id = s_app.player.equipped[i];
-        const char *mark = s_app.cur_status == i ? ">" : " ";
+        const char *mark = s_app.cur_status == i ? "＞" : "  ";
         if (id == MAFA_INV_EMPTY) {
             n += snprintf(buf + n, sizeof buf - n, "%s%s:空\n", mark, SLOT_NAME[i]);
             continue;
@@ -584,25 +590,32 @@ static void refresh_status(void) {
             n += snprintf(buf + n, sizeof buf - n, "%s%s:%s 攻%+d 防%+d\n",
                           mark, SLOT_NAME[i], it->name, it->atk, it->def);
     }
+    /* Design 07: the totals sit after a blank row, dim, split across two
+     * lines with 血/蓝 shown as current/max. */
     mafa_stats_t st;
     mafa_stats(&s_app.player, &st);
-    snprintf(buf + n, sizeof buf - n, "攻%d 防%d 血%d/%ld 蓝%ld",
-             st.atk, st.def, s_app.player.hp, (long)st.max_hp, (long)st.max_mp);
+    snprintf(buf + n, sizeof buf - n,
+             "\n#9AA3A8 攻 %d  防 %d#\n#9AA3A8 血 %d/%ld  蓝 %ld/%ld#",
+             st.atk, st.def, s_app.player.hp, (long)st.max_hp,
+             (long)s_app.player.mp, (long)st.max_mp);
     lv_label_set_text(s_app.view.items_label, buf);
 }
 
 static void refresh_backpack(void) {
-    char buf[256];
+    /* Design 08: item rows wear their quality color, empty slots are dim;
+     * the recolor span swallows the one space after the color code, so dim
+     * rows keep two visible leading spaces. */
+    char buf[384];
     buf[0] = '\0';
     for (int i = 0; i < MAFA_BACKPACK; ++i) {
         uint8_t id = s_app.player.inv_id[i];
-        char row[40];
+        const char *mark = !s_app.packsub && s_app.cur_pack == i ? "＞" : "  ";
+        char row[64];
         if (id == MAFA_INV_EMPTY)
-            snprintf(row, sizeof row, "%s%d.空",
-                     !s_app.packsub && s_app.cur_pack == i ? ">" : " ", i + 1);
+            snprintf(row, sizeof row, "#9AA3A8 %s%d.空#", mark, i + 1);
         else
-            snprintf(row, sizeof row, "%s%d.%s x%d",
-                     !s_app.packsub && s_app.cur_pack == i ? ">" : " ", i + 1,
+            snprintf(row, sizeof row, "%s %s%d.%s x%d#",
+                     Q_COLOR[MAFA_ITEMS[id].quality], mark, i + 1,
                      MAFA_ITEMS[id].name, s_app.player.inv_n[i]);
         strncat(buf, row, sizeof buf - strlen(buf) - 1);
         if (i < MAFA_BACKPACK - 1)
@@ -614,8 +627,8 @@ static void refresh_backpack(void) {
     uint8_t id = s_app.player.inv_id[s_app.cur_pack];
     if (s_app.packsub) {
         snprintf(det, sizeof det, "%s装备\n%s卖出",
-                 s_app.cur_packsub == 0 ? ">" : " ",
-                 s_app.cur_packsub == 1 ? ">" : " ");
+                 s_app.cur_packsub == 0 ? "＞" : "  ",
+                 s_app.cur_packsub == 1 ? "＞" : "  ");
     } else if (id == MAFA_INV_EMPTY) {
         snprintf(det, sizeof det, "金币 %u", (unsigned)s_app.player.gold);
     } else {
@@ -629,20 +642,27 @@ static void refresh_backpack(void) {
 }
 
 static void refresh_store(void) {
-    /* Rows: red, blue, then the two store books of the player's class. */
-    char buf[192];
+    /* Rows: red, blue, then the two store books of the player's class.
+     * Design 09: learned books go dim, and the gold count sits after a
+     * blank row in gold. */
+    char buf[256];
     const mafa_skill_t *sk = MAFA_SKILLS[s_app.player.cls];
-    snprintf(buf, sizeof buf,
-             "%s红药 50金\n%s蓝药 40金\n%s%s %u金%s\n%s%s %u金%s\n金币 %u",
-             s_app.cur_store == 0 ? ">" : " ",
-             s_app.cur_store == 1 ? ">" : " ",
-             s_app.cur_store == 2 ? ">" : " ", sk[1].name,
-             (unsigned)mafa_book_price(s_app.player.cls, 1),
-             mafa_skill_known(&s_app.player, 1) ? " 已学" : "",
-             s_app.cur_store == 3 ? ">" : " ", sk[2].name,
-             (unsigned)mafa_book_price(s_app.player.cls, 2),
-             mafa_skill_known(&s_app.player, 2) ? " 已学" : "",
-             (unsigned)s_app.player.gold);
+    char book[2][64];
+    for (int i = 0; i < 2; ++i) {
+        const char *mark = s_app.cur_store == i + 2 ? "＞" : "  ";
+        if (mafa_skill_known(&s_app.player, (uint8_t)(i + 1)))
+            snprintf(book[i], sizeof book[i], "#9AA3A8 %s%s %u金 已学#",
+                     mark, sk[i + 1].name,
+                     (unsigned)mafa_book_price(s_app.player.cls, (uint8_t)(i + 1)));
+        else
+            snprintf(book[i], sizeof book[i], "%s%s %u金",
+                     mark, sk[i + 1].name,
+                     (unsigned)mafa_book_price(s_app.player.cls, (uint8_t)(i + 1)));
+    }
+    snprintf(buf, sizeof buf, "%s红药 50金\n%s蓝药 40金\n%s\n%s\n\n#F0C04A 金币 %u#",
+             s_app.cur_store == 0 ? "＞" : "  ",
+             s_app.cur_store == 1 ? "＞" : "  ",
+             book[0], book[1], (unsigned)s_app.player.gold);
     lv_label_set_text(s_app.view.items_label, buf);
 }
 
@@ -651,10 +671,14 @@ static void refresh_maps(void) {
     buf[0] = '\0';
     for (int i = 0; i < MAFA_MAP_COUNT; ++i) {
         bool unlocked = i == MAFA_MAP_SAFE || i <= s_app.player.unlocked;
-        char row[40];
-        snprintf(row, sizeof row, "%s%d.%s%s",
-                 unlocked && s_app.cur_maps == i ? ">" : " ", i,
-                 MAFA_MAP_NAMES[i], unlocked ? "" : " 锁定");
+        char row[56];
+        /* Design 10: locked rows are dim. */
+        if (unlocked)
+            snprintf(row, sizeof row, "%s%d.%s",
+                     s_app.cur_maps == i ? "＞" : "  ", i, MAFA_MAP_NAMES[i]);
+        else
+            snprintf(row, sizeof row, "#9AA3A8 %s%d.%s 锁定#",
+                     s_app.cur_maps == i ? "＞" : "  ", i, MAFA_MAP_NAMES[i]);
         strncat(buf, row, sizeof buf - strlen(buf) - 1);
         if (i < MAFA_MAP_COUNT - 1)
             strncat(buf, "\n", sizeof buf - strlen(buf) - 1);
@@ -671,11 +695,11 @@ static void refresh_settings(void) {
     char buf[128];
     snprintf(buf, sizeof buf,
              "%s自动喝药:%s\n%s自动卖白:%s\n%s自动Boss:%s",
-             s_app.cur_set == 0 ? ">" : " ",
+             s_app.cur_set == 0 ? "＞" : "  ",
              s_app.player.auto_potion ? "开" : "关",
-             s_app.cur_set == 1 ? ">" : " ",
+             s_app.cur_set == 1 ? "＞" : "  ",
              s_app.player.auto_sell_white ? "开" : "关",
-             s_app.cur_set == 2 ? ">" : " ",
+             s_app.cur_set == 2 ? "＞" : "  ",
              s_app.player.auto_boss ? "开" : "关");
     lv_label_set_text(s_app.view.items_label, buf);
 }

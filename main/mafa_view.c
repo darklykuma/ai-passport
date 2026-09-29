@@ -90,7 +90,11 @@ static lv_obj_t *bar(lv_obj_t *parent, int x, int y, int w, int h,
     return b;
 }
 
+/* List pages draw per-row colors through recolor spans (design docs
+ * docs/design/mafa 07-11: quality-colored items, dim empty/learned/locked
+ * rows, gold currency), so every list label carries recolor. */
 static void list_style(lv_obj_t *label) {
+    lv_label_set_recolor(label, true);
     lv_obj_set_style_text_line_space(label, 6, 0);
 }
 
@@ -232,7 +236,7 @@ lv_obj_t *mafa_view_page_backpack(mafa_view_t *v) {
 lv_obj_t *mafa_view_page_store(mafa_view_t *v) {
     memset(v, 0, sizeof *v);
     v->screen = base_screen();
-    title_band(v->screen, "商店");
+    title_band(v->screen, "药店");
     lv_obj_t *list = panel(v->screen, 6, 42, 228, 270, MAFA_PANEL_BG,
                            MAFA_PANEL_EDGE);
     v->items_label = new_label(list, 12, 10, false);
@@ -279,6 +283,7 @@ void mafa_view_modal_open(mafa_view_t *v, const char *text) {
         lv_obj_set_style_pad_all(v->modal, 8, 0);
         lv_obj_clear_flag(v->modal, LV_OBJ_FLAG_SCROLLABLE);
         v->modal_label = new_label(v->modal, 0, 0, false);
+        lv_label_set_recolor(v->modal_label, true);
         lv_obj_set_style_text_line_space(v->modal_label, 6, 0);
     }
     lv_obj_clear_flag(v->modal, LV_OBJ_FLAG_HIDDEN);
