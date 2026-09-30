@@ -660,9 +660,11 @@ static void refresh_skills(void) {
         const char *mark = s_app.cur_skill == i ? "＞" : "　";
         char state[40];
         size_t m = 0;
-        if (sk->kind == MAFA_SK_AOE)
-            m += (size_t)snprintf(state + m, sizeof state - m, "群攻 ");
         if (!mafa_skill_known(&s_app.player, (uint8_t)i)) {
+            /* Lock rows carry no 群攻 tag: tag + gate + source measures
+             * 236px at the worst against the 216px list panel and wraps
+             * the row into the detail panel. The tag only means something
+             * once the skill can actually cast, so it rides the toggle. */
             if (s_app.player.level < sk->unlock)
                 m += (size_t)snprintf(state + m, sizeof state - m, "Lv%u ",
                                       (unsigned)sk->unlock);
@@ -680,6 +682,8 @@ static void refresh_skills(void) {
             n += snprintf(buf + n, sizeof buf - n, "#9AA3A8 %s%s  %s常驻#\n",
                           mark, sk->name, state);
         } else {
+            if (sk->kind == MAFA_SK_AOE)
+                m += (size_t)snprintf(state + m, sizeof state - m, "群攻 ");
             n += snprintf(buf + n, sizeof buf - n, "%s%s  %s%s\n",
                           mark, sk->name, state,
                           (s_app.player.skills_off >> i) & 1 ? "关" : "开");
