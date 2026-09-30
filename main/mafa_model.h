@@ -23,12 +23,19 @@
 #define MAFA_SKILLS_PER_CLASS 7
 #define MAFA_MOBS_MAX 3          /* monsters in one non-boss battle */
 #define MAFA_KILLS_PER_BOSS 40   /* mobs killed (a 3-mob battle counts 3) */
-#define MAFA_GOLD_CAP 9999
+/* Gold ceiling: 4-byte save field (v8), 99,999,999 caps the M display tier
+ * ("99.9M"); the compact k/M counters live in the app layer. */
+#define MAFA_GOLD_CAP 99999999u
 #define MAFA_INV_EMPTY 0xFF
 #define MAFA_DROP_NONE 0xFF
-#define MAFA_SAVE_VERSION 7
+#define MAFA_SAVE_VERSION 8
+/* v8 (v1.6 UX round) widens gold to 4 bytes: v7 saves load unchanged (the
+ * 2-byte gold is read straight into the wider field, nothing else moves). */
 /* v1.5 stats 2.0: ~15 % of kills also drop a potion (金创药/魔法药). */
 #define MAFA_POTION_DROP_PCT 15
+/* Potion stacks are single uint8 save bytes, so 255 is the natural ceiling
+ * for both drops and store buys (buying used to wrap 255→0 unchecked). */
+#define MAFA_POT_CAP 255
 /* Auto-potion trigger lines are settable in steps of 10 (PRD 10, v1.2). */
 #define MAFA_POT_PCT_MIN 20
 #define MAFA_POT_PCT_MAX 80
@@ -161,7 +168,7 @@ typedef struct {
     uint8_t cls;            /* mafa_class_t */
     uint8_t level;          /* 1..MAFA_MAX_LEVEL */
     uint32_t xp;            /* progress toward the next level */
-    uint16_t gold;
+    uint32_t gold;
     int16_t hp, mp;         /* current; mp stays 0 for the warrior */
     uint32_t books;         /* skill-book bitmask: bit = cls*7 + skill idx */
     uint8_t pot_red, pot_blue;
@@ -207,7 +214,7 @@ typedef struct {
 /* Store stock (PRD 10, 1.76 plan): books 1-3 of each class are buyable AND
  * require the skill's learn level (under-level buys are refused); books 4-6
  * come from elites and boss first-kills only. */
-#define MAFA_STORE_ROWS 5       /* red, blue, book 1, book 2, book 3 */
+#define MAFA_STORE_ROWS 6       /* red, blue, book 1-3, 返回 (app-only row) */
 uint32_t mafa_book_price(uint8_t cls, uint8_t skill_idx);
 bool mafa_skill_known(const mafa_player_t *p, uint8_t skill_idx);
 
@@ -323,6 +330,10 @@ void mafa_drop_discard(mafa_player_t *p);
 
 bool mafa_inv_add(mafa_player_t *p, uint8_t item_id);
 bool mafa_equip(mafa_player_t *p, uint8_t inv_idx);     /* false = no room */
+/* Take an equipped piece back into the backpack (stacks with its own id,
+ * else an empty slot). false = the position is empty or the backpack is
+ * full; the gear page's OK uses this to swap either bracelet/ring twin. */
+bool mafa_unequip(mafa_player_t *p, uint8_t pos);
 void mafa_compare(const mafa_player_t *p, uint8_t item_id, mafa_compare_t *out);
 uint32_t mafa_sell_price(uint8_t item_id);
 uint32_t mafa_sell(mafa_player_t *p, uint8_t inv_idx);  /* gold gained */
@@ -351,6 +362,7 @@ void mafa_switch_map(mafa_player_t *p, uint8_t map, uint8_t floor);
  * re-earned through 沃玛/死亡山谷), floors cap at the new ladders, old
  * books re-grant by the NEW unlock levels, carried xp clamps to the new
  * curve, and the old 3-slot equipment is replaced by a band-appropriate
- * starter kit (the item table changed wholesale). */
+ * starter kit (the item table changed wholesale). v7 reads as v8 with
+ * nothing to migrate: the payload only widens gold to 4 bytes. */
 size_t mafa_save_serialize(const mafa_player_t *p, uint8_t *buf, size_t cap);
 bool mafa_save_deserialize(mafa_player_t *p, const uint8_t *buf, size_t len);

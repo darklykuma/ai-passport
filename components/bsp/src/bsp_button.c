@@ -78,6 +78,7 @@ static void on_event(void *arg, void *usr_data, bsp_btn_ev_t ev) {
 static void cb_press (void *a, void *u) { on_event(a, u, BSP_BTN_PRESS);  }
 static void cb_click (void *a, void *u) { on_event(a, u, BSP_BTN_CLICK);  }
 static void cb_long  (void *a, void *u) { on_event(a, u, BSP_BTN_LONG);   }
+static void cb_release(void *a, void *u) { on_event(a, u, BSP_BTN_RELEASE); }
 
 // 初始化中途失败时先停掉所有 button driver，再释放本文件持有的校准与 ADC unit。
 // button driver 仍在轮询时不能先删 ADC，否则 timer callback 会访问失效句柄。
@@ -121,6 +122,8 @@ static esp_err_t register_callbacks(button_handle_t button, void *index) {
     esp_err_t e = iot_button_register_cb(button, BUTTON_PRESS_DOWN, NULL, cb_press, index);
     if (e == ESP_OK) e = iot_button_register_cb(button, BUTTON_SINGLE_CLICK, NULL, cb_click, index);
     if (e == ESP_OK) e = iot_button_register_cb(button, BUTTON_LONG_PRESS_START, NULL, cb_long, index);
+    // PRESS_UP = 抬起沿(短按/长按结束都触发):MAFA 商店靠它停掉"按住连买"。
+    if (e == ESP_OK) e = iot_button_register_cb(button, BUTTON_PRESS_UP, NULL, cb_release, index);
     return e;
 }
 

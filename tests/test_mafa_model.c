@@ -677,7 +677,7 @@ static void test_save_roundtrip_v6(void) {
     mafa_player_init(&p, MAFA_CLS_TAOIST, 77);
     p.level = 18;
     p.xp = 123456;                      /* > uint16 max: widened xp */
-    p.gold = 456;
+    p.gold = 12345678;                  /* > uint16 max: v8 widened gold */
     p.pot_red = 3;
     p.pot_blue = 4;
     p.unlocked = 1;
@@ -701,14 +701,14 @@ static void test_save_roundtrip_v6(void) {
 
     uint8_t buf[80];
     size_t n = mafa_save_serialize(&p, buf, sizeof buf);
-    assert(n == 4 + MAFA_SAVE_BODY_V7 + 1);
-    assert(buf[3] == MAFA_SAVE_VERSION && buf[3] == 7);
+    assert(n == 4 + MAFA_SAVE_BODY_V8 + 1);
+    assert(buf[3] == MAFA_SAVE_VERSION && buf[3] == 8);
 
     mafa_player_t q;
     mafa_player_init(&q, MAFA_CLS_WARRIOR, 1);
     assert(mafa_save_deserialize(&q, buf, n));
     assert(q.cls == p.cls && q.level == p.level && q.xp == 123456);
-    assert(q.gold == p.gold && q.pot_red == 3 && q.pot_blue == 4);
+    assert(q.gold == 12345678 && q.pot_red == 3 && q.pot_blue == 4);
     assert(q.books == p.books);         /* 32-bit bitmask survives intact */
     assert(q.unlocked == 1 && q.map == MAFA_MAP_SAFE && q.kills == 17);
     assert(q.floor == 0 && q.floor_unlocked[0] == 2);
@@ -724,7 +724,7 @@ static void test_save_roundtrip_v6(void) {
     buf[5] ^= 0xFF;                     /* corrupt the payload */
     assert(!mafa_save_deserialize(&q, buf, n));
     /* Deserialization failure must not disturb the live player. */
-    assert(q.cls == MAFA_CLS_TAOIST && q.gold == 456);
+    assert(q.cls == MAFA_CLS_TAOIST && q.gold == 12345678);
 
     /* The threshold lines are domain-checked: a forged out-of-range value
      * is rejected like any other corrupt field. */
@@ -745,6 +745,49 @@ static void test_save_roundtrip_v6(void) {
     p.equipped[4] = 3;                  /* 骷髅头盔 is not a bracelet */
     assert(mafa_save_serialize(&p, buf, sizeof buf));
     assert(!mafa_save_deserialize(&q, buf, n));
+}
+
+static void test_v7_save_migration_to_v8(void) {
+    /* v7 → v8: the payload only widens gold, so a v7 save must load with
+     * gold, layout and settings intact and need no other migration. The
+     * v7 blob is spliced from a v8 serialization: the 2-byte gold field
+     * replaces the 4-byte one and the tail shifts down two bytes. */
+    mafa_player_t p;
+    mafa_player_init(&p, MAFA_CLS_TAOIST, 77);
+    p.level = 18;
+    p.xp = 123456;
+    p.gold = 45678;                     /* < 65536: lossless in 2 bytes */
+    p.pot_red = 3;
+    p.pot_blue = 4;
+    p.unlocked = 1;
+    p.map = MAFA_MAP_SAFE;
+    p.floor = 0;
+    p.floor_unlocked[0] = 2;
+    p.pot_hp_pct = 70;
+    p.pot_mp_pct = 40;
+    p.auto_sell = 0x05;
+    uint8_t v8[80];
+    size_t n8 = mafa_save_serialize(&p, v8, sizeof v8);
+    assert(n8 == 4 + MAFA_SAVE_BODY_V8 + 1);
+
+    uint8_t v7[80];
+    memcpy(v7, v8, 12);                 /* magic + cls/level/xp */
+    v7[10] = v8[10];                    /* gold kept low 16 bits */
+    v7[11] = v8[11];
+    memcpy(v7 + 12, v8 + 14, n8 - 14 - 1);  /* hp onward, sans CRC */
+    v7[3] = 7;
+    v7[4 + MAFA_SAVE_BODY_V7] = crc8(v7 + 4, MAFA_SAVE_BODY_V7);
+
+    mafa_player_t q;
+    mafa_player_init(&q, MAFA_CLS_WARRIOR, 1);
+    assert(mafa_save_deserialize(&q, v7, 4 + MAFA_SAVE_BODY_V7 + 1));
+    assert(q.gold == 45678);            /* the 2-byte branch read it */
+    assert(q.level == 18 && q.xp == 123456);
+    assert(q.pot_red == 3 && q.pot_blue == 4);
+    assert(q.pot_hp_pct == 70 && q.pot_mp_pct == 40
+           && q.auto_sell == 0x05);     /* the shifted tail survived */
+    assert(q.map == MAFA_MAP_SAFE && q.unlocked == 1
+           && q.floor_unlocked[0] == 2);
 }
 
 static void test_init_defaults(void) {
@@ -1342,6 +1385,105 @@ static void test_warrior_pays_mp(void) {
     assert(spent);                      /* warrior actives are mana-fed */
 }
 
+static void test_caps_gold_and_potions(void) {
+    /* v1.6: gold's ceiling is 65000 (still one uint16 save byte pair), and
+     * potion stacks cap at the uint8-native 255 — buys used to take gold
+     * and wrap the counter 255→0 unchecked. */
+    mafa_player_t p;
+    mafa_player_init(&p, MAFA_CLS_WARRIOR, 55);
+    p.gold = MAFA_GOLD_CAP;
+    assert(mafa_inv_add(&p, 12));       /* 大手镯 white sells at 10 */
+    mafa_sell(&p, 0);
+    assert(p.gold == MAFA_GOLD_CAP);    /* settlement clamps at the ceiling */
+
+    p.gold = 10000;
+    p.pot_red = MAFA_POT_CAP;
+    p.pot_blue = MAFA_POT_CAP;
+    assert(!mafa_buy_potion(&p, true));   /* full red stack refuses */
+    assert(!mafa_buy_potion(&p, false));
+    assert(p.gold == 10000);              /* no charge, no wrap */
+    assert(p.pot_red == MAFA_POT_CAP && p.pot_blue == MAFA_POT_CAP);
+}
+
+static void test_potion_drop_respects_cap(void) {
+    /* A full stack must swallow potion drops: a wrap here would erase a
+     * maxed supply mid-grind. */
+    mafa_player_t p;
+    mafa_player_init(&p, MAFA_CLS_WARRIOR, 77);
+    p.level = 6;
+    p.auto_sell = 0x0F;                 /* sell every drop: no prompts stall
+                                           the next battle_start */
+    p.auto_potion = false;              /* nothing may drink from the stacks */
+    p.unlocked = 1;
+    p.pot_red = MAFA_POT_CAP;
+    p.pot_blue = MAFA_POT_CAP;
+    mafa_stats_t st;
+    mafa_stats(&p, &st);
+    /* At the cap a swallowed drop pushes no event, so coverage reads off
+     * the kill count: each kill rolls the 15 % potion check once. A death
+     * would strand the player in town, so every battle starts fresh. */
+    int kills = 0;
+    for (int i = 0; i < 200 && kills < 100; ++i) {
+        p.map = 1;
+        p.floor = MAFA_MAP_FLOORS[1];
+        p.hp = (int16_t)st.max_hp;
+        p.mp = st.max_mp;
+        mafa_battle_t b;
+        if (!mafa_battle_start(&p, &b)) continue;
+        mafa_events_t ev;
+        int guard = 0;
+        while (!b.over && guard++ < 1000) {
+            mafa_battle_round(&p, &b, &ev);
+            for (int k = 0; k < ev.n; ++k)
+                if (ev.e[k].kind == MAFA_EV_MOB_KILLED) kills++;
+            if (p.pending_drop != MAFA_DROP_NONE) mafa_drop_discard(&p);
+        }
+        if (p.pending_drop != MAFA_DROP_NONE) mafa_drop_discard(&p);
+    }
+    assert(kills >= 100);               /* the cap branch was exercised */
+    assert(p.pot_red == MAFA_POT_CAP);  /* …without wrapping */
+    assert(p.pot_blue == MAFA_POT_CAP);
+}
+
+static void test_unequip_twin_positions(void) {
+    /* v1.6: either bracelet/ring twin can come off — equipping alone always
+     * replaced the FIRST twin, so the second one could never be swapped. */
+    mafa_player_t p;
+    mafa_player_init(&p, MAFA_CLS_WARRIOR, 88);
+    assert(mafa_inv_add(&p, 12));       /* 大手镯 white → left twin */
+    assert(mafa_inv_add(&p, 13));       /* 大手镯绿 green → right twin */
+    assert(mafa_equip(&p, 0));
+    assert(mafa_equip(&p, 1));
+    assert(p.equipped[4] == 12 && p.equipped[5] == 13);
+    mafa_stats_t st;
+    mafa_stats(&p, &st);
+    int32_t atk_both = st.atk;
+
+    assert(!mafa_unequip(&p, 0));       /* an empty position refuses */
+    assert(p.equipped[4] == 12 && p.equipped[5] == 13);
+
+    /* Take the RIGHT twin off: back into its backpack slot, stats drop it. */
+    assert(mafa_unequip(&p, 5));
+    assert(p.equipped[5] == MAFA_INV_EMPTY && p.equipped[4] == 12);
+    assert(p.inv_id[0] == 13 && p.inv_n[0] == 1);
+    mafa_stats(&p, &st);
+    assert(st.atk == atk_both - 1);     /* 大手镯绿's +1 attack is gone */
+
+    /* Re-equipping refills the free twin instead of the worn one. */
+    assert(mafa_equip(&p, 0));
+    assert(p.equipped[4] == 12 && p.equipped[5] == 13);
+
+    /* A full backpack keeps the piece worn. */
+    for (int i = 0; i < MAFA_BACKPACK; ++i) {
+        p.inv_id[i] = MAFA_INV_EMPTY;
+        p.inv_n[i] = 0;
+    }
+    for (int i = 0; i < MAFA_BACKPACK; ++i)
+        assert(mafa_inv_add(&p, (uint8_t)(i + 18)));
+    assert(!mafa_unequip(&p, 4));
+    assert(p.equipped[4] == 12);
+}
+
 int main(void) {
     test_stats_and_growth();
     test_xp_curve_front_fast_back_wall();
@@ -1376,6 +1518,10 @@ int main(void) {
     test_ring_and_potion_drops();
     test_class_line_scaling();
     test_warrior_pays_mp();
+    test_caps_gold_and_potions();
+    test_potion_drop_respects_cap();
+    test_unequip_twin_positions();
+    test_v7_save_migration_to_v8();
     printf("test_mafa_model: all assertions passed\n");
     return 0;
 }

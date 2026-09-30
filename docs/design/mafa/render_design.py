@@ -224,27 +224,28 @@ save(img, "06-modal-boss")
 # mana pool), and the potion counters. 8 rows at pitch 24 in a 200px list.
 img, d = new_page()
 title_band(d, "装备")
-panel(d, 6, 42, 228, 200, PANEL_BG, PANEL_EDGE)
+panel(d, 6, 42, 228, 184, PANEL_BG, PANEL_EDGE)
 gear = [
     ("＞武器 井中月", "purple"),
     ("　头盔 黑铁头盔", "blue"),
     ("　衣服 天魔神甲", "blue"),
     ("　项链 恶魔铃铛", "blue"),
-    ("　手镯 骑士手镯", "blue"),
-    ("　手镯 铁手镯", "white"),
-    ("　戒指 力量戒指", "purple"),
-    ("　戒指 珊瑚戒指", "green"),
+    ("　左手镯 骑士手镯", "blue"),
+    ("　右手镯 铁手镯", "white"),
+    ("　左戒指 力量戒指", "purple"),
+    ("　右戒指 珊瑚戒指", "green"),
 ]
 y = 50
 for s, q in gear:
     text(d, (18, y), s, F16, QUAL.get(q, MAIN))
-    y += LH16 + 4
-panel(d, 6, 246, 228, 74, PANEL_BG, PANEL_EDGE)
-text(d, (18, 254), "攻41 魔0 道0 防26", F16, DIM)
-text(d, (18, 278), "血233/260 蓝20/43", F16, DIM)
+    y += LH16 + 2
+panel(d, 6, 230, 228, 90, PANEL_BG, PANEL_EDGE)
+text(d, (18, 238), "攻41 魔0 道0 防26", F16, DIM)
+text(d, (18, 260), "血233/260 蓝20/43", F16, DIM)
 x0 = 18 + d.textlength("血233/260 蓝20/43  ", font=F16)
-text(d, (x0, 278), "红药x3", F16, RED)
-text(d, (x0 + d.textlength("红药x3  ", font=F16), 278), "蓝药x2", F16, MP_BLUE)
+text(d, (x0, 260), "红药x3", F16, RED)
+text(d, (x0 + d.textlength("红药x3  ", font=F16), 260), "蓝药x2", F16, MP_BLUE)
+text(d, (18, 282), "OK 卸下,长按返回", F16, DIM)
 save(img, "07-status")
 
 # ---- 17. skill page: 7 class skills with on/off states (1.76 plan) -----------
@@ -305,7 +306,9 @@ save(img, "08-backpack")
 # an under-level row dims with its LvX hint and OK refuses (the v1.2 hint
 # row becomes a hard gate). Drop-line books never appear here. Sample: a
 # level-26 warrior — 半月弯刀 shown gated. Title reverts 药店→商店: with a
-# three-book shelf the page is no longer a potion shop.
+# three-book shelf the page is no longer a potion shop. v1.6 adds the plain
+# 返回 row (OK or long-OK leaves) so long-OK on a potion row means
+# hold-to-buy until release or the gold runs out. Gold shows compact k/M.
 img, d = new_page()
 title_band(d, "商店")
 panel(d, 6, 42, 228, 270, PANEL_BG, PANEL_EDGE)
@@ -315,8 +318,9 @@ store = [
     ("　攻杀剑术 300金 已学", DIM),
     ("　刺杀剑术 600金 已学", DIM),
     ("　半月弯刀 800金 Lv28", DIM),
+    ("　返回", MAIN),
     ("", DIM),
-    ("金币 2210", GOLD),
+    ("金币 2.2k", GOLD),
 ]
 y = 52
 for s, c in store:

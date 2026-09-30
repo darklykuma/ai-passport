@@ -93,6 +93,14 @@ static struct {
     bool packsub;           // backpack action submenu open
     int cur_packsub;        // 0 equip, 1 sell
     int cur_store;
+    /* Store hold-to-buy (v1.6 UX): OK 长按 on a potion row keeps buying
+     * until the key is released (BSP_BTN_RELEASE), gold runs out, or any
+     * other event arrives. One NVS write per hold, not per potion. */
+    struct {
+        bool active;
+        bool red;
+        uint8_t bought;
+    } buy_hold;
     int cur_maps;
     int floor_mode;         /* maps page: 0 map list, else map id → floor list */
     int cur_floor;          /* floor-list cursor, 0-based; last row = 返回 */
@@ -127,6 +135,65 @@ static struct {
 static void enter_page(page_t page);
 static void tick_battle(void);
 static bool save_now(void);
+static void log_line(const char *fmt, ...);
+static void refresh_store(void);
+
+// --- Store hold-to-buy -------------------------------------------------------
+
+#define MAFA_BUY_HOLD_MS 150    /* one potion per tick while OK stays down */
+
+static void buy_hold_start(bool red) {
+    s_app.buy_hold.active = mafa_buy_potion(&s_app.player, red);
+    s_app.buy_hold.red = red;
+    s_app.buy_hold.bought = s_app.buy_hold.active ? 1u : 0u;
+}
+
+static void buy_hold_stop(void) {
+    if (!s_app.buy_hold.active) return;
+    s_app.buy_hold.active = false;
+    if (s_app.buy_hold.bought > 0) {
+        log_line("#9AA3A8 连买%s药 x%u#",
+                 s_app.buy_hold.red ? "红" : "蓝",
+                 (unsigned)s_app.buy_hold.bought);
+        save_now();
+    }
+    s_app.buy_hold.bought = 0;
+}
+
+static void buy_hold_tick(void) {
+    if (!s_app.buy_hold.active) return;
+    if (s_app.page != PAGE_STORE
+        || !mafa_buy_potion(&s_app.player, s_app.buy_hold.red)) {
+        buy_hold_stop();               /* gold out: stop mid-hold */
+        if (s_app.page == PAGE_STORE) refresh_store();
+        return;
+    }
+    s_app.buy_hold.bought++;
+    refresh_store();
+}
+
+// --- Compact counters ---------------------------------------------------------
+
+/* 999 raw, 1234 → "1.2k", 65000 → "65k", 12000000 → "12M": gold grows to
+ * a 8-digit cap (v1.6) and rows must stay narrow; potion stacks (cap 255)
+ * never leave the raw tier but share the formatter for symmetry. */
+static void fmt_count(char *out, size_t cap, uint32_t v) {
+    if (v < 10000) {
+        snprintf(out, cap, "%u", (unsigned)v);
+    } else if (v < 1000000) {
+        uint32_t whole = v / 1000, tenths = (v % 1000) / 100;
+        if (tenths)
+            snprintf(out, cap, "%u.%uk", (unsigned)whole, (unsigned)tenths);
+        else
+            snprintf(out, cap, "%uk", (unsigned)whole);
+    } else {
+        uint32_t whole = v / 1000000, tenths = (v % 1000000) / 100000;
+        if (tenths)
+            snprintf(out, cap, "%u.%uM", (unsigned)whole, (unsigned)tenths);
+        else
+            snprintf(out, cap, "%uM", (unsigned)whole);
+    }
+}
 
 // --- Log ring ----------------------------------------------------------------
 
@@ -371,9 +438,12 @@ static void handle_events(const mafa_events_t *ev) {
         case MAFA_EV_DEATH_DROP:
             log_line("#E05A48 失去 %s#", MAFA_ITEMS[id].name);
             break;
-        case MAFA_EV_GOLD_LOST:
-            log_line("#E05A48 损失 %d 金#", a);
+        case MAFA_EV_GOLD_LOST: {
+            char gold[12];
+            fmt_count(gold, sizeof gold, (uint32_t)a);
+            log_line("#E05A48 损失 %s 金#", gold);
             break;
+        }
         case MAFA_EV_PLAYER_DEATH:
             log_line("#E05A48 你被 %s 杀死了…#", ev_mob_name(ev, i));
             log_line("#9AA3A8 满血回到安全区#");
@@ -453,13 +523,15 @@ static void refresh_main(void) {
      * 87%"); the battery readout lives on the settings page instead. At the
      * cap there is no next level, so the line shrinks to bare "Lv.15". */
     uint32_t xp_next = mafa_xp_to_next(s_app.player.level);
+    char gold[12];
+    fmt_count(gold, sizeof gold, s_app.player.gold);
     if (xp_next > 0)
-        snprintf(buf, sizeof buf, "#9AA3A8 Lv.%d %d%%#\n#F0C04A 金%u#",
+        snprintf(buf, sizeof buf, "#9AA3A8 Lv.%d %d%%#\n#F0C04A 金%s#",
                  s_app.player.level, (int)(s_app.player.xp * 100 / xp_next),
-                 (unsigned)s_app.player.gold);
+                 gold);
     else
-        snprintf(buf, sizeof buf, "#9AA3A8 Lv.%d#\n#F0C04A 金%u#",
-                 s_app.player.level, (unsigned)s_app.player.gold);
+        snprintf(buf, sizeof buf, "#9AA3A8 Lv.%d#\n#F0C04A 金%s#",
+                 s_app.player.level, gold);
     label_set(s_app.view.info_label, buf, s_app.prev_info,
               sizeof s_app.prev_info);
 
@@ -619,8 +691,10 @@ static void refresh_class(void) {
  * each item's quality color, then stats + potions in the detail box. Skills
  * moved to their own page (技能) when the doll grew from 3 to 8 slots. */
 static void refresh_status(void) {
+    /* 左/右 distinguish the twin bracelet and ring positions: OK now
+     * unequips the cursor row, so the names must say WHICH twin leaves. */
     static const char *SLOT_NAME[MAFA_EQ_SLOTS] = {
-        "武器", "头盔", "衣服", "项链", "手镯", "手镯", "戒指", "戒指",
+        "武器", "头盔", "衣服", "项链", "左手镯", "右手镯", "左戒指", "右戒指",
     };
     char buf[512];
     int n = 0;
@@ -639,16 +713,18 @@ static void refresh_status(void) {
 
     mafa_stats_t st;
     mafa_stats(&s_app.player, &st);
+    char red[8], blue[8];
+    fmt_count(red, sizeof red, s_app.player.pot_red);
+    fmt_count(blue, sizeof blue, s_app.player.pot_blue);
     char det[128];
-    /* Three detail lines (v1.5): the four combat stats, then both pools,
-     * then the potion counters. Warriors show 魔0 道0 — the class identity
-     * reads at a glance. */
+    /* Four detail lines (v1.6): the four combat stats, both pools, the
+     * potion counters, and the OK-unequip hint the new gesture needs. */
     snprintf(det, sizeof det, "攻%d 魔%d 道%d 防%d\n血%d/%ld 蓝%ld/%ld"
-             "\n红药x%u 蓝药x%u",
+             "\n红药x%s 蓝药x%s\nOK 卸下,长按返回",
              st.atk, st.mc, st.sc, st.def,
              s_app.player.hp, (long)st.max_hp,
              (long)s_app.player.mp, (long)st.max_mp,
-             (unsigned)s_app.player.pot_red, (unsigned)s_app.player.pot_blue);
+             red, blue);
     lv_label_set_text(s_app.view.detail_label, det);
 }
 
@@ -729,20 +805,22 @@ static void refresh_backpack(void) {
     lv_label_set_text(s_app.view.items_label, buf);
 
     char det[80];
+    char gold[12];
+    fmt_count(gold, sizeof gold, s_app.player.gold);
     uint8_t id = s_app.player.inv_id[s_app.cur_pack];
     if (s_app.packsub) {
         snprintf(det, sizeof det, "%s装备\n%s卖出",
                  s_app.cur_packsub == 0 ? "＞" : "　",
                  s_app.cur_packsub == 1 ? "＞" : "　");
     } else if (id == MAFA_INV_EMPTY) {
-        snprintf(det, sizeof det, "金币 %u", (unsigned)s_app.player.gold);
+        snprintf(det, sizeof det, "金币 %s", gold);
     } else {
         mafa_compare_t cmp;
         mafa_compare(&s_app.player, id, &cmp);
         /* v1.5: five stat deltas over three rows. */
-        snprintf(det, sizeof det, "攻%+d 魔%+d 道%+d\n防%+d 血%+d\n金币 %u",
+        snprintf(det, sizeof det, "攻%+d 魔%+d 道%+d\n防%+d 血%+d\n金币 %s",
                  cmp.d_atk, cmp.d_mc, cmp.d_sc, cmp.d_def, (int)cmp.d_hp,
-                 (unsigned)s_app.player.gold);
+                 gold);
     }
     lv_label_set_text(s_app.view.detail_label, det);
 }
@@ -754,11 +832,13 @@ static void refresh_store(void) {
      * the store now refuses to sell those, so the row doubles as the gate. */
     char buf[384];
     const mafa_skill_t *sk = MAFA_SKILLS[s_app.player.cls];
-    int n = snprintf(buf, sizeof buf, "%s红药 50金 x%u\n%s蓝药 40金 x%u\n",
-                     s_app.cur_store == 0 ? "＞" : "　",
-                     (unsigned)s_app.player.pot_red,
-                     s_app.cur_store == 1 ? "＞" : "　",
-                     (unsigned)s_app.player.pot_blue);
+    char nred[8], nblue[8], gold[12];
+    fmt_count(nred, sizeof nred, s_app.player.pot_red);
+    fmt_count(nblue, sizeof nblue, s_app.player.pot_blue);
+    fmt_count(gold, sizeof gold, s_app.player.gold);
+    int n = snprintf(buf, sizeof buf, "%s红药 50金 x%s\n%s蓝药 40金 x%s\n",
+                     s_app.cur_store == 0 ? "＞" : "　", nred,
+                     s_app.cur_store == 1 ? "＞" : "　", nblue);
     for (int i = 0; i < 3; ++i) {
         const char *mark = s_app.cur_store == i + 2 ? "＞" : "　";
         uint8_t idx = (uint8_t)(i + 1);
@@ -776,8 +856,11 @@ static void refresh_store(void) {
                           sk[idx].name,
                           (unsigned)mafa_book_price(s_app.player.cls, idx));
     }
-    snprintf(buf + n, sizeof buf - n, "\n#F0C04A 金币 %u#",
-             (unsigned)s_app.player.gold);
+    /* Row 5 is plain nav (matches the maps floor list): OK or long-OK
+     * leaves, so the potion rows can own long-OK for hold-to-buy. */
+    n += snprintf(buf + n, sizeof buf - n, "%s返回\n",
+                  s_app.cur_store == MAFA_STORE_ROWS - 1 ? "＞" : "　");
+    snprintf(buf + n, sizeof buf - n, "#F0C04A 金币 %s#", gold);
     lv_label_set_text(s_app.view.items_label, buf);
 }
 
@@ -1064,6 +1147,13 @@ static void input_main(bsp_btn_t btn, bool click) {
 static void process_event(const input_event_t *ev) {
     bool click = ev->event == BSP_BTN_CLICK;
     bool long_ok = ev->event == BSP_BTN_LONG && ev->btn == BSP_BTN_OK;
+    if (s_app.buy_hold.active) {
+        bool ok_release = ev->event == BSP_BTN_RELEASE
+                          && ev->btn == BSP_BTN_OK;
+        buy_hold_stop();
+        if (ok_release) return;   /* the hold ended normally; nothing else */
+        /* another key pressed mid-hold: stop, then handle that key too */
+    }
     if (!click && !long_ok) return;
 
     switch (s_app.page) {
@@ -1126,8 +1216,16 @@ static void process_event(const input_event_t *ev) {
         else if (ev->btn == BSP_BTN_DOWN)
             s_app.cur_status = (s_app.cur_status + 1) % MAFA_EQ_SLOTS;
         else if (ev->btn == BSP_BTN_OK) {
-            enter_page(PAGE_MAIN);      /* slots are view-only: OK leaves */
-            break;
+            /* v1.6 UX: OK takes the piece off so EITHER bracelet/ring twin
+             * can be swapped — equipping always fills the free twin first,
+             * which used to lock the second twin behind an impossible
+             * replace. The item re-equips from the backpack. */
+            if (s_app.player.equipped[s_app.cur_status] == MAFA_INV_EMPTY)
+                break;                  /* nothing worn here */
+            if (mafa_unequip(&s_app.player, (uint8_t)s_app.cur_status))
+                save_now();
+            else
+                log_line("#E05A48 背包已满,卸下失败#");
         }
         refresh_status();
         break;
@@ -1198,7 +1296,19 @@ static void process_event(const input_event_t *ev) {
         refresh_backpack();
         break;
     case PAGE_STORE:
-        if (long_ok) { enter_page(PAGE_MAIN); break; }
+        if (long_ok) {
+            /* Potion rows: 长按连买 (holds repeat until release/gold out);
+             * everywhere else long-OK still leaves the store. */
+            if (s_app.cur_store <= 1) {
+                buy_hold_start(s_app.cur_store == 0);
+                if (!s_app.buy_hold.active)
+                    log_line("#E05A48 金币不足#");
+                refresh_store();
+                break;
+            }
+            enter_page(PAGE_MAIN);
+            break;
+        }
         if (!click) break;
         if (ev->btn == BSP_BTN_UP)
             s_app.cur_store = (s_app.cur_store + MAFA_STORE_ROWS - 1)
@@ -1206,6 +1316,10 @@ static void process_event(const input_event_t *ev) {
         else if (ev->btn == BSP_BTN_DOWN)
             s_app.cur_store = (s_app.cur_store + 1) % MAFA_STORE_ROWS;
         else if (ev->btn == BSP_BTN_OK) {
+            if (s_app.cur_store == MAFA_STORE_ROWS - 1) {
+                enter_page(PAGE_MAIN);  /* 返回 row */
+                break;
+            }
             if (s_app.cur_store == 0)
                 mafa_buy_potion(&s_app.player, true);
             else if (s_app.cur_store == 1)
@@ -1367,16 +1481,24 @@ static void input_task(void *arg) {
     for (;;) {
         bool idle_page = s_app.page == PAGE_MAIN && !s_app.boss_pending
                          && s_app.player.pending_drop == MAFA_DROP_NONE;
-        TickType_t wait = idle_page ? pdMS_TO_TICKS(PACE_MS[s_app.speed])
-                                    : portMAX_DELAY;
+        TickType_t wait;
+        if (s_app.buy_hold.active)
+            wait = pdMS_TO_TICKS(MAFA_BUY_HOLD_MS);
+        else
+            wait = idle_page ? pdMS_TO_TICKS(PACE_MS[s_app.speed])
+                             : portMAX_DELAY;
         if (xQueueReceive(s_app.queue, &ev, wait) == pdTRUE) {
             if (!bsp_lvgl_lock(500)) continue;
             process_event(&ev);
             bsp_lvgl_unlock();
         } else {
             if (!bsp_lvgl_lock(500)) continue;
-            tick_battle();
-            refresh_main();
+            if (s_app.buy_hold.active)
+                buy_hold_tick();
+            else {
+                tick_battle();
+                refresh_main();
+            }
             bsp_lvgl_unlock();
         }
     }

@@ -651,6 +651,27 @@ bool mafa_equip(mafa_player_t *p, uint8_t idx) {
     return true;
 }
 
+bool mafa_unequip(mafa_player_t *p, uint8_t pos) {
+    if (pos >= MAFA_EQ_SLOTS) return false;
+    uint8_t id = p->equipped[pos];
+    if (id == MAFA_INV_EMPTY) return false;
+    /* Stack onto a same-id backpack stack first, else any empty slot. */
+    for (int i = 0; i < MAFA_BACKPACK; ++i)
+        if (p->inv_id[i] == id && p->inv_n[i] < 0xFF) {
+            p->inv_n[i]++;
+            p->equipped[pos] = MAFA_INV_EMPTY;
+            return true;
+        }
+    for (int i = 0; i < MAFA_BACKPACK; ++i)
+        if (p->inv_id[i] == MAFA_INV_EMPTY) {
+            p->inv_id[i] = id;
+            p->inv_n[i] = 1;
+            p->equipped[pos] = MAFA_INV_EMPTY;
+            return true;
+        }
+    return false;                    /* no room: the piece stays equipped */
+}
+
 void mafa_compare(const mafa_player_t *p, uint8_t item_id, mafa_compare_t *out) {
     out->item = &MAFA_ITEMS[item_id];
     mafa_stats_t cur;
@@ -705,6 +726,7 @@ uint32_t mafa_sell_all_white(mafa_player_t *p) {
 bool mafa_buy_potion(mafa_player_t *p, bool red) {
     uint32_t price = red ? 50 : 40;
     if (p->gold < price) return false;
+    if ((red ? p->pot_red : p->pot_blue) >= MAFA_POT_CAP) return false;
     p->gold -= price;
     if (red) p->pot_red++;
     else p->pot_blue++;
@@ -930,12 +952,12 @@ static void roll_gear_drop(mafa_player_t *p, const mafa_battle_t *b,
 
 /* Potion drops (v1.5): the original's trash supplies 金创药/魔法药. A ~15 %
  * roll per kill, weighted toward the red bottle; potions go straight into
- * the stack counters (never the backpack) and cap at 99. */
+ * the stack counters (never the backpack) and share the store stack cap. */
 static void roll_potion_drop(mafa_player_t *p, mafa_events_t *ev) {
     if (rng_next(p) % 100 >= MAFA_POTION_DROP_PCT) return;
     bool red = rng_next(p) % 100 < 60;
     uint8_t *pot = red ? &p->pot_red : &p->pot_blue;
-    if (*pot >= 99) return;
+    if (*pot >= MAFA_POT_CAP) return;
     (*pot)++;
     mafa_ev_push(ev, MAFA_EV_POTION, red ? 1 : 2, 1, 0);
 }
@@ -1513,6 +1535,10 @@ static uint8_t crc8(const uint8_t *d, size_t n) {
     return c;
 }
 
+/* v8 payload (v1.6 UX round): v7 layout with gold widened to 2→4 bytes
+ * (59 bytes) — the k/M caps need the range. v7 saves read through the
+ * 2-byte gold branch below and need no other migration. */
+#define MAFA_SAVE_BODY_V8 59
 /* v7 payload (v1.5 stats 2.0): byte layout identical to v6 (57 bytes) —
  * the version byte only marks the item-table generation. v6 saves carry
  * ids from the old 105-row table: they load, then the migration replaces
@@ -1533,7 +1559,7 @@ static uint8_t crc8(const uint8_t *d, size_t n) {
 #define MAFA_SAVE_BODY_V1 36
 
 size_t mafa_save_serialize(const mafa_player_t *p, uint8_t *buf, size_t cap) {
-    const size_t total = 4 + MAFA_SAVE_BODY_V7 + 1;
+    const size_t total = 4 + MAFA_SAVE_BODY_V8 + 1;
     if (cap < total) return 0;
     buf[0] = 'M'; buf[1] = 'F'; buf[2] = 'C'; buf[3] = MAFA_SAVE_VERSION;
     uint8_t *w = buf + 4;
@@ -1541,7 +1567,8 @@ size_t mafa_save_serialize(const mafa_player_t *p, uint8_t *buf, size_t cap) {
     *w++ = p->level;
     *w++ = (uint8_t)(p->xp & 0xFF); *w++ = (uint8_t)((p->xp >> 8) & 0xFF);
     *w++ = (uint8_t)((p->xp >> 16) & 0xFF); *w++ = (uint8_t)(p->xp >> 24);
-    *w++ = (uint8_t)(p->gold & 0xFF); *w++ = (uint8_t)(p->gold >> 8);
+    *w++ = (uint8_t)(p->gold & 0xFF); *w++ = (uint8_t)((p->gold >> 8) & 0xFF);
+    *w++ = (uint8_t)((p->gold >> 16) & 0xFF); *w++ = (uint8_t)(p->gold >> 24);
     *w++ = (uint8_t)((uint16_t)p->hp & 0xFF); *w++ = (uint8_t)((uint16_t)p->hp >> 8);
     *w++ = (uint8_t)((uint16_t)p->mp & 0xFF); *w++ = (uint8_t)((uint16_t)p->mp >> 8);
     *w++ = (uint8_t)(p->books & 0xFF); *w++ = (uint8_t)((p->books >> 8) & 0xFF);
@@ -1560,7 +1587,7 @@ size_t mafa_save_serialize(const mafa_player_t *p, uint8_t *buf, size_t cap) {
     *w++ = p->auto_sell & 0x0F;
     for (int i = 0; i < MAFA_MAP_COUNT - 1; ++i) *w++ = p->floor_unlocked[i];
     size_t body = (size_t)(w - (buf + 4));
-    if (body != MAFA_SAVE_BODY_V7) return 0;
+    if (body != MAFA_SAVE_BODY_V8) return 0;
     buf[4 + body] = crc8(buf + 4, body);
     return total;
 }
@@ -1618,10 +1645,16 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
         t->xp = (uint16_t)(r[0] | (r[1] << 8));
         r += 2;
     }
-    t->gold = (uint16_t)(r[0] | (r[1] << 8)); r += 2;
+    if (body >= MAFA_SAVE_BODY_V8) {
+        t->gold = (uint32_t)r[0] | ((uint32_t)r[1] << 8)
+                  | ((uint32_t)r[2] << 16) | ((uint32_t)r[3] << 24);
+        r += 4;
+    } else {
+        t->gold = (uint16_t)(r[0] | (r[1] << 8)); r += 2;
+    }
     t->hp = (int16_t)(r[0] | (r[1] << 8)); r += 2;
     t->mp = (int16_t)(r[0] | (r[1] << 8)); r += 2;
-    if (body == MAFA_SAVE_BODY_V6) {
+    if (body >= MAFA_SAVE_BODY_V6) {
         t->books = (uint32_t)r[0] | ((uint32_t)r[1] << 8)
                    | ((uint32_t)r[2] << 16) | ((uint32_t)r[3] << 24);
         r += 4;
@@ -1633,7 +1666,7 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
     t->pot_red = *r++; t->pot_blue = *r++;
     t->kills = (uint16_t)(r[0] | (r[1] << 8)); r += 2;
     uint8_t flags = *r++;
-    if (body == MAFA_SAVE_BODY_V6) {
+    if (body >= MAFA_SAVE_BODY_V6) {
         t->map = flags & 7;
         t->unlocked = (flags >> 3) & 7;
     } else {
@@ -1652,7 +1685,7 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
         t->map = t->map == 3 ? MAFA_MAP_SAFE : (uint8_t)(t->map + 1);
         t->unlocked = (uint8_t)(t->unlocked + 1);
     }
-    if (body == MAFA_SAVE_BODY_V6) {
+    if (body >= MAFA_SAVE_BODY_V6) {
         t->auto_potion = (flags & 0x40) != 0;
         t->auto_boss = (flags & 0x80) != 0;
     } else {
@@ -1668,7 +1701,7 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
     t->pending_drop = *r++;
     if (t->pending_drop != MAFA_DROP_NONE
         && t->pending_drop >= MAFA_ITEM_COUNT) return false;
-    if (body == MAFA_SAVE_BODY_V6) {
+    if (body >= MAFA_SAVE_BODY_V6) {
         for (int i = 0; i < MAFA_EQ_SLOTS; ++i) {
             t->equipped[i] = *r++;
             /* v6 ids belong to the old item table: accept them here and
@@ -1685,7 +1718,7 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
         r += 3;
     }
     for (int i = 0; i < MAFA_BACKPACK; ++i) {
-        if (body == MAFA_SAVE_BODY_V6) {
+        if (body >= MAFA_SAVE_BODY_V6) {
             t->inv_id[i] = *r++; t->inv_n[i] = *r++;
             if (version >= MAFA_SAVE_VERSION
                 && t->inv_id[i] != MAFA_INV_EMPTY
@@ -1706,7 +1739,7 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
             return false;
         t->auto_sell = (uint8_t)(*r++ & 0x0F);
     }
-    if (body == MAFA_SAVE_BODY_V6) {
+    if (body >= MAFA_SAVE_BODY_V6) {
         for (int i = 0; i < MAFA_MAP_COUNT - 1; ++i) {
             t->floor_unlocked[i] = *r++;
             if (t->floor_unlocked[i] < 1
@@ -1736,7 +1769,8 @@ bool mafa_save_deserialize(mafa_player_t *p, const uint8_t *buf, size_t len) {
     if (len < 4 + MAFA_SAVE_BODY_V1 + 1) return false;
     if (buf[0] != 'M' || buf[1] != 'F' || buf[2] != 'C') return false;
     size_t body;
-    if (buf[3] == MAFA_SAVE_VERSION) body = MAFA_SAVE_BODY_V7;
+    if (buf[3] == MAFA_SAVE_VERSION) body = MAFA_SAVE_BODY_V8;
+    else if (buf[3] == 7) body = MAFA_SAVE_BODY_V7;
     else if (buf[3] == 6) body = MAFA_SAVE_BODY_V6;
     else if (buf[3] == 5) body = MAFA_SAVE_BODY_V5;
     else if (buf[3] == 4) body = MAFA_SAVE_BODY_V4;

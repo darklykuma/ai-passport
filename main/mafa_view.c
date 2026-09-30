@@ -217,14 +217,15 @@ lv_obj_t *mafa_view_page_status(mafa_view_t *v) {
     memset(v, 0, sizeof *v);
     v->screen = base_screen();
     title_band(v->screen, "装备");
-    /* 1.76 paper doll (design 07): 8 slot rows in the 200px list, then the
-     * v1.5 three-line detail (four stats / both pools / potions). */
-    lv_obj_t *list = panel(v->screen, 6, 42, 228, 200, MAFA_PANEL_BG,
+    /* 1.76 paper doll (design 07): 8 slot rows in a tightened list (line
+     * space 2: rows end at 176px), then the v1.6 four-line detail — stats,
+     * pools, potions, and the OK-unequip hint (84px in the 90px panel). */
+    lv_obj_t *list = panel(v->screen, 6, 42, 228, 184, MAFA_PANEL_BG,
                            MAFA_PANEL_EDGE);
     v->items_label = new_label(list, 12, 10, false);
     list_style(v->items_label);
-    lv_obj_set_style_text_line_space(v->items_label, 4, 0);
-    lv_obj_t *detail = panel(v->screen, 6, 246, 228, 74, MAFA_PANEL_BG,
+    lv_obj_set_style_text_line_space(v->items_label, 2, 0);
+    lv_obj_t *detail = panel(v->screen, 6, 230, 228, 90, MAFA_PANEL_BG,
                              MAFA_PANEL_EDGE);
     v->detail_label = new_label(detail, 8, 8, false);
     lv_obj_set_style_text_color(v->detail_label, MAFA_TEXT_DIM, 0);
@@ -271,8 +272,9 @@ lv_obj_t *mafa_view_page_backpack(mafa_view_t *v) {
 lv_obj_t *mafa_view_page_store(mafa_view_t *v) {
     memset(v, 0, sizeof *v);
     v->screen = base_screen();
-    /* 商店 (1.76 plan): two potions + three class books; with a three-book
-     * shelf the old 药店 title stopped being honest. */
+    /* 商店 (1.76 plan): two potions + three class books + a plain 返回
+     * row; with a three-book shelf the old 药店 title stopped being
+     * honest. The back row frees long-OK on potion rows for hold-to-buy. */
     title_band(v->screen, "商店");
     lv_obj_t *list = panel(v->screen, 6, 42, 228, 270, MAFA_PANEL_BG,
                            MAFA_PANEL_EDGE);
