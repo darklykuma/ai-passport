@@ -1223,8 +1223,8 @@ static void process_event(const input_event_t *ev) {
              * safe zone plus unlocked combat maps. */
             do {
                 s_app.cur_maps = ev->btn == BSP_BTN_UP
-                    ? (s_app.cur_maps + 1) % MAFA_MAP_COUNT
-                    : (s_app.cur_maps + MAFA_MAP_COUNT - 1) % MAFA_MAP_COUNT;
+                    ? (s_app.cur_maps + MAFA_MAP_COUNT - 1) % MAFA_MAP_COUNT
+                    : (s_app.cur_maps + 1) % MAFA_MAP_COUNT;
             } while (s_app.cur_maps != MAFA_MAP_SAFE
                      && s_app.cur_maps > s_app.player.unlocked);
         } else if (ev->btn == BSP_BTN_OK) {
