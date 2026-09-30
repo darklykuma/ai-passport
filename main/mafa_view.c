@@ -96,6 +96,10 @@ static lv_obj_t *bar(lv_obj_t *parent, int x, int y, int w, int h,
 static void list_style(lv_obj_t *label) {
     lv_label_set_recolor(label, true);
     lv_obj_set_style_text_line_space(label, 6, 0);
+    /* Cursor rows pair ＞ with 　 (full-width space) as the unmarked
+     * filler — both exactly 16 px in mafa_font_16, so the name column
+     * stays put while the cursor moves; two ASCII spaces are 8 px and
+     * made every row shift sideways on UP/DOWN. */
 }
 
 /* Main page chrome: header band, enemy strip, framed log, action bar. */

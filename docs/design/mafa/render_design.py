@@ -136,7 +136,7 @@ panel(d, 30, 44, 180, 96, PANEL_BG, GOLD_EDGE, radius=8, bw=2)
 text_c(d, 120, 64, "玛法战纪", F20, GOLD)
 text_c(d, 120, 100, "「文字传奇」", F16, DIM)
 text(d, (80, 180), "＞继续游戏", F16, MAIN)
-text(d, (80, 205), "  新游戏", F16, MAIN)
+text(d, (80, 205), "　新游戏", F16, MAIN)
 save(img, "01-menu")
 
 # ---- 2. class (1.76 seven-skill blurbs) -------------------------------------
@@ -211,7 +211,7 @@ d = ImageDraw.Draw(img)
 panel(d, 8, 85, 224, 150, (0x10, 0x18, 0x20), GOLD_EDGE, radius=6)
 text_c(d, 120, 100, "【Boss】沃玛教主 出现了!", F16, GOLD)
 text(d, (60, 140), "＞迎战", F16, GOLD)
-text(d, (60, 170), "  回避", F16, MAIN)
+text(d, (60, 170), "　回避", F16, MAIN)
 save(img, "06-modal-boss")
 
 # ---- 7. gear page: 8-slot paper doll + stats + potions (1.76 plan) -----------
@@ -227,13 +227,13 @@ title_band(d, "装备")
 panel(d, 6, 42, 228, 208, PANEL_BG, PANEL_EDGE)
 gear = [
     ("＞武器 井中月", "purple"),
-    ("  头盔 黑铁头盔", "blue"),
-    ("  衣服 天魔神甲", "blue"),
-    ("  项链 恶魔铃铛", "blue"),
-    ("  手镯 骑士手镯", "blue"),
-    ("  手镯 铁手镯", "white"),
-    ("  戒指 力量戒指", "purple"),
-    ("  戒指 珊瑚戒指", "green"),
+    ("　头盔 黑铁头盔", "blue"),
+    ("　衣服 天魔神甲", "blue"),
+    ("　项链 恶魔铃铛", "blue"),
+    ("　手镯 骑士手镯", "blue"),
+    ("　手镯 铁手镯", "white"),
+    ("　戒指 力量戒指", "purple"),
+    ("　戒指 珊瑚戒指", "green"),
 ]
 y = 50
 for s, q in gear:
@@ -261,12 +261,12 @@ title_band(d, "技能")
 panel(d, 6, 42, 228, 190, PANEL_BG, PANEL_EDGE)
 skills = [
     ("＞基本剑术  常驻", DIM),
-    ("  攻杀剑术  常驻", DIM),
-    ("  刺杀剑术  开", MAIN),
-    ("  半月弯刀  群攻 关", MAIN),
-    ("  野蛮冲撞  精英/Boss", MAIN),
-    ("  烈火剑法  Lv35", DIM),
-    ("  逐日剑法  Lv38", DIM),
+    ("　攻杀剑术  常驻", DIM),
+    ("　刺杀剑术  开", MAIN),
+    ("　半月弯刀  群攻 关", MAIN),
+    ("　野蛮冲撞  精英/Boss", MAIN),
+    ("　烈火剑法  Lv35", DIM),
+    ("　逐日剑法  Lv38", DIM),
 ]
 y = 52
 for s, c in skills:
@@ -285,9 +285,9 @@ save(img, "17-skills")
 img, d = new_page()
 title_band(d, "背包")
 panel(d, 6, 42, 228, 208, PANEL_BG, PANEL_EDGE)
-items = [("＞1.炼狱 x1", "purple"), ("  2.骷髅头盔 x1", "white"),
-         ("  3.恶魔铃铛 x1", "blue"), ("  4.空", DIM), ("  5.空", DIM),
-         ("  6.空", DIM), ("  7.空", DIM), ("  8.空", DIM)]
+items = [("＞1.炼狱 x1", "purple"), ("　2.骷髅头盔 x1", "white"),
+         ("　3.恶魔铃铛 x1", "blue"), ("　4.空", DIM), ("　5.空", DIM),
+         ("　6.空", DIM), ("　7.空", DIM), ("　8.空", DIM)]
 y = 50
 for s, q in items:
     color = q if isinstance(q, tuple) else QUAL.get(q, MAIN)
@@ -309,10 +309,10 @@ title_band(d, "商店")
 panel(d, 6, 42, 228, 270, PANEL_BG, PANEL_EDGE)
 store = [
     ("＞红药 50金 x3", MAIN),
-    ("  蓝药 40金 x2", MAIN),
-    ("  攻杀剑术 300金 已学", DIM),
-    ("  刺杀剑术 600金 已学", DIM),
-    ("  半月弯刀 800金 Lv28", DIM),
+    ("　蓝药 40金 x2", MAIN),
+    ("　攻杀剑术 300金 已学", DIM),
+    ("　刺杀剑术 600金 已学", DIM),
+    ("　半月弯刀 800金 Lv28", DIM),
     ("", DIM),
     ("金币 2210", GOLD),
 ]
@@ -326,9 +326,9 @@ save(img, "09-store")
 img, d = new_page()
 title_band(d, "地图")
 panel(d, 6, 42, 228, 208, PANEL_BG, PANEL_EDGE)
-maps = [("  0.安全区", MAIN), ("  1.比奇省", MAIN), ("  2.兽人古墓", MAIN),
-        ("  3.石墓", MAIN), ("  4.沃玛寺庙", MAIN), ("＞5.死亡山谷", GOLD),
-        ("  6.祖玛寺庙 锁定", DIM), ("  7.赤月峡谷 锁定", DIM)]
+maps = [("　0.安全区", MAIN), ("　1.比奇省", MAIN), ("　2.兽人古墓", MAIN),
+        ("　3.石墓", MAIN), ("　4.沃玛寺庙", MAIN), ("＞5.死亡山谷", GOLD),
+        ("　6.祖玛寺庙 锁定", DIM), ("　7.赤月峡谷 锁定", DIM)]
 y = 50
 for s, c in maps:
     text(d, (18, y), s, F16, c)
@@ -346,10 +346,10 @@ save(img, "10-maps")
 img, d = new_page()
 title_band(d, "地图")
 panel(d, 6, 42, 228, 208, PANEL_BG, PANEL_EDGE)
-floors = [("  1层 Boss:祖玛卫士", MAIN), ("  2层 Boss:祖玛弓箭手", MAIN),
-          ("  3层 Boss:祖玛卫士", MAIN), ("＞4层 Boss:祖玛雕像", GOLD),
-          ("  5层 Boss:祖玛卫士", MAIN), ("  6层 Boss:祖玛雕像", MAIN),
-          ("  7层 Boss:祖玛教主", MAIN), ("  返回", MAIN)]
+floors = [("　1层 Boss:祖玛卫士", MAIN), ("　2层 Boss:祖玛弓箭手", MAIN),
+          ("　3层 Boss:祖玛卫士", MAIN), ("＞4层 Boss:祖玛雕像", GOLD),
+          ("　5层 Boss:祖玛卫士", MAIN), ("　6层 Boss:祖玛雕像", MAIN),
+          ("　7层 Boss:祖玛教主", MAIN), ("　返回", MAIN)]
 y = 50
 for s, c in floors:
     text(d, (18, y), s, F16, c)
@@ -388,10 +388,10 @@ title_band(d, "设置")
 panel(d, 6, 42, 228, 270, PANEL_BG, PANEL_EDGE)
 sets = [
     ("＞自动喝药:开", MAIN),
-    ("  红药线:50%", MAIN),
-    ("  蓝药线:30%", MAIN),
-    ("  自动卖:白", MAIN),
-    ("  自动Boss:开", MAIN),
+    ("　红药线:50%", MAIN),
+    ("　蓝药线:30%", MAIN),
+    ("　自动卖:白", MAIN),
+    ("　自动Boss:开", MAIN),
 ]
 for i, (s, c) in enumerate(sets):
     text(d, (18, 52 + i * (LH16 + 6)), s, F16, c)
@@ -406,11 +406,11 @@ img, d = new_page()
 title_band(d, "设置")
 panel(d, 6, 42, 228, 270, PANEL_BG, PANEL_EDGE)
 edit = [
-    ("  自动喝药:开", DIM),
+    ("　自动喝药:开", DIM),
     ("＞红药线:", MAIN),
-    ("  蓝药线:30%", DIM),
-    ("  自动卖白:开", DIM),
-    ("  自动Boss:开", DIM),
+    ("　蓝药线:30%", DIM),
+    ("　自动卖白:开", DIM),
+    ("　自动Boss:开", DIM),
 ]
 y = 52
 for s, c in edit:
@@ -428,25 +428,25 @@ save(img, "14-settings-edit")
 img, d = new_page()
 title_band(d, "设置")
 panel(d, 6, 42, 228, 270, PANEL_BG, PANEL_EDGE)
-dim_top = ["  自动喝药:开", "  红药线:50%", "  蓝药线:30%"]
+dim_top = ["　自动喝药:开", "　红药线:50%", "　蓝药线:30%"]
 y = 52
 for s in dim_top:
     text(d, (18, y), s, F16, DIM)
     y += LH16 + 5
 picker = [
     ("＞", "白", QUAL["white"], "  开", MAIN),
-    ("  ", "绿", QUAL["green"], "  开", MAIN),
-    ("  ", "蓝", QUAL["blue"], "  关", DIM),
-    ("  ", "紫", QUAL["purple"], "  关", DIM),
+    ("　", "绿", QUAL["green"], "  开", MAIN),
+    ("　", "蓝", QUAL["blue"], "  关", DIM),
+    ("　", "紫", QUAL["purple"], "  关", DIM),
 ]
 for mark, name, qc, state, sc in picker:
     text(d, (18, y), mark, F16, MAIN)
     text(d, (18 + d.textlength(mark, font=F16), y), name, F16, qc)
     text(d, (18 + d.textlength(mark + name, font=F16), y), state, F16, sc)
     y += LH16 + 5
-text(d, (18, y), "  完成", F16, GOLD)
+text(d, (18, y), "　完成", F16, GOLD)
 y += LH16 + 5
-text(d, (18, y), "  自动Boss:开", F16, DIM)
+text(d, (18, y), "　自动Boss:开", F16, DIM)
 y += LH16 + 5
 text(d, (18, y), "电量 96%", F16, DIM)
 save(img, "15-settings-sell")
