@@ -69,6 +69,12 @@ esp_err_t esp_wifi_scan_start(const void *cfg, bool blocking) {
     (void)cfg; (void)blocking; assert(wifi_running); return next_step();
 }
 esp_err_t esp_wifi_scan_stop(void) { assert(wifi_running); return ESP_OK; }
+esp_err_t esp_wifi_scan_get_ap_num(uint16_t *count) {
+    (void)count; assert(wifi_running); return ESP_OK;
+}
+esp_err_t esp_wifi_scan_get_ap_records(uint16_t *count, wifi_ap_record_t *records) {
+    (void)count; (void)records; assert(wifi_running); return ESP_OK;
+}
 
 static void assert_clean(void) {
     assert(!s_sta_netif && !s_wifi_initialized && !s_wifi_started && !s_handler_registered);
