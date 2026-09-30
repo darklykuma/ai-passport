@@ -26,7 +26,7 @@ typedef struct {
     lv_obj_t *enemy_bar;       // monster HP (red), empty while idle
     /* main page: framed log + bottom action bar */
     lv_obj_t *log_label;       // 6-line combat log (recolor on)
-    lv_obj_t *menu_label;      // 2×3 action menu, font 20
+    lv_obj_t *menu_label;      // 2×4 action menu, font 16 (1.76: 7 cells)
     lv_obj_t *modal;           // prompt overlay panel, NULL when closed
     lv_obj_t *modal_label;
 } mafa_view_t;
@@ -37,6 +37,7 @@ lv_obj_t *mafa_view_page_menu(mafa_view_t *v);
 lv_obj_t *mafa_view_page_class(mafa_view_t *v);
 lv_obj_t *mafa_view_page_main(mafa_view_t *v);
 lv_obj_t *mafa_view_page_status(mafa_view_t *v);
+lv_obj_t *mafa_view_page_skills(mafa_view_t *v);
 lv_obj_t *mafa_view_page_backpack(mafa_view_t *v);
 lv_obj_t *mafa_view_page_store(mafa_view_t *v);
 lv_obj_t *mafa_view_page_maps(mafa_view_t *v);

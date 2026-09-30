@@ -156,16 +156,19 @@ lv_obj_t *mafa_view_page_main(mafa_view_t *v) {
     lv_label_set_recolor(v->log_label, true);
     lv_obj_set_style_text_line_space(v->log_label, 2, 0);
 
-    /* Bottom action bar: 2×3 menu, font 20, cursor column aligned by
-     * full-width spaces composed in the app. */
+    /* Bottom action bar: 2×4 grid at font 16 (1.76 plan: the 技能 cell makes
+     * seven). Four font-20 columns cannot fit 240px (4×(20 marker + 40 name)
+     * alone = 240), so the bar drops to the list-page size and the log keeps
+     * its six lines; cursor alignment still comes from the full-width
+     * markers the app composes. The 8th cell stays blank (future pet page). */
     lv_obj_t *menubar = panel(v->screen, 0, 238, 240, 82, lv_color_hex(0x0C0F13),
                               MAFA_EDGE_GOLD);
     lv_obj_set_style_radius(menubar, 0, 0);
     lv_obj_set_style_border_side(menubar, LV_BORDER_SIDE_TOP, 0);
     lv_obj_set_style_border_width(menubar, 2, 0);
-    v->menu_label = new_label(menubar, 12, 12, true);
+    v->menu_label = new_label(menubar, 12, 13, false);
     lv_label_set_recolor(v->menu_label, true);
-    lv_obj_set_style_text_line_space(v->menu_label, 7, 0);
+    lv_obj_set_style_text_line_space(v->menu_label, 12, 0);
     return v->screen;
 }
 
@@ -210,10 +213,34 @@ lv_obj_t *mafa_view_page_status(mafa_view_t *v) {
     memset(v, 0, sizeof *v);
     v->screen = base_screen();
     title_band(v->screen, "装备");
-    lv_obj_t *list = panel(v->screen, 6, 42, 228, 270, MAFA_PANEL_BG,
+    /* 1.76 paper doll (design 07): 8 slot rows in the 208px list (same
+     * geometry as the backpack), stats + potions in the detail box. */
+    lv_obj_t *list = panel(v->screen, 6, 42, 228, 208, MAFA_PANEL_BG,
                            MAFA_PANEL_EDGE);
     v->items_label = new_label(list, 12, 10, false);
     list_style(v->items_label);
+    lv_obj_set_style_text_line_space(v->items_label, 4, 0);
+    lv_obj_t *detail = panel(v->screen, 6, 256, 228, 56, MAFA_PANEL_BG,
+                             MAFA_PANEL_EDGE);
+    v->detail_label = new_label(detail, 8, 8, false);
+    lv_obj_set_style_text_color(v->detail_label, MAFA_TEXT_DIM, 0);
+    return v->screen;
+}
+
+lv_obj_t *mafa_view_page_skills(mafa_view_t *v) {
+    memset(v, 0, sizeof *v);
+    v->screen = base_screen();
+    title_band(v->screen, "技能");
+    /* Seven class skills (design 17): 7 rows at pitch 24 in a 190px list,
+     * then the three dim explainer lines. */
+    lv_obj_t *list = panel(v->screen, 6, 42, 228, 190, MAFA_PANEL_BG,
+                           MAFA_PANEL_EDGE);
+    v->items_label = new_label(list, 12, 10, false);
+    list_style(v->items_label);
+    lv_obj_t *detail = panel(v->screen, 6, 240, 228, 72, MAFA_PANEL_BG,
+                             MAFA_PANEL_EDGE);
+    v->detail_label = new_label(detail, 8, 8, false);
+    lv_obj_set_style_text_color(v->detail_label, MAFA_TEXT_DIM, 0);
     return v->screen;
 }
 
@@ -240,7 +267,9 @@ lv_obj_t *mafa_view_page_backpack(mafa_view_t *v) {
 lv_obj_t *mafa_view_page_store(mafa_view_t *v) {
     memset(v, 0, sizeof *v);
     v->screen = base_screen();
-    title_band(v->screen, "药店");
+    /* 商店 (1.76 plan): two potions + three class books; with a three-book
+     * shelf the old 药店 title stopped being honest. */
+    title_band(v->screen, "商店");
     lv_obj_t *list = panel(v->screen, 6, 42, 228, 270, MAFA_PANEL_BG,
                            MAFA_PANEL_EDGE);
     v->items_label = new_label(list, 12, 10, false);
@@ -252,13 +281,16 @@ lv_obj_t *mafa_view_page_maps(mafa_view_t *v) {
     memset(v, 0, sizeof *v);
     v->screen = base_screen();
     title_band(v->screen, "地图");
-    lv_obj_t *list = panel(v->screen, 6, 42, 228, 150, MAFA_PANEL_BG,
+    /* Eight rows (safe zone + seven combat maps, design 10) in the 208px
+     * list; the floor picker shares it (7 floors + 返回). */
+    lv_obj_t *list = panel(v->screen, 6, 42, 228, 208, MAFA_PANEL_BG,
                            MAFA_PANEL_EDGE);
     v->items_label = new_label(list, 12, 10, false);
     list_style(v->items_label);
-    lv_obj_t *detail = panel(v->screen, 6, 200, 228, 112, MAFA_PANEL_BG,
+    lv_obj_set_style_text_line_space(v->items_label, 4, 0);
+    lv_obj_t *detail = panel(v->screen, 6, 256, 228, 56, MAFA_PANEL_BG,
                              MAFA_PANEL_EDGE);
-    v->detail_label = new_label(detail, 12, 10, false);
+    v->detail_label = new_label(detail, 8, 8, false);
     lv_obj_set_style_text_color(v->detail_label, MAFA_TEXT_DIM, 0);
     return v->screen;
 }

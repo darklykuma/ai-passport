@@ -1,7 +1,7 @@
 // tests/mafa_balance_sim.c — MAFA CHRONICLE balance simulator (PRD 4.2/M2,
-// skills-2.0 rebalance; v1.3 floors). Automated idle sessions per
-// class × map × floor, grinding gold restocked into potions like a real
-// player. Targets, per floor:
+// skills-2.0 rebalance; v1.3 floors; 1.76 alignment: 7 maps / 26 floors).
+// Automated idle sessions per class × map × floor, grinding gold restocked
+// into potions like a real player. Targets, per floor:
 //   battle pace 4-15 s; suggested-level grind rarely deadly (≥5 min);
 //   boss win rate: no 0 %, at least one class in [45, 75 %].
 //   (An informational deep-push column shows the level gap effect; sustain
@@ -73,8 +73,13 @@ static void session(mafa_player_t *p, uint8_t map, uint8_t floor,
 
 static void gear_up(mafa_player_t *p, uint8_t map, uint8_t tier) {
     for (int i = 0; i < MAFA_ITEM_COUNT; ++i)
-        if (MAFA_ITEMS[i].map == map && MAFA_ITEMS[i].tier == tier)
+        if (MAFA_ITEMS[i].map == map && MAFA_ITEMS[i].tier == tier) {
             mafa_inv_add(p, (uint8_t)i);
+            /* Twins: both wrists and both fingers wear the band's pieces. */
+            if (MAFA_ITEMS[i].slot == MAFA_ST_BRACELET
+                || MAFA_ITEMS[i].slot == MAFA_ST_RING)
+                mafa_inv_add(p, (uint8_t)i);
+        }
     for (int i = 0; i < MAFA_BACKPACK; ++i)
         if (p->inv_id[i] != MAFA_INV_EMPTY
             && MAFA_ITEMS[p->inv_id[i]].map == map)
@@ -83,20 +88,30 @@ static void gear_up(mafa_player_t *p, uint8_t map, uint8_t tier) {
 
 /* Arrival kit: what a player realistically wears when they FIRST reach a
  * floor — the previous floors' drops, never the whole map's mid gear.
- * Last floors keep the tuned tier-2 wall cells of the skills-2.0 sim. */
+ * Each map's floor 1 rides the previous band's tier-2 set; own tier 1
+ * from floor 2; own tier 2 by mid-ladder (last floors keep the wall cells).
+ */
 static void arrival_kit(uint8_t map, uint8_t floor, uint8_t *item_map,
                         uint8_t *tier) {
     static const uint8_t km[MAFA_MAP_COUNT][MAX_FLOORS] = {
         {0, 0, 0, 0, 0, 0, 0},
-        {1, 1, 0, 0, 0, 0, 0},   /* 比奇: white, then green */
-        {1, 2, 2, 0, 0, 0, 0},   /* 废矿: 比奇-green entry, then its own */
-        {3, 3, 3, 3, 3, 3, 3},   /* 祖玛: its own blue from floor 1 */
+        {1, 1, 0, 0, 0, 0, 0},   /* 比奇省: own set from floor 1 */
+        {1, 2, 2, 0, 0, 0, 0},   /* 兽人古墓: 比奇-green entry, then own */
+        {2, 3, 3, 3, 0, 0, 0},   /* 石墓: 古墓 entry, then own */
+        {3, 4, 4, 0, 0, 0, 0},   /* 沃玛: 石墓 entry, then own */
+        {4, 5, 5, 5, 0, 0, 0},   /* 死亡山谷: 沃玛 entry, then own */
+        {5, 6, 6, 6, 6, 6, 6},   /* 祖玛: 山谷 entry, then own */
+        {6, 7, 7, 0, 0, 0, 0},   /* 赤月: 祖玛 entry, then own */
     };
     static const uint8_t kt[MAFA_MAP_COUNT][MAX_FLOORS] = {
         {0, 0, 0, 0, 0, 0, 0},
         {1, 2, 0, 0, 0, 0, 0},
         {2, 1, 2, 0, 0, 0, 0},
-        {1, 1, 1, 1, 1, 1, 2},
+        {2, 1, 2, 2, 0, 0, 0},
+        {2, 1, 2, 0, 0, 0, 0},
+        {2, 1, 2, 2, 0, 0, 0},
+        {2, 1, 1, 1, 2, 2, 2},
+        {2, 1, 2, 0, 0, 0, 0},
     };
     *item_map = km[map][floor - 1];
     *tier = kt[map][floor - 1];
@@ -110,17 +125,24 @@ static double boss_win_rate(mafa_player_t *p, uint8_t level, uint8_t map,
         mafa_player_t t;
         mafa_player_init(&t, p->cls, (uint32_t)(91000 + i * 17));
         t.level = level;
-        t.unlocked = 3;
+        t.unlocked = 7;
         t.map = map;
         t.floor = floor;
         t.pot_red = 8;                  /* honest mid-progression stock */
         t.pot_blue = 4;
         gear_up(&t, item_map, gear_tier);
+        /* Pools match the raised level and kit (init computed them at L1). */
+        {
+            mafa_stats_t st;
+            mafa_stats(&t, &st);
+            t.hp = (int16_t)st.max_hp;
+            t.mp = st.max_mp;
+        }
         /* Books 1-3: the two store books plus the elite-dropped third.
          * Book 4 comes only from a boss kill, so the FIRST encounter runs
          * without the capstone skill. */
         for (int s = 1; s <= 3; ++s)
-            t.books |= (uint16_t)(1u << (t.cls * MAFA_SKILLS_PER_CLASS + s));
+            t.books |= (1u << (t.cls * MAFA_SKILLS_PER_CLASS + s));
         t.kills = MAFA_KILLS_PER_BOSS;
         mafa_battle_t b;
         if (!mafa_boss_start(&t, &b)) return -1;
@@ -154,16 +176,22 @@ int main(int argc, char **argv) {
             mafa_player_init(&p, (uint8_t)cls,
                              (uint32_t)(4000 + map * 100 + floor * 10 + cls));
             p.level = (uint8_t)suggested;
-            p.unlocked = 3;
+            p.unlocked = 7;
             p.map = (uint8_t)map;
             p.floor = (uint8_t)floor;
             p.pot_red = 30;
             p.pot_blue = 30;
             for (int s = 1; s <= 3; ++s)    /* store books + elite book 3 */
-                p.books |= (uint16_t)(1u << (cls * MAFA_SKILLS_PER_CLASS + s));
+                p.books |= (1u << (cls * MAFA_SKILLS_PER_CLASS + s));
             uint8_t kit_map, kit_tier;
             arrival_kit((uint8_t)map, (uint8_t)floor, &kit_map, &kit_tier);
             gear_up(&p, kit_map, kit_tier);
+            {   /* pools match the raised level and kit */
+                mafa_stats_t st;
+                mafa_stats(&p, &st);
+                p.hp = (int16_t)st.max_hp;
+                p.mp = st.max_mp;
+            }
 
             long kills, deaths, battles, rounds;
             session(&p, (uint8_t)map, (uint8_t)floor,
@@ -195,14 +223,20 @@ int main(int argc, char **argv) {
             mafa_player_init(&q, (uint8_t)cls,
                              (uint32_t)(7000 + map * 100 + floor * 10 + cls));
             q.level = suggested >= 3 ? (uint8_t)(suggested - 2) : 1;
-            q.unlocked = 3;
+            q.unlocked = 7;
             q.map = (uint8_t)map;
             q.floor = (uint8_t)floor;
             q.pot_red = 8;
             q.pot_blue = 4;
             for (int s = 1; s <= 3; ++s)
-                q.books |= (uint16_t)(1u << (cls * MAFA_SKILLS_PER_CLASS + s));
+                q.books |= (1u << (cls * MAFA_SKILLS_PER_CLASS + s));
             gear_up(&q, kit_map, kit_tier);
+            {   /* pools match the raised level and kit */
+                mafa_stats_t st;
+                mafa_stats(&q, &st);
+                q.hp = (int16_t)st.max_hp;
+                q.mp = st.max_mp;
+            }
             long dk, dd, db, dr;
             session(&q, (uint8_t)map, (uint8_t)floor, &dk, &dd, &db, &dr);
             double d_death = dd == 0

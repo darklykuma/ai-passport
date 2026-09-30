@@ -36,6 +36,7 @@ typedef enum {
     PAGE_CLASS,
     PAGE_MAIN,
     PAGE_STATUS,
+    PAGE_SKILLS,
     PAGE_BACKPACK,
     PAGE_STORE,
     PAGE_MAPS,
@@ -62,7 +63,11 @@ static const char *SELL_PICK_NAME[4] = {"白", "绿", "蓝", "紫"};
 
 static const uint32_t PACE_MS[3] = {1500, 750, 375};   /* 1x/2x/4x (8.3) */
 static const char *SPEED_NAME[3] = {"1x", "2x", "4x"};
-static const char *MAIN_MENU[6] = {"背包", "装备", "商店", "地图", "设置", "加速"};
+/* 1.76 plan: the 技能 cell joins the bar (design 03); the 8th grid slot
+ * stays blank — reserved for a future pet/codex page. */
+static const char *MAIN_MENU[7] = {
+    "背包", "装备", "技能", "商店", "地图", "设置", "加速",
+};
 
 static struct {
     mafa_player_t player;
@@ -73,8 +78,9 @@ static struct {
     int cur_menu;           // menu page cursor
     bool confirm_new;       // menu: overwrite-save confirmation shown
     int cur_class;
-    int cur_main;           // action menu cursor (0..5)
-    int cur_status;         /* gear page cursor: 0-2 equip slots, 3-7 skills */
+    int cur_main;           // action menu cursor (0..6)
+    int cur_status;         /* gear page cursor: 0-7 equip slots */
+    int cur_skill;          /* skill page cursor: 0-6 class skills */
     int set_edit;           /* settings edit mode: 0 none, 1 potion line,
                                2 auto-sell picker */
     int cur_pick;           /* auto-sell picker cursor: 0-3 colors, 4 done */
@@ -216,30 +222,25 @@ static void compose_log(char *buf, size_t cap) {
     }
 }
 
-/* 2×3 grid. Every column prefix is exactly one full-width glyph (＞ or 　)
- * and cells are joined by an ASCII space — a full-width gap measures 20px
- * in the real font advances and pushes row 2 (with the 加速4x speed suffix)
- * to 241px, clipping the last column at the 240px screen edge. Half-width
- * gaps keep the columns aligned (identical gap per row) with 15px spare. */
-/* 2×3 grid in one recolored label (design doc docs/design/mafa/03): the
- * selected cell renders gold, the rest dim, and columns pad to a fixed
- * pitch with two ASCII spaces — a full-width gap (20px) used to push the
- * speed cell past the 240px screen edge. Every row uses the same gap, so
- * the grid stays aligned wherever the cursor rests. */
+/* 2×4 grid at font 16 (1.76 plan, design 03): the 技能 cell makes seven,
+ * the 8th slot stays blank. Four font-20 columns cannot fit 240px, so the
+ * bar shares the list-page size; every prefix stays one full-width glyph
+ * (＞ or 　) and rows pad with two ASCII spaces, keeping columns aligned
+ * wherever the cursor rests. */
 static void compose_main_menu(char *buf, size_t cap) {
     buf[0] = '\0';
-    for (int i = 0; i < 6; ++i) {
+    for (int i = 0; i < 7; ++i) {
         const char *tone = s_app.cur_main == i ? "#F0C04A " : "#9AA3A8 ";
         const char *mark = s_app.cur_main == i ? "＞" : "　";
         char cell[32];
-        if (i == 5)
+        if (i == 6)
             snprintf(cell, sizeof cell, "%s%s加速%s#", tone, mark,
                      SPEED_NAME[s_app.speed]);
         else
             snprintf(cell, sizeof cell, "%s%s%s#", tone, mark, MAIN_MENU[i]);
         strncat(buf, cell, cap - strlen(buf) - 1);
-        if (i % 3 != 2) strncat(buf, "  ", cap - strlen(buf) - 1);
-        if (i == 2) strncat(buf, "\n", cap - strlen(buf) - 1);
+        if (i != 3 && i != 6) strncat(buf, "  ", cap - strlen(buf) - 1);
+        if (i == 3) strncat(buf, "\n", cap - strlen(buf) - 1);
     }
 }
 
@@ -302,6 +303,9 @@ static void handle_events(const mafa_events_t *ev) {
                      : id == MAFA_MSK_HELLFIRE ? "地狱火" : "技能",
                      a);
             break;
+        case MAFA_EV_MOB_STUNNED:
+            log_line("#F0C04A %s 被撞晕!#", ev_mob_name(ev, i));
+            break;
         case MAFA_EV_PLAYER_POISON:
             log_line("#E05A48 中毒,失去 %d HP#", a);
             break;
@@ -344,7 +348,8 @@ static void handle_events(const mafa_events_t *ev) {
             if (a == 1)
                 log_line("【掉落】%s %s%s!", Q_COLOR[it->quality], it->name, "#");
             else if (a == 2)
-                log_line("白装售出 +%d 金", (int)mafa_sell_price(id));
+                log_line("#9AA3A8 售出 %s+%d 金#",
+                         Q_COLOR[it->quality], (int)mafa_sell_price(id));
             else
                 log_line("#E05A48 背包已满!#");
             settled = true;
@@ -578,8 +583,8 @@ static void refresh_class(void) {
         "战士  高血高防", "法师  高攻脆皮", "道士  攻守兼备",
     };
     static const char *BLURB[MAFA_CLS_COUNT] = {
-        "基础/攻杀/刺杀/半月/烈火", "火球/雷电/火墙/盾/冰咆哮",
-        "治愈/骷髅/施毒/火符/神兽",
+        "攻杀/刺杀/半月/烈火", "雷电/火墙/盾/冰咆哮",
+        "毒/火符/骷髅/神兽",
     };
     char buf[128];
     buf[0] = '\0';
@@ -601,52 +606,51 @@ static void refresh_class(void) {
     lv_label_set_text(s_app.view.detail_label, det);
 }
 
-/* Gear page (design 07, v1.2): the three equip slots with their cursor
- * stops, then a dim stat line, a potion line (counts used to be invisible),
- * and the five class skills with their live state. Skill rows answer the
- * "learned but never cast" confusion in place: 常驻 for passive/proc,
- * 开/关 toggles, the store price, or the lock reason "Lv12 Boss" — the AoE
- * rows add 群攻, the crowd-only gate made visible. */
+/* Gear page (design 07, 1.76 plan): the 8-slot paper doll with rows wearing
+ * each item's quality color, then stats + potions in the detail box. Skills
+ * moved to their own page (技能) when the doll grew from 3 to 8 slots. */
 static void refresh_status(void) {
-    static const char *SLOT_NAME[MAFA_EQ_SLOTS] = {"武器", "衣服", "首饰"};
-    static const char *BOOK_SRC[MAFA_SKILLS_PER_CLASS] = {
-        "", "书店300金", "书店800金", "精英/Boss", "Boss",
+    static const char *SLOT_NAME[MAFA_EQ_SLOTS] = {
+        "武器", "头盔", "衣服", "项链", "手镯", "手镯", "戒指", "戒指",
     };
-    char buf[640];
+    char buf[512];
     int n = 0;
     for (int i = 0; i < MAFA_EQ_SLOTS; ++i) {
         uint8_t id = s_app.player.equipped[i];
         const char *mark = s_app.cur_status == i ? "＞" : "  ";
-        if (id == MAFA_INV_EMPTY) {
-            n += snprintf(buf + n, sizeof buf - n, "%s%s:空\n", mark, SLOT_NAME[i]);
-            continue;
-        }
-        const mafa_item_t *it = &MAFA_ITEMS[id];
-        if (it->slot == MAFA_SLOT_WEAPON)
-            n += snprintf(buf + n, sizeof buf - n, "%s%s:%s 攻%+d\n", mark,
-                          SLOT_NAME[i], it->name, it->atk);
-        else if (it->slot == MAFA_SLOT_ARMOR)
-            n += snprintf(buf + n, sizeof buf - n, "%s%s:%s 防%+d 血%+d\n",
-                          mark, SLOT_NAME[i], it->name, it->def, it->hp);
+        if (id == MAFA_INV_EMPTY)
+            n += snprintf(buf + n, sizeof buf - n, "#9AA3A8 %s%s 空#\n",
+                          mark, SLOT_NAME[i]);
         else
-            n += snprintf(buf + n, sizeof buf - n, "%s%s:%s 攻%+d 防%+d\n",
-                          mark, SLOT_NAME[i], it->name, it->atk, it->def);
+            n += snprintf(buf + n, sizeof buf - n, "%s%s %s%s#\n", mark,
+                          SLOT_NAME[i], Q_COLOR[MAFA_ITEMS[id].quality],
+                          MAFA_ITEMS[id].name);
     }
+    lv_label_set_text(s_app.view.items_label, buf);
+
     mafa_stats_t st;
     mafa_stats(&s_app.player, &st);
-    n += snprintf(buf + n, sizeof buf - n,
-                  "#9AA3A8 攻%d 防%d 血%d/%ld 蓝%ld/%ld#\n",
-                  st.atk, st.def, s_app.player.hp, (long)st.max_hp,
-                  (long)s_app.player.mp, (long)st.max_mp);
-    n += snprintf(buf + n, sizeof buf - n,
-                  "#E05A48 红药x%u# #4FA8F2 蓝药x%u#\n",
-                  (unsigned)s_app.player.pot_red,
-                  (unsigned)s_app.player.pot_blue);
+    char det[96];
+    /* Two detail lines: L40 worst case ("攻200 防93 血372/647 蓝190/230")
+     * does not fit one 204px row. */
+    snprintf(det, sizeof det, "攻%d 防%d 血%d/%ld\n蓝%ld/%ld  红药x%u 蓝药x%u",
+             st.atk, st.def, s_app.player.hp, (long)st.max_hp,
+             (long)s_app.player.mp, (long)st.max_mp,
+             (unsigned)s_app.player.pot_red, (unsigned)s_app.player.pot_blue);
+    lv_label_set_text(s_app.view.detail_label, det);
+}
+
+/* Skill page (design 17, 1.76 plan): the seven class skills with their
+ * live state — 常驻 for passive/proc (fixed), 开/关 toggles (OK flips and
+ * saves, the 群攻 tag rides the toggle), the store price, or the lock
+ * reason with the level gate first and the book source second. */
+static void refresh_skills(void) {
+    char buf[512];
+    int n = 0;
     for (int i = 0; i < MAFA_SKILLS_PER_CLASS; ++i) {
         const mafa_skill_t *sk = &MAFA_SKILLS[s_app.player.cls][i];
-        const char *mark
-            = s_app.cur_status == MAFA_EQ_SLOTS + i ? "＞" : "  ";
-        char state[32];
+        const char *mark = s_app.cur_skill == i ? "＞" : "  ";
+        char state[40];
         size_t m = 0;
         if (sk->kind == MAFA_SK_AOE)
             m += (size_t)snprintf(state + m, sizeof state - m, "群攻 ");
@@ -654,11 +658,15 @@ static void refresh_status(void) {
             if (s_app.player.level < sk->unlock)
                 m += (size_t)snprintf(state + m, sizeof state - m, "Lv%u ",
                                       (unsigned)sk->unlock);
-            snprintf(state + m, sizeof state - m, "%s", BOOK_SRC[i]);
+            if (i >= 1 && i <= 3)
+                m += (size_t)snprintf(state + m, sizeof state - m, "书店%u金",
+                                      (unsigned)mafa_book_price(s_app.player.cls,
+                                                                (uint8_t)i));
+            else
+                m += (size_t)snprintf(state + m, sizeof state - m, "精英/Boss");
             n += snprintf(buf + n, sizeof buf - n, "#9AA3A8 %s%s  %s#\n",
                           mark, sk->name, state);
-        } else if (sk->kind == MAFA_SK_PASSIVE
-                   || sk->kind == MAFA_SK_PROC) {
+        } else if (sk->kind == MAFA_SK_PASSIVE || sk->kind == MAFA_SK_PROC) {
             n += snprintf(buf + n, sizeof buf - n, "#9AA3A8 %s%s  %s常驻#\n",
                           mark, sk->name, state);
         } else {
@@ -668,6 +676,8 @@ static void refresh_status(void) {
         }
     }
     lv_label_set_text(s_app.view.items_label, buf);
+    lv_label_set_text(s_app.view.detail_label,
+                      "OK 切换开关,立即存档\n群攻:2只以上才施放\n高阶书:精英/Boss掉落");
 }
 
 static void refresh_backpack(void) {
@@ -711,37 +721,36 @@ static void refresh_backpack(void) {
 }
 
 static void refresh_store(void) {
-    /* Rows: red, blue, then the two store books of the player's class.
-     * Design 09 (v1.2): potion rows carry the stack already held, learned
-     * books go dim, under-level books show their unlock level, and the
-     * gold count sits after a blank row in gold. */
-    char buf[256];
+    /* Rows: red, blue, then the three store books of the player's class
+     * (design 09, 1.76 plan). Potion rows carry the stack already held,
+     * learned books go dim, and under-level books show their unlock level —
+     * the store now refuses to sell those, so the row doubles as the gate. */
+    char buf[384];
     const mafa_skill_t *sk = MAFA_SKILLS[s_app.player.cls];
-    char book[2][64];
-    for (int i = 0; i < 2; ++i) {
+    int n = snprintf(buf, sizeof buf, "%s红药 50金 x%u\n%s蓝药 40金 x%u\n",
+                     s_app.cur_store == 0 ? "＞" : "  ",
+                     (unsigned)s_app.player.pot_red,
+                     s_app.cur_store == 1 ? "＞" : "  ",
+                     (unsigned)s_app.player.pot_blue);
+    for (int i = 0; i < 3; ++i) {
         const char *mark = s_app.cur_store == i + 2 ? "＞" : "  ";
         uint8_t idx = (uint8_t)(i + 1);
         if (mafa_skill_known(&s_app.player, idx))
-            snprintf(book[i], sizeof book[i], "#9AA3A8 %s%s %u金 已学#",
-                     mark, sk[idx].name,
-                     (unsigned)mafa_book_price(s_app.player.cls, idx));
+            n += snprintf(buf + n, sizeof buf - n,
+                          "#9AA3A8 %s%s %u金 已学#\n", mark, sk[idx].name,
+                          (unsigned)mafa_book_price(s_app.player.cls, idx));
         else if (s_app.player.level < sk[idx].unlock)
-            snprintf(book[i], sizeof book[i], "%s%s %u金 Lv%u",
-                     mark, sk[idx].name,
-                     (unsigned)mafa_book_price(s_app.player.cls, idx),
-                     (unsigned)sk[idx].unlock);
+            n += snprintf(buf + n, sizeof buf - n,
+                          "#9AA3A8 %s%s %u金 Lv%u#\n", mark, sk[idx].name,
+                          (unsigned)mafa_book_price(s_app.player.cls, idx),
+                          (unsigned)sk[idx].unlock);
         else
-            snprintf(book[i], sizeof book[i], "%s%s %u金",
-                     mark, sk[idx].name,
-                     (unsigned)mafa_book_price(s_app.player.cls, idx));
+            n += snprintf(buf + n, sizeof buf - n, "%s%s %u金\n", mark,
+                          sk[idx].name,
+                          (unsigned)mafa_book_price(s_app.player.cls, idx));
     }
-    snprintf(buf, sizeof buf,
-             "%s红药 50金 x%u\n%s蓝药 40金 x%u\n%s\n%s\n\n#F0C04A 金币 %u#",
-             s_app.cur_store == 0 ? "＞" : "  ",
-             (unsigned)s_app.player.pot_red,
-             s_app.cur_store == 1 ? "＞" : "  ",
-             (unsigned)s_app.player.pot_blue,
-             book[0], book[1], (unsigned)s_app.player.gold);
+    snprintf(buf + n, sizeof buf - n, "\n#F0C04A 金币 %u#",
+             (unsigned)s_app.player.gold);
     lv_label_set_text(s_app.view.items_label, buf);
 }
 
@@ -765,9 +774,8 @@ static void refresh_maps(void) {
         strncat(buf, row, sizeof buf - strlen(buf) - 1);
         lv_label_set_text(s_app.view.items_label, buf);
         char det[96];
-        snprintf(det, sizeof det, "%s 共%d层\n击杀 %d 触发层Boss\n长按OK返回地图",
-                 MAFA_MAP_NAMES[map], MAFA_MAP_FLOORS[map],
-                 MAFA_KILLS_PER_BOSS);
+        snprintf(det, sizeof det, "%s 共%d层\n长按OK返回地图",
+                 MAFA_MAP_NAMES[map], MAFA_MAP_FLOORS[map]);
         lv_label_set_text(s_app.view.detail_label, det);
         return;
     }
@@ -788,12 +796,11 @@ static void refresh_maps(void) {
     lv_label_set_text(s_app.view.items_label, buf);
     char det[96];
     if (s_app.player.map == MAFA_MAP_SAFE)
-        snprintf(det, sizeof det, "当前:%s\n击杀 %d 触发层Boss\n安全区:无怪,休息回血",
-                 MAFA_MAP_NAMES[s_app.player.map], MAFA_KILLS_PER_BOSS);
+        snprintf(det, sizeof det, "当前:%s", MAFA_MAP_NAMES[s_app.player.map]);
     else
-        snprintf(det, sizeof det, "当前:%s %d层\n击杀 %d 触发层Boss\n安全区:无怪,休息回血",
-                 MAFA_MAP_NAMES[s_app.player.map], s_app.player.floor,
-                 MAFA_KILLS_PER_BOSS);
+        snprintf(det, sizeof det, "当前:%s %d层",
+                 MAFA_MAP_NAMES[s_app.player.map], s_app.player.floor);
+    strncat(det, "\n击杀40出Boss,末层开下图", sizeof det - strlen(det) - 1);
     lv_label_set_text(s_app.view.detail_label, det);
 }
 
@@ -917,6 +924,9 @@ static void enter_page(page_t page) {
     case PAGE_STATUS:
         mafa_view_page_status(&s_app.view);
         break;
+    case PAGE_SKILLS:
+        mafa_view_page_skills(&s_app.view);
+        break;
     case PAGE_BACKPACK:
         mafa_view_page_backpack(&s_app.view);
         break;
@@ -945,6 +955,7 @@ static void enter_page(page_t page) {
         refresh_settings();
         break;
     case PAGE_STATUS: refresh_status(); break;
+    case PAGE_SKILLS: refresh_skills(); break;
     }
 }
 
@@ -997,20 +1008,21 @@ static void input_main(bsp_btn_t btn, bool click) {
     }
     if (!click) return;
     if (btn == BSP_BTN_UP)
-        s_app.cur_main = (s_app.cur_main + 5) % 6;
+        s_app.cur_main = (s_app.cur_main + 6) % 7;
     else if (btn == BSP_BTN_DOWN)
-        s_app.cur_main = (s_app.cur_main + 1) % 6;
+        s_app.cur_main = (s_app.cur_main + 1) % 7;
     else if (btn == BSP_BTN_OK) {
         switch (s_app.cur_main) {
         case 0: enter_page(PAGE_BACKPACK); return;
         case 1: enter_page(PAGE_STATUS); return;
-        case 2: enter_page(PAGE_STORE); return;
-        case 3:
+        case 2: enter_page(PAGE_SKILLS); return;
+        case 3: enter_page(PAGE_STORE); return;
+        case 4:
             s_app.cur_maps = s_app.player.map;
             s_app.floor_mode = 0;
             enter_page(PAGE_MAPS);
             return;
-        case 4: enter_page(PAGE_SETTINGS); return;
+        case 5: enter_page(PAGE_SETTINGS); return;
         default:
             s_app.speed = (s_app.speed + 1) % 3;
             break;
@@ -1079,17 +1091,28 @@ static void process_event(const input_event_t *ev) {
         if (long_ok) { enter_page(PAGE_MAIN); break; }
         if (!click) break;
         if (ev->btn == BSP_BTN_UP)
-            s_app.cur_status = (s_app.cur_status + 7) % 8;
+            s_app.cur_status = (s_app.cur_status + MAFA_EQ_SLOTS - 1)
+                               % MAFA_EQ_SLOTS;
         else if (ev->btn == BSP_BTN_DOWN)
-            s_app.cur_status = (s_app.cur_status + 1) % 8;
+            s_app.cur_status = (s_app.cur_status + 1) % MAFA_EQ_SLOTS;
         else if (ev->btn == BSP_BTN_OK) {
-            if (s_app.cur_status < MAFA_EQ_SLOTS) {
-                enter_page(PAGE_MAIN);      /* slots: OK still leaves */
-                break;
-            }
-            /* Skill row: OK toggles it (v1.2); passive/proc rows are
-             * fixed, unknown rows have nothing to toggle yet. */
-            uint8_t idx = (uint8_t)(s_app.cur_status - MAFA_EQ_SLOTS);
+            enter_page(PAGE_MAIN);      /* slots are view-only: OK leaves */
+            break;
+        }
+        refresh_status();
+        break;
+    case PAGE_SKILLS:
+        if (long_ok) { enter_page(PAGE_MAIN); break; }
+        if (!click) break;
+        if (ev->btn == BSP_BTN_UP)
+            s_app.cur_skill = (s_app.cur_skill + MAFA_SKILLS_PER_CLASS - 1)
+                              % MAFA_SKILLS_PER_CLASS;
+        else if (ev->btn == BSP_BTN_DOWN)
+            s_app.cur_skill = (s_app.cur_skill + 1) % MAFA_SKILLS_PER_CLASS;
+        else if (ev->btn == BSP_BTN_OK) {
+            /* Skill row: OK toggles it; passive/proc rows are fixed,
+             * unknown rows have nothing to toggle yet. */
+            uint8_t idx = (uint8_t)s_app.cur_skill;
             const mafa_skill_t *sk = &MAFA_SKILLS[s_app.player.cls][idx];
             if (mafa_skill_known(&s_app.player, idx)
                 && sk->kind != MAFA_SK_PASSIVE
@@ -1098,7 +1121,7 @@ static void process_event(const input_event_t *ev) {
                 save_now();
             }
         }
-        refresh_status();
+        refresh_skills();
         break;
     case PAGE_BACKPACK:
         if (long_ok) { enter_page(PAGE_MAIN); break; }
@@ -1141,11 +1164,18 @@ static void process_event(const input_event_t *ev) {
             else if (s_app.cur_store == 1)
                 mafa_buy_potion(&s_app.player, false);
             else {
+                /* 1.76 plan gate: the store refuses under-level buys; the
+                 * log says why instead of failing silently. */
                 uint8_t skill_idx = (uint8_t)(s_app.cur_store - 1);
-                if (mafa_buy_book(&s_app.player, skill_idx)
-                    && s_app.player.level >= MAFA_SKILLS[s_app.player.cls][skill_idx].unlock)
-                    log_line("#F0C04A 习得【%s】!#",
-                             MAFA_SKILLS[s_app.player.cls][skill_idx].name);
+                const mafa_skill_t *sk
+                    = &MAFA_SKILLS[s_app.player.cls][skill_idx];
+                if (mafa_buy_book(&s_app.player, skill_idx))
+                    log_line("#F0C04A 习得【%s】!#", sk->name);
+                else if (s_app.player.level < sk->unlock)
+                    log_line("#E05A48 等级不足,需 Lv%u#",
+                             (unsigned)sk->unlock);
+                else
+                    log_line("#E05A48 金币不足#");
             }
             save_now();
         }
@@ -1202,7 +1232,11 @@ static void process_event(const input_event_t *ev) {
                 mafa_switch_map(&s_app.player, MAFA_MAP_SAFE, 0);
                 save_now();
                 enter_page(PAGE_MAIN);
-                log_clear("【%s】休息中", MAFA_MAP_NAMES[s_app.player.map]);
+                /* Entering town restores full HP/MP (1.76 plan): death
+                 * respawn and a voluntary walk home heal the same. */
+                log_clear("#9AA3A8 你回到 安全区#");
+                log_line("#5FC85F 血蓝已回满#");
+                log_line("#F0C04A 【安全区】休息中#");
                 refresh_main();
                 break;
             }

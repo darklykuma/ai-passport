@@ -2,9 +2,11 @@
 """Render pixel-accurate MAFA CHRONICLE page mockups (240x320, x2 upscale).
 
 Geometry and colors mirror main/mafa_view.c exactly; content reflects the
-skills-2.0 logic (fbe98bd): 5 skills per class, skill books in the store,
-multi-mob battles, the taoist pet, and death penalties. Fonts approximate
-the device's Source Han Sans subsets with Microsoft YaHei at 16/20px."""
+1.76-alignment plan (2026-09-30): level cap 40, 7 skills per class at real
+1.76 learn levels, 7 combat maps with 26 floor bosses, the 8-slot paper-doll
+gear page, a dedicated skill page, and level-gated store books. Fonts
+approximate the device's Source Han Sans subsets with Microsoft YaHei at
+16/20px."""
 from PIL import Image, ImageDraw, ImageFont
 
 W, H = 240, 320
@@ -82,7 +84,7 @@ def header(d, mapname, level, xp_pct, gold, hp, hpmax, mp, mpmax):
     text(d, (10, 6), mapname, F20, GOLD)
     # info_label y=6, line height 19, line_space 0 -> line2 top = 25.
     # The percent is XP progress toward the next level (battery readout
-    # moved to the settings page); at the cap the line is bare "Lv.15".
+    # moved to the settings page); at the cap the line is bare "Lv.40".
     text_r(d, 234, 6, f"Lv.{level} {xp_pct}%", F16, DIM)
     text_r(d, 234, 25, f"金{gold}", F16, GOLD)
     bar(d, 10, 33, 130, 10, hp/hpmax, HP_GREEN)
@@ -108,18 +110,25 @@ def loglines(d, lines):
         y += LH16 + 2
 
 def action_bar(d, cur):
-    # Code (034bddb): one recolored label — selected cell gold, rest dim;
-    # columns pad to a fixed pitch with two ASCII spaces.
-    cells = ["背包", "装备", "商店", "地图", "设置", "加速4x"]
-    gap = d.textlength(" ", font=F20)
+    # 1.76 plan: 7 cells (技能 joins the bar) in a 2x4 grid, 8th cell blank
+    # (reserved for a future pet/codex page). Four F20 columns cannot fit
+    # 240px (4 x (20 marker + 40 name) alone = 240), so the bar drops to F16
+    # — the size every list page already uses — and the log keeps all six
+    # lines; the alternative (3 F20 rows) would have cost a log line.
+    # Columns pad to a fixed pitch with two ASCII spaces; every prefix is one
+    # full-width glyph (＞ marker / 　 filler) so columns stay aligned.
+    cells = ["背包", "装备", "技能", "商店", "地图", "设置", "加速4x"]
+    gap = d.textlength(" ", font=F16)
     for row in (0, 1):
         x = 12.0
-        y = 250 if row == 0 else 282             # 250 + 25 line + 7 space
-        for col in range(3):
-            i = row * 3 + col
+        y = 251 if row == 0 else 283             # bar 238..320, F16 rows
+        for col in range(4):
+            i = row * 4 + col
+            if i >= len(cells):
+                break
             s = ("＞" if i == cur else "　") + cells[i]
-            text(d, (x, y), s, F20, GOLD if i == cur else DIM)
-            x += d.textlength(s, font=F20) + gap * 2
+            text(d, (x, y), s, F16, GOLD if i == cur else DIM)
+            x += d.textlength(s, font=F16) + gap * 2
 
 # ---- 1. menu ---------------------------------------------------------------
 img, d = new_page()
@@ -130,7 +139,7 @@ text(d, (80, 180), "＞继续游戏", F16, MAIN)
 text(d, (80, 205), "  新游戏", F16, MAIN)
 save(img, "01-menu")
 
-# ---- 2. class (skills-2.0 blurbs) ------------------------------------------
+# ---- 2. class (1.76 seven-skill blurbs) -------------------------------------
 img, d = new_page()
 title_band(d, "选择职业")
 panel(d, 6, 42, 228, 150, PANEL_BG, PANEL_EDGE)
@@ -138,14 +147,14 @@ for i, nm in enumerate(["战士  高血高防", "法师  高攻脆皮", "道士 
     mark = "＞" if i == 0 else "　"
     text(d, (18, 52 + i * (LH16 + 6)), mark + nm, F16, GOLD if i == 0 else MAIN)
 panel(d, 6, 200, 228, 112, PANEL_BG, PANEL_EDGE)
-text(d, (18, 210), "基础/攻杀/刺杀/半月/烈火", F16, DIM)
-text(d, (18, 235), "Lv1 起步,技能书解锁进阶", F16, DIM)
+text(d, (18, 210), "攻杀/刺杀/半月/烈火", F16, DIM)
+text(d, (18, 235), "Lv7 起步,技能书解锁进阶", F16, DIM)
 save(img, "02-class")
 
 # ---- 3. main idle ----------------------------------------------------------
 img, d = new_page()
 main_chrome(d)
-header(d, "比奇森林 1层", 8, 87, 1234, 187, 210, 46, 60)
+header(d, "比奇省 2层", 8, 87, 1234, 187, 210, 46, 60)
 enemy(d, "挂机中 17/40", DIM)
 loglines(d, [
     ("遭遇 稻草人 等 2 只!", MAIN),
@@ -158,34 +167,34 @@ loglines(d, [
 action_bar(d, 0)
 save(img, "03-main-idle")
 
-# ---- 4. main battle: multi-mob ---------------------------------------------
+# ---- 4. main battle: multi-mob in 石墓 --------------------------------------
 img, d = new_page()
 main_chrome(d)
-header(d, "废矿洞 2层", 10, 73, 2380, 195, 230, 40, 70)
-enemy(d, "▶矿鼠×3", MAIN, 0.42)
+header(d, "石墓 4层", 26, 73, 2380, 195, 230, 40, 70)
+enemy(d, "▶黑野猪×3", MAIN, 0.42)
 loglines(d, [
-    ("你造成 14 点伤害", MAIN),
-    ("【半月弯刀】造成 13 伤害!", MAIN),
-    ("矿鼠【连击】你受 15 伤害!", RED),
-    ("红药 +50", GREEN),
-    ("骷髅战士 受 5 持续伤害", RED),
-    ("骷髅 攻击矿鼠,造成 8 伤害", DIM),
+    ("你造成 23 点伤害", MAIN),
+    ("【刺杀剑术】造成 34 伤害!", MAIN),
+    ("黑野猪【冲撞】你受 16 伤害!", RED),
+    ("红药 +62", GREEN),
+    ("黑野猪 倒下!经验+52", GOLD),
+    ("遭遇 楔蛾!", MAIN),
 ])
 action_bar(d, 4)
 save(img, "04-main-battle")
 
-# ---- 5. main boss (taoist + pet) -------------------------------------------
+# ---- 5. main boss: 赤月恶魔 graduation fight (taoist + pet) -----------------
 img, d = new_page()
 main_chrome(d)
-header(d, "祖玛寺庙 7层", 13, 64, 876, 233, 260, 58, 90)
-enemy(d, "▶祖玛教主!", GOLD, 0.71)
+header(d, "赤月峡谷 3层", 38, 41, 5200, 226, 268, 61, 96)
+enemy(d, "▶赤月恶魔!", GOLD, 0.71)
 loglines(d, [
-    ("【Boss】祖玛教主 出现了!", GOLD),
+    ("【Boss】赤月恶魔 出现了!", GOLD),
     ("神兽 出现!", GREEN),
-    ("【灵魂火符】造成 45 伤害!", MAIN),
-    ("神兽 替你挡下 12 伤害", DIM),
-    ("祖玛教主 反击,你受 18 伤害", RED),
-    ("治愈 +78", GREEN),
+    ("【灵魂火符】造成 52 伤害!", MAIN),
+    ("神兽 替你挡下 15 伤害", DIM),
+    ("赤月恶魔 反击,你受 24 伤害", RED),
+    ("治愈 +86", GREEN),
 ])
 action_bar(d, 5)
 save(img, "05-main-boss")
@@ -193,90 +202,116 @@ save(img, "05-main-boss")
 # ---- 6. modal (boss prompt) ------------------------------------------------
 img, d = new_page()
 main_chrome(d)
-header(d, "祖玛寺庙 7层", 13, 64, 876, 233, 260, 58, 90)
-enemy(d, "挂机中 24/40", DIM)
+header(d, "沃玛寺庙 3层", 26, 55, 2210, 198, 230, 44, 66)
+enemy(d, "挂机中 39/40", DIM)
 action_bar(d, 0)
 ov = Image.new("RGB", (W, H), (0, 0, 0))
 img = Image.blend(img, ov, 0.45)
 d = ImageDraw.Draw(img)
 panel(d, 8, 85, 224, 150, (0x10, 0x18, 0x20), GOLD_EDGE, radius=6)
-text_c(d, 120, 100, "【Boss】祖玛教主 出现了!", F16, GOLD)
+text_c(d, 120, 100, "【Boss】沃玛教主 出现了!", F16, GOLD)
 text(d, (60, 140), "＞迎战", F16, GOLD)
 text(d, (60, 170), "  回避", F16, MAIN)
 save(img, "06-modal-boss")
 
-# ---- 7. gear page: equipment + potions + skills (v1.2) ----------------------
-# One page answers "where are my potions" and "which skills do I have / are
-# they on": 3 equip rows, a dim stat line, a potion-count line, then the 5
-# class skills. Skill rows show state on the right of a two-space gap:
-# 常驻 (passive/proc, not toggleable), 开/关 (toggle, OK flips),
-# "书店300金" (buyable store book), "Lv12 Boss" (locked: level gate first,
-# then the drop source). Device rendering is one recolored label; rows use
-# a left-aligned state after two ASCII spaces (proportional font keeps no
-# right column). 10 rows at pitch 24 fit the 270px panel (bottom 246+20).
+# ---- 7. gear page: 8-slot paper doll + stats + potions (1.76 plan) -----------
+# The 1.76 equipment panel minus candle and amulet: weapon / helmet / armor
+# / necklace / bracelet x2 / ring x2. Rows wear the item's quality color
+# (sample: a level-33 warrior in 沃玛-tier gear); the slot prefix keeps the
+# twin bracelet/ring rows distinguishable. Skills moved to their own page
+# (17); the dim stat pair and the potion line keep this page as the
+# "character" page (v1.2 potion-visibility home). 8 rows at pitch 24 mirror
+# the backpack panel (208px); the detail box carries stats + potions.
 img, d = new_page()
 title_band(d, "装备")
-panel(d, 6, 42, 228, 270, PANEL_BG, PANEL_EDGE)
+panel(d, 6, 42, 228, 208, PANEL_BG, PANEL_EDGE)
 gear = [
-    ("＞武器:修罗 攻+12", MAIN),
-    ("  衣服:天魔神甲 防+8 血+40", MAIN),
-    ("  首饰:绿宝石戒指 攻+4 防+2", MAIN),
-    ("攻28 防10 血233/260 蓝58/90", DIM),
+    ("＞武器 井中月", "purple"),
+    ("  头盔 黑铁头盔", "blue"),
+    ("  衣服 天魔神甲", "blue"),
+    ("  项链 恶魔铃铛", "blue"),
+    ("  手镯 骑士手镯", "blue"),
+    ("  手镯 铁手镯", "white"),
+    ("  戒指 力量戒指", "purple"),
+    ("  戒指 珊瑚戒指", "green"),
+]
+y = 50
+for s, q in gear:
+    text(d, (18, y), s, F16, QUAL.get(q, MAIN))
+    y += LH16 + 4
+panel(d, 6, 256, 228, 56, PANEL_BG, PANEL_EDGE)
+text(d, (18, 264), "攻41 防26 血233/260", F16, DIM)
+text(d, (18, 288), "蓝58/90", F16, DIM)
+x0 = 18 + d.textlength("蓝58/90", font=F16) + 20
+text(d, (x0, 288), "红药x3", F16, RED)
+text(d, (x0 + d.textlength("红药x3  ", font=F16), 288), "蓝药x2", F16, MP_BLUE)
+save(img, "07-status")
+
+# ---- 17. skill page: 7 class skills with on/off states (1.76 plan) -----------
+# Split from the gear page (8 slots + 7 skills no longer fit one screen).
+# State column after two ASCII spaces: 常驻 (passive/proc, never off),
+# 开/关 (OK flips and saves, 群攻 tag rides the toggle), then lock reasons
+# with the level gate first and the book source second. Sample: a level-33
+# warrior — every row state visible in one screen.
+img, d = new_page()
+title_band(d, "技能")
+panel(d, 6, 42, 228, 190, PANEL_BG, PANEL_EDGE)
+skills = [
+    ("＞基本剑术  常驻", DIM),
+    ("  攻杀剑术  常驻", DIM),
+    ("  刺杀剑术  开", MAIN),
+    ("  半月弯刀  群攻 关", MAIN),
+    ("  野蛮冲撞  精英/Boss", MAIN),
+    ("  烈火剑法  Lv35", DIM),
+    ("  逐日剑法  Lv38", DIM),
 ]
 y = 52
-for s, c in gear:
-    text(d, (18, y), s, F16, c)
-    y += LH16 + 5
-# potion line: red count in red, blue count in blue, one row
-text(d, (18, y), "红药x3", F16, RED)
-text(d, (18 + d.textlength("红药x3  ", font=F16), y), "蓝药x2", F16, MP_BLUE)
-y += LH16 + 5
-skills = [
-    ("  基础剑术  常驻", DIM),
-    ("  攻杀剑术  常驻", DIM),
-    ("＞刺杀剑术  开", MAIN),
-    ("  半月弯刀  群攻 关", MAIN),
-    ("  烈火剑法  Lv12 Boss", DIM),
-]
 for s, c in skills:
     text(d, (18, y), s, F16, c)
     y += LH16 + 5
-save(img, "07-status")
+panel(d, 6, 240, 228, 72, PANEL_BG, PANEL_EDGE)
+text(d, (18, 248), "OK 切换开关,立即存档", F16, DIM)
+text(d, (18, 270), "群攻:2只以上才施放", F16, DIM)
+text(d, (18, 292), "高阶书:精英/Boss掉落", F16, DIM)
+save(img, "17-skills")
 
-# ---- 8. backpack -----------------------------------------------------------
+# ---- 8. backpack (gear-only slots; potions live on the gear page) ------------
 # The device font's real line height is 20 (LH16 here approximates 19), so
 # the list panel mirrors the code's 208px: 8 rows at pitch 24 fit with a
 # symmetric 10px pad instead of riding the bottom border.
 img, d = new_page()
 title_band(d, "背包")
 panel(d, 6, 42, 228, 208, PANEL_BG, PANEL_EDGE)
-items = [("＞1.修罗 x1", None), ("  2.天魔神甲 x1", None), ("  3.红药 x3", None),
-         ("  4.蓝药 x2", None), ("  5.绿宝石戒指 x1", "green"), ("  6.灵魂项链 x1", "blue"),
-         ("  7.空", DIM), ("  8.空", DIM)]
+items = [("＞1.炼狱 x1", "purple"), ("  2.骷髅头盔 x1", "white"),
+         ("  3.恶魔铃铛 x1", "blue"), ("  4.空", DIM), ("  5.空", DIM),
+         ("  6.空", DIM), ("  7.空", DIM), ("  8.空", DIM)]
 y = 50
 for s, q in items:
     color = q if isinstance(q, tuple) else QUAL.get(q, MAIN)
     text(d, (18, y), s, F16, color)
     y += LH16 + 4
 panel(d, 6, 256, 228, 56, PANEL_BG, PANEL_EDGE)
-text(d, (18, 264), "攻+12 防+8 血+40", F16, DIM)
+text(d, (18, 264), "攻+9 防+5 血+30", F16, DIM)
 text(d, (18, 288), "金币 2380", F16, DIM)
 save(img, "08-backpack")
 
-# ---- 9. store: potions (with holdings) + the two class books ----------------
-# v1.2: potion rows carry the current stack (x3 / x2) so a purchase is
-# visible at once; book rows may add "LvX" when the player is under the
-# unlock level (buying early is allowed but the skill stays locked).
+# ---- 9. store: potions + three class books, level-gated (1.76 plan) ----------
+# Books 1-3 of each class sell here and buying now REQUIRES the learn level:
+# an under-level row dims with its LvX hint and OK refuses (the v1.2 hint
+# row becomes a hard gate). Drop-line books never appear here. Sample: a
+# level-26 warrior — 半月弯刀 shown gated. Title reverts 药店→商店: with a
+# three-book shelf the page is no longer a potion shop.
 img, d = new_page()
-title_band(d, "药店")
+title_band(d, "商店")
 panel(d, 6, 42, 228, 270, PANEL_BG, PANEL_EDGE)
 store = [
     ("＞红药 50金 x3", MAIN),
     ("  蓝药 40金 x2", MAIN),
     ("  攻杀剑术 300金 已学", DIM),
-    ("  刺杀剑术 800金", MAIN),
+    ("  刺杀剑术 600金 已学", DIM),
+    ("  半月弯刀 800金 Lv28", DIM),
     ("", DIM),
-    ("金币 2380", GOLD),
+    ("金币 2210", GOLD),
 ]
 y = 52
 for s, c in store:
@@ -284,48 +319,57 @@ for s, c in store:
     y += LH16 + 6
 save(img, "09-store")
 
-# ---- 10. maps (0 = safe-zone hub first, combat maps 1-3; v1.3 floors) ------
+# ---- 10. maps: safe zone + the 7 combat maps of the 1.76 route ---------------
 img, d = new_page()
 title_band(d, "地图")
-panel(d, 6, 42, 228, 150, PANEL_BG, PANEL_EDGE)
-maps = [("  0.安全区", MAIN), ("＞1.比奇森林", MAIN),
-        ("  2.废矿洞", MAIN), ("  3.祖玛寺庙 锁定", DIM)]
-for i, (s, c) in enumerate(maps):
-    text(d, (18, 52 + i * (LH16 + 6)), s, F16, c)
-panel(d, 6, 200, 228, 112, PANEL_BG, PANEL_EDGE)
-text(d, (18, 210), "当前:比奇森林 1层", F16, DIM)
-text(d, (18, 235), "击杀 40 触发层Boss", F16, DIM)
-text(d, (18, 260), "安全区:无怪,休息回血", F16, DIM)
+panel(d, 6, 42, 228, 208, PANEL_BG, PANEL_EDGE)
+maps = [("  0.安全区", MAIN), ("  1.比奇省", MAIN), ("  2.兽人古墓", MAIN),
+        ("  3.石墓", MAIN), ("  4.沃玛寺庙", MAIN), ("＞5.死亡山谷", GOLD),
+        ("  6.祖玛寺庙 锁定", DIM), ("  7.赤月峡谷 锁定", DIM)]
+y = 50
+for s, c in maps:
+    text(d, (18, y), s, F16, c)
+    y += LH16 + 4
+panel(d, 6, 256, 228, 56, PANEL_BG, PANEL_EDGE)
+text(d, (18, 264), "当前:死亡山谷 2层", F16, DIM)
+text(d, (18, 288), "击杀40出Boss,末层开下图", F16, DIM)
 save(img, "10-maps")
 
-# ---- 16. floor list (v1.3): OK on a combat map opens its ladder -------------
+# ---- 16. floor list: OK on a combat map opens its ladder ---------------------
 # One row per open floor with that floor's boss; a back row last; the cursor
-# rests on the deepest floor. Long-OK backs out to the map list. Detail shows
-# the map's full depth, the per-floor trigger, and the back hint.
+# rests on the deepest floor. Long-OK backs out to the map list. Sample:
+# 祖玛寺庙, the deepest ladder (7 floors). Detail shows the map's full
+# depth and the back hint.
 img, d = new_page()
 title_band(d, "地图")
-panel(d, 6, 42, 228, 150, PANEL_BG, PANEL_EDGE)
-floors = [("  1层 Boss:僵尸", MAIN), ("  2层 Boss:骷髅精灵", MAIN),
-          ("＞3层 Boss:尸王", GOLD), ("  返回", MAIN)]
-for i, (s, c) in enumerate(floors):
-    text(d, (18, 52 + i * (LH16 + 6)), s, F16, c)
-panel(d, 6, 200, 228, 112, PANEL_BG, PANEL_EDGE)
-text(d, (18, 210), "废矿洞 共3层", F16, DIM)
-text(d, (18, 235), "击杀 40 触发层Boss", F16, DIM)
-text(d, (18, 260), "长按OK返回地图", F16, DIM)
+panel(d, 6, 42, 228, 208, PANEL_BG, PANEL_EDGE)
+floors = [("  1层 Boss:祖玛卫士", MAIN), ("  2层 Boss:祖玛弓箭手", MAIN),
+          ("  3层 Boss:祖玛卫士", MAIN), ("＞4层 Boss:祖玛雕像", GOLD),
+          ("  5层 Boss:祖玛卫士", MAIN), ("  6层 Boss:祖玛雕像", MAIN),
+          ("  7层 Boss:祖玛教主", MAIN), ("  返回", MAIN)]
+y = 50
+for s, c in floors:
+    text(d, (18, y), s, F16, c)
+    y += LH16 + 4
+panel(d, 6, 256, 228, 56, PANEL_BG, PANEL_EDGE)
+text(d, (18, 264), "祖玛寺庙 共7层", F16, DIM)
+text(d, (18, 288), "长按OK返回地图", F16, DIM)
 save(img, "16-maps-floors")
 
 # ---- 10b. main page while resting in the safe zone --------------------------
+# 1.76 plan rule: ENTERING the safe zone restores full HP/MP — death respawn
+# and a voluntary walk home both heal to max (previously only death did).
+# Sample: a level-26 warrior limping out of 石墓; header bars sit at max.
 img, d = new_page()
 main_chrome(d)
-header(d, "安全区", 10, 96, 2380, 230, 230, 70, 70)
+header(d, "安全区", 26, 96, 2210, 230, 230, 70, 70)
 enemy(d, "休息中,请选地图", DIM)
 loglines(d, [
+    ("黑野猪 倒下!经验+52", GOLD),
+    ("你回到 安全区", DIM),
+    ("血蓝已回满", GREEN),
     ("【安全区】休息中", GOLD),
-    ("你被 尸王 杀死了…", RED),
-    ("满血回到安全区", DIM),
-    ("失去 修罗", RED),
-    ("损失 120 金", RED),
+    ("", MAIN),
     ("", MAIN),
 ])
 action_bar(d, 2)

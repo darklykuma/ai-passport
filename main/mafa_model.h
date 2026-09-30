@@ -1,6 +1,6 @@
-// main/mafa_model.h — MAFA CHRONICLE pure game model (PRD_MAFA_CHRONICLE 8-9,
-// skills-2.0 rebalance 2026-09-29). No LVGL / ESP-IDF headers: this layer
-// builds and tests on the host.
+// main/mafa_model.h — MAFA CHRONICLE pure game model (PRD_MAFA_CHRONICLE,
+// 1.76-alignment 2026-09-30). No LVGL / ESP-IDF headers: this layer builds
+// and tests on the host.
 // Combat is automatic: the model runs one round per call and reports what
 // happened through a bounded event list; the view renders log lines from it.
 // Battles pit the player against 1-3 monsters (bosses stay 1v1); the taoist
@@ -11,18 +11,21 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define MAFA_MAX_LEVEL 15
-#define MAFA_MAP_COUNT 4         /* 0 = safe zone (town), 1-3 combat maps */
+#define MAFA_MAX_LEVEL 40
+#define MAFA_MAP_COUNT 8         /* 0 = safe zone (town), 1-7 combat maps */
 #define MAFA_MAP_SAFE 0          /* always open, no monsters, no boss */
 #define MAFA_BACKPACK 8
-#define MAFA_EQ_SLOTS 3          /* 0 weapon, 1 armor, 2 accessory */
-#define MAFA_SKILLS_PER_CLASS 5
+/* 1.76 paper doll minus candle and amulet: 8 positions over 5 slot types
+ * (bracelets and rings each take two positions). */
+#define MAFA_EQ_SLOTS 8
+#define MAFA_SLOT_TYPES 5        /* weapon helmet armor necklace {bracelet,ring}*/
+#define MAFA_SKILLS_PER_CLASS 7
 #define MAFA_MOBS_MAX 3          /* monsters in one non-boss battle */
 #define MAFA_KILLS_PER_BOSS 40   /* mobs killed (a 3-mob battle counts 3) */
 #define MAFA_GOLD_CAP 9999
 #define MAFA_INV_EMPTY 0xFF
 #define MAFA_DROP_NONE 0xFF
-#define MAFA_SAVE_VERSION 5
+#define MAFA_SAVE_VERSION 6
 /* Auto-potion trigger lines are settable in steps of 10 (PRD 10, v1.2). */
 #define MAFA_POT_PCT_MIN 20
 #define MAFA_POT_PCT_MAX 80
@@ -46,16 +49,22 @@ typedef enum {
 } mafa_quality_t;
 
 typedef enum {
-    MAFA_SLOT_WEAPON = 0,
-    MAFA_SLOT_ARMOR,
-    MAFA_SLOT_ACCESSORY,
-} mafa_slot_t;
+    MAFA_ST_WEAPON = 0,      /* main attack */
+    MAFA_ST_HELMET,          /* def + hp */
+    MAFA_ST_ARMOR,           /* def + big hp */
+    MAFA_ST_NECKLACE,        /* atk + hp */
+    MAFA_ST_BRACELET,        /* def + small atk, two positions */
+    MAFA_ST_RING,            /* attack below the weapon, two positions */
+} mafa_slot_type_t;
+
+/* Position -> slot type (mafa_equip routes drops into positions). */
+extern const uint8_t MAFA_POS_TYPE[MAFA_EQ_SLOTS];
 
 typedef struct {
     const char *name;   /* content data; glyph coverage tested at M4 */
-    uint8_t slot;       /* mafa_slot_t */
+    uint8_t slot;       /* mafa_slot_type_t */
     uint8_t quality;    /* mafa_quality_t: color + sell price */
-    uint8_t map;        /* home map 0..2 */
+    uint8_t map;        /* home map 1..7 */
     uint8_t tier;       /* 1..3 within the map's table */
     int16_t atk, def;
     uint16_t hp;
@@ -75,19 +84,21 @@ typedef enum {
     MAFA_SK_SHIELD,     /* player takes def_pct % less damage for N rounds */
     MAFA_SK_CHARGE,     /* next normal attack deals mult ×100 % damage */
     MAFA_SK_PET,        /* summon / upgrade the taoist pet */
+    MAFA_SK_STUN,       /* damage + the target skips its next turn (1.76 野蛮) */
+    MAFA_SK_ARMOR,      /* player defense up def_pct % for N rounds (1.76 战甲) */
 } mafa_skill_kind_t;
 
 typedef struct {
     const char *name;
     uint8_t unlock;         /* level; skill 0 of each class needs no book */
     uint8_t kind;           /* mafa_skill_kind_t */
-    uint16_t mult;          /* ×100 vs attack (dmg/aoe/burn/passive/charge) */
+    uint16_t mult;          /* ×100 vs attack (dmg/aoe/burn/passive/charge/stun) */
     uint8_t ignore_def;     /* damage skips monster defense */
     uint8_t proc_pct;       /* MAFA_SK_PROC trigger chance */
-    uint8_t rounds;         /* burn/poison/shield duration */
+    uint8_t rounds;         /* burn/poison/shield/armor/stun duration */
     uint8_t flat;           /* poison damage per round */
     uint8_t def_down_pct;   /* monster defense ×(100−pct)/100 while poisoned */
-    uint8_t shield_pct;     /* MAFA_SK_SHIELD damage reduction */
+    uint8_t shield_pct;     /* SHIELD damage reduction / ARMOR defense bonus */
     uint8_t cd;             /* cooldown rounds after cast (0 = none) */
     uint8_t mp;             /* 0 = cooldown-based (warrior) */
 } mafa_skill_t;
@@ -106,7 +117,7 @@ typedef enum {
 
 typedef struct {
     const char *name;
-    uint8_t map;     /* home map id 1..3 (0 never spawns) */
+    uint8_t map;     /* home map id 1..7 (0 never spawns) */
     uint8_t floor;   /* 1-based floor inside the map; a boss row guards its
                         floor, trash rows spawn on their floor and every
                         deeper one (PRD 8.7, v1.3) */
@@ -134,11 +145,12 @@ typedef struct {
     uint32_t xp;            /* progress toward the next level */
     uint16_t gold;
     int16_t hp, mp;         /* current; mp stays 0 for the warrior */
-    uint16_t books;         /* skill-book bitmask: bit = cls*5 + skill idx */
+    uint32_t books;         /* skill-book bitmask: bit = cls*7 + skill idx */
     uint8_t pot_red, pot_blue;
     uint8_t inv_id[MAFA_BACKPACK];
     uint8_t inv_n[MAFA_BACKPACK];
-    uint8_t equipped[MAFA_EQ_SLOTS];    /* item id or MAFA_INV_EMPTY */
+    uint8_t equipped[MAFA_EQ_SLOTS];    /* item id or MAFA_INV_EMPTY, by
+                                           position (MAFA_POS_TYPE) */
     uint8_t map;            /* current idle map (MAFA_MAP_SAFE = town) */
     uint8_t floor;          /* current floor, 1-based; 0 in the safe zone */
     uint8_t unlocked;       /* highest unlocked combat map index */
@@ -157,7 +169,7 @@ typedef struct {
     uint8_t pot_hp_pct;     /* auto-red below this % HP (20..80, default 50) */
     uint8_t pot_mp_pct;     /* auto-blue below this % MP (20..80, default 30) */
     uint8_t skills_off;     /* bit i = skill i of the player's class switched
-                               off on the gear page (passive/proc are fixed) */
+                               off on the skill page (passive/proc are fixed) */
     uint32_t rng;           /* splitmix32 state */
 } mafa_player_t;
 
@@ -172,9 +184,10 @@ typedef struct {
     int32_t d_hp;           /* deltas vs currently equipped (empty = 0) */
 } mafa_compare_t;
 
-/* Store stock (PRD 10): the two book skills of each class are buyable;
- * books 3-4 (skill idx 3-4) come from elites and boss first-kills. */
-#define MAFA_STORE_ROWS 4       /* red, blue, book(skill 1), book(skill 2) */
+/* Store stock (PRD 10, 1.76 plan): books 1-3 of each class are buyable AND
+ * require the skill's learn level (under-level buys are refused); books 4-6
+ * come from elites and boss first-kills only. */
+#define MAFA_STORE_ROWS 5       /* red, blue, book 1, book 2, book 3 */
 uint32_t mafa_book_price(uint8_t cls, uint8_t skill_idx);
 bool mafa_skill_known(const mafa_player_t *p, uint8_t skill_idx);
 
@@ -186,10 +199,12 @@ typedef struct {
     int32_t atk, def;
     bool elite;
     bool alive;
-    /* effect list (8.4): burn = mage, poison = taoist (flat + def down) */
+    /* effect list (8.4): burn = mage, poison = taoist (flat + def down),
+     * stun = 野蛮冲撞 (skips the mob's next attack turn) */
     uint8_t burn_rounds;
     int16_t burn_dmg;
     uint8_t poison_rounds, poison_dmg, def_down_rounds;
+    uint8_t stun_rounds;
 } mafa_mob_t;
 
 /* --- Battle --------------------------------------------------------------- */
@@ -202,6 +217,7 @@ typedef struct {
     /* player-side status */
     uint8_t cd[MAFA_SKILLS_PER_CLASS];
     uint8_t shield_rounds;  /* 魔法盾: incoming damage ×(100−pct)/100 */
+    uint8_t armor_rounds;   /* 神圣战甲术: defense ×(100+pct)/100 */
     uint16_t charge_mult;   /* 烈火: next normal attack ×charge_mult/100 */
     /* taoist pet: taunts while alive, attacks the first living mob */
     bool pet_alive;
@@ -221,6 +237,7 @@ typedef enum {
     MAFA_EV_DOT_TICK,           /* a = damage, b = mob index */
     MAFA_EV_MOB_HIT,            /* a = damage, b = mob index */
     MAFA_EV_MOB_SKILL,          /* id = mafa_mob_skill_t, a = damage, b = mob */
+    MAFA_EV_MOB_STUNNED,        /* id = mob index (skips its next turn) */
     MAFA_EV_PLAYER_POISON,      /* a = damage to the player */
     MAFA_EV_HEAL,               /* a = healed */
     MAFA_EV_PET_HIT,            /* a = damage the pet deals */
@@ -273,9 +290,9 @@ bool mafa_boss_start(mafa_player_t *p, mafa_battle_t *b);
 void mafa_boss_pass(mafa_player_t *p);
 
 /* One automatic combat round (PRD 8.3): potions → skill policy → attack,
- * then every living monster (the pet taunts), then end-of-round ticks.
- * Settlement (XP/gold/drop/book/level-up/boss unlock) happens per killed
- * monster inside the round. */
+ * then every living monster (the pet taunts; stunned mobs skip), then
+ * end-of-round ticks. Settlement (XP/gold/drop/book/level-up/boss unlock)
+ * happens per killed monster inside the round. */
 void mafa_battle_round(mafa_player_t *p, mafa_battle_t *b, mafa_events_t *ev);
 
 /* Full-backpack prompt (PRD 8.5): the drop waits in p->pending_drop until
@@ -290,20 +307,29 @@ uint32_t mafa_sell_price(uint8_t item_id);
 uint32_t mafa_sell(mafa_player_t *p, uint8_t inv_idx);  /* gold gained */
 uint32_t mafa_sell_all_white(mafa_player_t *p);         /* gold gained */
 bool mafa_buy_potion(mafa_player_t *p, bool red);       /* 50 / 40 gold */
+/* Buys a store book (skill idx 1-3). The 1.76 plan gate: returns false when
+ * the player is under the skill's learn level (or already knows it, or
+ * cannot afford it). */
 bool mafa_buy_book(mafa_player_t *p, uint8_t skill_idx);
-/* Enter a map: the safe zone ignores the floor; combat maps must be
- * unlocked and the floor within 1..floor_unlocked (v1.3 选层). Resets the
- * boss kill counter. */
+/* Enter a map: the safe zone ignores the floor and now RESTORES full
+ * HP/MP (death respawn and a voluntary walk home both heal); combat maps
+ * must be unlocked and the floor within 1..floor_unlocked (v1.3 选层).
+ * Resets the boss kill counter. */
 void mafa_switch_map(mafa_player_t *p, uint8_t map, uint8_t floor);
 
 /* NVS-ready serialization (PRD 8.10): magic + version + payload + CRC8.
  * Returns the written size, or 0 when the buffer is too small / data bad.
- * Older saves load and migrate (PRD 8.10, v1.2/v1.3): v1 grants books for
+ * Older saves load and migrate (PRD 8.10, 1.76 plan): v1 grants books for
  * every skill whose unlock level is reached; v1/v2 map ids shift into the v3
  * numbering (safe zone 3 → 0, combat maps 0-2 → 1-3); v1-v3 read as v4 with
  * default thresholds/switches and the old auto-sell-white flag mapped onto
- * the quality mask's white bit; v4 reads as v5 with every map the player has
- * left behind fully cleared (the current top map's floors re-climb from
- * floor 1 — that ladder is the v1.3 content). */
+ * the quality mask's white bit; v4 reads as v5 with every map the player
+ * has left behind fully cleared. Every version then reads as v6: the old
+ * combat maps stay maps 1-3 by CONTENT BAND (森林→比奇省, 废矿→兽人古墓,
+ * 祖玛's old L10-15 band→石墓; 祖玛寺庙 itself is the new map 6 and is
+ * re-earned through 沃玛/死亡山谷), floors cap at the new ladders, old
+ * books re-grant by the NEW unlock levels, carried xp clamps to the new
+ * curve, and the old 3-slot equipment is replaced by a band-appropriate
+ * starter kit (the item table changed wholesale). */
 size_t mafa_save_serialize(const mafa_player_t *p, uint8_t *buf, size_t cap);
 bool mafa_save_deserialize(mafa_player_t *p, const uint8_t *buf, size_t len);

@@ -1,126 +1,287 @@
 // main/mafa_model.c — MAFA CHRONICLE pure game model. Host-testable;
 // no LVGL/ESP-IDF. All rolls draw from one splitmix32 stream (PRD 8.1 rule
 // carried over from FOG MARCH: a single source of randomness).
-// Skills-2.0 rebalance (2026-09-29): 5 skills per class unlocked by level AND
-// book, 1-3 mob battles, taoist pet tank, player status layer (shield /
-// charge / proc), front-fast back-wall XP curve, death drops backpack stacks
-// and 10-20 % of gold, gold gear boss-only.
+// 1.76 alignment (2026-09-30): level cap 40, 7 skills per class at the
+// original's real learn levels, the 7-map route with 26 floor bosses, the
+// 8-slot paper doll (5 slot types, bracelets/rings doubled), level-gated
+// store books, safe-zone full restore, and save v6.
 #include "mafa_model.h"
 
 #include <string.h>
 
 /* --- Content tables (PRD 9.2 / 9.3 / 8.4) --------------------------------- */
 
+/* Paper-doll positions: the 1.76 panel minus candle and amulet. Twin
+ * bracelets / rings are separate positions sharing one slot type, so a
+ * drop equips into the free twin before replacing the worn one. */
+const uint8_t MAFA_POS_TYPE[MAFA_EQ_SLOTS] = {
+    MAFA_ST_WEAPON, MAFA_ST_HELMET, MAFA_ST_ARMOR, MAFA_ST_NECKLACE,
+    MAFA_ST_BRACELET, MAFA_ST_BRACELET, MAFA_ST_RING, MAFA_ST_RING,
+};
+
+/* 105 rows: (map 1-7) x (tier 1-3) x (5 slot types). Names are the
+ * original's real item ladder (verified 2026-09-30: weapon line 修罗→炼狱→
+ * 铜锤→井中月→血饮→裁决之杖→屠龙; helmets 骷髅→道士→黑铁 (+黑铁 holds the
+ * 沃玛 band: the classic game has no helmet between 黑铁 and the 赤月 sets);
+ * armors 布衣→轻型→重型→天魔神甲→法神披风→天尊道袍→圣战宝甲; necklaces
+ * 金项链→竹笛→放大镜→天珠→恶魔铃铛→绿色项链→灵魂项链; bracelets 大手镯→
+ * 铁手镯→思贝儿→三眼→龙之→骑士→圣战; rings 古铜→珊瑚→龙之戒→红宝石→
+ * 紫碧螺→力量→圣战). Quality lines escalate W..GOLD by map; 屠龙 stays the
+ * gold easter egg. */
 const mafa_item_t MAFA_ITEMS[] = {
-    /* map 1: white / green / blue */
-    {"木剑",   MAFA_SLOT_WEAPON,    MAFA_Q_WHITE,  1, 1,   2,  0,  0},
-    {"青铜剑", MAFA_SLOT_WEAPON,    MAFA_Q_GREEN,  1, 2,   4,  0,  0},
-    {"铁剑",   MAFA_SLOT_WEAPON,    MAFA_Q_BLUE,   1, 3,   6,  0,  0},
-    {"布衣",   MAFA_SLOT_ARMOR,     MAFA_Q_WHITE,  1, 1,   0,  1,  5},
-    {"精制布衣", MAFA_SLOT_ARMOR,   MAFA_Q_GREEN,  1, 2,   0,  2, 10},
-    {"轻甲",   MAFA_SLOT_ARMOR,     MAFA_Q_BLUE,   1, 3,   0,  3, 15},
-    {"木珠",   MAFA_SLOT_ACCESSORY, MAFA_Q_WHITE,  1, 1,   1,  0,  0},
-    {"琥珀珠", MAFA_SLOT_ACCESSORY, MAFA_Q_GREEN,  1, 2,   2,  1,  0},
-    {"蓝玉坠", MAFA_SLOT_ACCESSORY, MAFA_Q_BLUE,   1, 3,   3,  0,  0},
-    /* map 2: green / blue / purple */
-    {"矿镐",   MAFA_SLOT_WEAPON,    MAFA_Q_GREEN,  2, 1,   8,  0,  0},
-    {"精钢斧", MAFA_SLOT_WEAPON,    MAFA_Q_BLUE,   2, 2,  10,  0,  0},
-    {"修罗",   MAFA_SLOT_WEAPON,    MAFA_Q_PURPLE, 2, 3,  14,  0,  0},
-    {"骷髅甲", MAFA_SLOT_ARMOR,     MAFA_Q_GREEN,  2, 1,   0,  4, 20},
-    {"精钢甲", MAFA_SLOT_ARMOR,     MAFA_Q_BLUE,   2, 2,   0,  5, 28},
-    {"修罗甲", MAFA_SLOT_ARMOR,     MAFA_Q_PURPLE, 2, 3,   0,  7, 35},
-    {"玛瑙坠", MAFA_SLOT_ACCESSORY, MAFA_Q_GREEN,  2, 1,   5,  0,  0},
-    {"骷髅环", MAFA_SLOT_ACCESSORY, MAFA_Q_BLUE,   2, 2,   6,  2,  0},
-    {"蓝翡链", MAFA_SLOT_ACCESSORY, MAFA_Q_PURPLE, 2, 3,   8,  0,  0},
-    /* map 3: blue / purple / gold */
-    {"炼狱",   MAFA_SLOT_WEAPON,    MAFA_Q_BLUE,   3, 1,  18,  0,  0},
-    {"雷刃",   MAFA_SLOT_WEAPON,    MAFA_Q_PURPLE, 3, 2,  20,  0,  0},
-    {"屠龙",   MAFA_SLOT_WEAPON,    MAFA_Q_GOLD,   3, 3,  22,  0,  0},
-    {"天魔甲", MAFA_SLOT_ARMOR,     MAFA_Q_BLUE,   3, 1,   0,  9, 45},
-    {"圣战甲", MAFA_SLOT_ARMOR,     MAFA_Q_PURPLE, 3, 2,   0, 11, 55},
-    {"霸主甲", MAFA_SLOT_ARMOR,     MAFA_Q_GOLD,   3, 3,   0, 13, 70},
-    {"紫螺链", MAFA_SLOT_ACCESSORY, MAFA_Q_BLUE,   3, 1,  10,  0,  0},
-    {"龙鳞链", MAFA_SLOT_ACCESSORY, MAFA_Q_PURPLE, 3, 2,  12,  3,  0},
-    {"灵魂链", MAFA_SLOT_ACCESSORY, MAFA_Q_GOLD,   3, 3,  15,  0,  0},
+    /* map 1 比奇省: white / green / blue */
+    {"修罗",     MAFA_ST_WEAPON,   MAFA_Q_WHITE,  1, 1,   4,  0,  0},
+    {"修罗",     MAFA_ST_WEAPON,   MAFA_Q_GREEN,  1, 2,   7,  0,  0},
+    {"修罗",     MAFA_ST_WEAPON,   MAFA_Q_BLUE,   1, 3,  11,  0,  0},
+    {"骷髅头盔", MAFA_ST_HELMET,   MAFA_Q_WHITE,  1, 1,   0,  2, 18},
+    {"骷髅头盔", MAFA_ST_HELMET,   MAFA_Q_GREEN,  1, 2,   0,  3, 23},
+    {"骷髅头盔", MAFA_ST_HELMET,   MAFA_Q_BLUE,   1, 3,   0,  4, 28},
+    {"布衣",     MAFA_ST_ARMOR,    MAFA_Q_WHITE,  1, 1,   0,  4, 35},
+    {"布衣",     MAFA_ST_ARMOR,    MAFA_Q_GREEN,  1, 2,   0,  5, 45},
+    {"布衣",     MAFA_ST_ARMOR,    MAFA_Q_BLUE,   1, 3,   0,  7, 55},
+    {"金项链",   MAFA_ST_NECKLACE, MAFA_Q_WHITE,  1, 1,   4,  0, 11},
+    {"金项链",   MAFA_ST_NECKLACE, MAFA_Q_GREEN,  1, 2,   5,  0, 14},
+    {"金项链",   MAFA_ST_NECKLACE, MAFA_Q_BLUE,   1, 3,   7,  0, 18},
+    {"大手镯",   MAFA_ST_BRACELET, MAFA_Q_WHITE,  1, 1,   1,  2,  0},
+    {"大手镯",   MAFA_ST_BRACELET, MAFA_Q_GREEN,  1, 2,   1,  3,  0},
+    {"大手镯",   MAFA_ST_BRACELET, MAFA_Q_BLUE,   1, 3,   2,  4,  0},
+    {"古铜戒指", MAFA_ST_RING,     MAFA_Q_WHITE,  1, 1,   4,  0,  0},
+    {"古铜戒指", MAFA_ST_RING,     MAFA_Q_GREEN,  1, 2,   5,  0,  0},
+    {"古铜戒指", MAFA_ST_RING,     MAFA_Q_BLUE,   1, 3,   6,  0,  0},
+    /* map 2 兽人古墓: green / blue / purple */
+    {"炼狱",     MAFA_ST_WEAPON,   MAFA_Q_GREEN,  2, 1,   7,  0,  0},
+    {"炼狱",     MAFA_ST_WEAPON,   MAFA_Q_BLUE,   2, 2,  10,  0,  0},
+    {"炼狱",     MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 2, 3,  14,  0,  0},
+    {"道士头盔", MAFA_ST_HELMET,   MAFA_Q_GREEN,  2, 1,   0,  3, 26},
+    {"道士头盔", MAFA_ST_HELMET,   MAFA_Q_BLUE,   2, 2,   0,  4, 31},
+    {"道士头盔", MAFA_ST_HELMET,   MAFA_Q_PURPLE, 2, 3,   0,  5, 36},
+    {"轻型盔甲", MAFA_ST_ARMOR,    MAFA_Q_GREEN,  2, 1,   0,  6, 50},
+    {"轻型盔甲", MAFA_ST_ARMOR,    MAFA_Q_BLUE,   2, 2,   0,  7, 60},
+    {"轻型盔甲", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 2, 3,   0,  9, 70},
+    {"竹笛",     MAFA_ST_NECKLACE, MAFA_Q_GREEN,  2, 1,   6,  0, 17},
+    {"竹笛",     MAFA_ST_NECKLACE, MAFA_Q_BLUE,   2, 2,   7,  0, 20},
+    {"竹笛",     MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 2, 3,   9,  0, 24},
+    {"铁手镯",   MAFA_ST_BRACELET, MAFA_Q_GREEN,  2, 1,   2,  3,  0},
+    {"铁手镯",   MAFA_ST_BRACELET, MAFA_Q_BLUE,   2, 2,   2,  4,  0},
+    {"铁手镯",   MAFA_ST_BRACELET, MAFA_Q_PURPLE, 2, 3,   3,  5,  0},
+    {"珊瑚戒指", MAFA_ST_RING,     MAFA_Q_GREEN,  2, 1,   6,  0,  0},
+    {"珊瑚戒指", MAFA_ST_RING,     MAFA_Q_BLUE,   2, 2,   7,  0,  0},
+    {"珊瑚戒指", MAFA_ST_RING,     MAFA_Q_PURPLE, 2, 3,   8,  0,  0},
+    /* map 3 石墓: green / blue / purple */
+    {"铜锤",     MAFA_ST_WEAPON,   MAFA_Q_GREEN,  3, 1,  10,  0,  0},
+    {"铜锤",     MAFA_ST_WEAPON,   MAFA_Q_BLUE,   3, 2,  13,  0,  0},
+    {"铜锤",     MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 3, 3,  17,  0,  0},
+    {"黑铁头盔", MAFA_ST_HELMET,   MAFA_Q_GREEN,  3, 1,   0,  4, 34},
+    {"黑铁头盔", MAFA_ST_HELMET,   MAFA_Q_BLUE,   3, 2,   0,  5, 39},
+    {"黑铁头盔", MAFA_ST_HELMET,   MAFA_Q_PURPLE, 3, 3,   0,  6, 44},
+    {"重型盔甲", MAFA_ST_ARMOR,    MAFA_Q_GREEN,  3, 1,   0,  8, 65},
+    {"重型盔甲", MAFA_ST_ARMOR,    MAFA_Q_BLUE,   3, 2,   0,  9, 75},
+    {"重型盔甲", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 3, 3,   0, 11, 85},
+    {"放大镜",   MAFA_ST_NECKLACE, MAFA_Q_GREEN,  3, 1,   8,  0, 23},
+    {"放大镜",   MAFA_ST_NECKLACE, MAFA_Q_BLUE,   3, 2,   9,  0, 26},
+    {"放大镜",   MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 3, 3,  11,  0, 30},
+    {"思贝儿手镯", MAFA_ST_BRACELET, MAFA_Q_GREEN,  3, 1, 2,  4,  0},
+    {"思贝儿手镯", MAFA_ST_BRACELET, MAFA_Q_BLUE,   3, 2, 2,  5,  0},
+    {"思贝儿手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 3, 3, 3,  6,  0},
+    {"龙之戒",   MAFA_ST_RING,     MAFA_Q_GREEN,  3, 1,   8,  0,  0},
+    {"龙之戒",   MAFA_ST_RING,     MAFA_Q_BLUE,   3, 2,   9,  0,  0},
+    {"龙之戒",   MAFA_ST_RING,     MAFA_Q_PURPLE, 3, 3,  10,  0,  0},
+    /* map 4 沃玛寺庙: blue / purple / purple */
+    {"井中月",   MAFA_ST_WEAPON,   MAFA_Q_BLUE,   4, 1,  13,  0,  0},
+    {"井中月",   MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 4, 2,  16,  0,  0},
+    {"井中月",   MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 4, 3,  20,  0,  0},
+    {"黑铁头盔", MAFA_ST_HELMET,   MAFA_Q_BLUE,   4, 1,   0,  5, 42},
+    {"黑铁头盔", MAFA_ST_HELMET,   MAFA_Q_PURPLE, 4, 2,   0,  6, 47},
+    {"黑铁头盔", MAFA_ST_HELMET,   MAFA_Q_PURPLE, 4, 3,   0,  7, 52},
+    {"天魔神甲", MAFA_ST_ARMOR,    MAFA_Q_BLUE,   4, 1,   0, 10, 80},
+    {"天魔神甲", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 4, 2,   0, 11, 90},
+    {"天魔神甲", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 4, 3,   0, 13, 100},
+    {"天珠项链", MAFA_ST_NECKLACE, MAFA_Q_BLUE,   4, 1,  10,  0, 29},
+    {"天珠项链", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 4, 2,  11,  0, 32},
+    {"天珠项链", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 4, 3,  13,  0, 36},
+    {"三眼手镯", MAFA_ST_BRACELET, MAFA_Q_BLUE,   4, 1,   3,  5,  0},
+    {"三眼手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 4, 2,  3,  6,  0},
+    {"三眼手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 4, 3,   4,  7,  0},
+    {"红宝石戒指", MAFA_ST_RING,   MAFA_Q_BLUE,   4, 1,  10,  0,  0},
+    {"红宝石戒指", MAFA_ST_RING,   MAFA_Q_PURPLE, 4, 2,  11,  0,  0},
+    {"红宝石戒指", MAFA_ST_RING,   MAFA_Q_PURPLE, 4, 3,  12,  0,  0},
+    /* map 5 死亡山谷: blue / purple / gold */
+    {"血饮",     MAFA_ST_WEAPON,   MAFA_Q_BLUE,   5, 1,  16,  0,  0},
+    {"血饮",     MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 5, 2,  19,  0,  0},
+    {"血饮",     MAFA_ST_WEAPON,   MAFA_Q_GOLD,   5, 3,  23,  0,  0},
+    {"圣战头盔", MAFA_ST_HELMET,   MAFA_Q_BLUE,   5, 1,   0,  6, 50},
+    {"圣战头盔", MAFA_ST_HELMET,   MAFA_Q_PURPLE, 5, 2,   0,  7, 55},
+    {"圣战头盔", MAFA_ST_HELMET,   MAFA_Q_GOLD,   5, 3,   0,  8, 60},
+    {"法神披风", MAFA_ST_ARMOR,    MAFA_Q_BLUE,   5, 1,   0, 12, 95},
+    {"法神披风", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 5, 2,   0, 13, 105},
+    {"法神披风", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   5, 3,   0, 15, 115},
+    {"恶魔铃铛", MAFA_ST_NECKLACE, MAFA_Q_BLUE,   5, 1,  12,  0, 35},
+    {"恶魔铃铛", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 5, 2,  13,  0, 38},
+    {"恶魔铃铛", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   5, 3,  15,  0, 42},
+    {"龙之手镯", MAFA_ST_BRACELET, MAFA_Q_BLUE,   5, 1,   3,  6,  0},
+    {"龙之手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 5, 2,   3,  7,  0},
+    {"龙之手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   5, 3,   4,  8,  0},
+    {"紫碧螺",   MAFA_ST_RING,     MAFA_Q_BLUE,   5, 1,  12,  0,  0},
+    {"紫碧螺",   MAFA_ST_RING,     MAFA_Q_PURPLE, 5, 2,  13,  0,  0},
+    {"紫碧螺",   MAFA_ST_RING,     MAFA_Q_GOLD,   5, 3,  14,  0,  0},
+    /* map 6 祖玛寺庙: purple / gold / gold */
+    {"裁决之杖", MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 6, 1,  19,  0,  0},
+    {"裁决之杖", MAFA_ST_WEAPON,   MAFA_Q_GOLD,   6, 2,  22,  0,  0},
+    {"裁决之杖", MAFA_ST_WEAPON,   MAFA_Q_GOLD,   6, 3,  26,  0,  0},
+    {"法神头盔", MAFA_ST_HELMET,   MAFA_Q_PURPLE, 6, 1,   0,  7, 58},
+    {"法神头盔", MAFA_ST_HELMET,   MAFA_Q_GOLD,   6, 2,   0,  8, 63},
+    {"法神头盔", MAFA_ST_HELMET,   MAFA_Q_GOLD,   6, 3,   0,  9, 68},
+    {"天尊道袍", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 6, 1,   0, 14, 110},
+    {"天尊道袍", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   6, 2,   0, 15, 120},
+    {"天尊道袍", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   6, 3,   0, 17, 130},
+    {"绿色项链", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 6, 1,  14,  0, 41},
+    {"绿色项链", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   6, 2,  15,  0, 44},
+    {"绿色项链", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   6, 3,  17,  0, 48},
+    {"骑士手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 6, 1,   4,  7,  0},
+    {"骑士手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   6, 2,   4,  8,  0},
+    {"骑士手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   6, 3,   5,  9,  0},
+    {"力量戒指", MAFA_ST_RING,     MAFA_Q_PURPLE, 6, 1,  14,  0,  0},
+    {"力量戒指", MAFA_ST_RING,     MAFA_Q_GOLD,   6, 2,  15,  0,  0},
+    {"力量戒指", MAFA_ST_RING,     MAFA_Q_GOLD,   6, 3,  16,  0,  0},
+    /* map 7 赤月峡谷: purple / gold / gold (屠龙 = the graduation easter egg) */
+    {"屠龙",     MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 7, 1,  23,  0,  0},
+    {"屠龙",     MAFA_ST_WEAPON,   MAFA_Q_GOLD,   7, 2,  26,  0,  0},
+    {"屠龙",     MAFA_ST_WEAPON,   MAFA_Q_GOLD,   7, 3,  30,  0,  0},
+    {"天尊头盔", MAFA_ST_HELMET,   MAFA_Q_PURPLE, 7, 1,   0,  8, 66},
+    {"天尊头盔", MAFA_ST_HELMET,   MAFA_Q_GOLD,   7, 2,   0,  9, 71},
+    {"天尊头盔", MAFA_ST_HELMET,   MAFA_Q_GOLD,   7, 3,   0, 10, 76},
+    {"圣战宝甲", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 7, 1,   0, 16, 125},
+    {"圣战宝甲", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   7, 2,   0, 17, 135},
+    {"圣战宝甲", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   7, 3,   0, 19, 145},
+    {"灵魂项链", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 7, 1,  16,  0, 47},
+    {"灵魂项链", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   7, 2,  17,  0, 50},
+    {"灵魂项链", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   7, 3,  19,  0, 54},
+    {"圣战手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 7, 1,   4,  8,  0},
+    {"圣战手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   7, 2,   4,  9,  0},
+    {"圣战手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   7, 3,   5, 10,  0},
+    {"圣战戒指", MAFA_ST_RING,     MAFA_Q_PURPLE, 7, 1,  16,  0,  0},
+    {"圣战戒指", MAFA_ST_RING,     MAFA_Q_GOLD,   7, 2,  17,  0,  0},
+    {"圣战戒指", MAFA_ST_RING,     MAFA_Q_GOLD,   7, 3,  18,  0,  0},
 };
 const int MAFA_ITEM_COUNT = (int)(sizeof MAFA_ITEMS / sizeof MAFA_ITEMS[0]);
 
-/* Five forms per class, all distinct (skills-2.0): the book gate lives in
- * mafa_skill_known — skill 0 is free, the rest need their book. mult is
- * ×100 for damage kinds, the pet tier for MAFA_SK_PET, and % max HP for
- * MAFA_SK_HEAL. */
+/* Seven forms per class at the original's real 1.76 learn levels (verified
+ * 2026-09-30, community tables): the book gate lives in mafa_skill_known —
+ * skill 0 is free, skills 1-3 are store books (level-gated), skills 4-6
+ * drop from elites/bosses. mult is ×100 for damage kinds, the pet tier for
+ * MAFA_SK_PET, and % max HP for MAFA_SK_HEAL; shield_pct doubles as the
+ * ARMOR defense bonus. 逐日剑法 is the one post-1.76 skill (user-approved).
+ */
 const mafa_skill_t MAFA_SKILLS[MAFA_CLS_COUNT][MAFA_SKILLS_PER_CLASS] = {
     [MAFA_CLS_WARRIOR] = {
-        {"基础剑术",  1, MAFA_SK_PASSIVE, 110, 0,  0, 0, 0,  0,  0, 0, 0},
-        {"攻杀剑术",  3, MAFA_SK_PROC,    200, 0, 20, 0, 0,  0,  0, 0, 0},
-        {"刺杀剑术",  6, MAFA_SK_DMG,     140, 1,  0, 0, 0,  0,  0, 5, 0},
-        {"半月弯刀",  9, MAFA_SK_AOE,      90, 0,  0, 0, 0,  0,  0, 6, 0},
-        {"烈火剑法", 12, MAFA_SK_CHARGE,  220, 0,  0, 0, 0,  0,  0, 8, 0},
+        {"基本剑术",  7, MAFA_SK_PASSIVE, 110, 0,  0, 0, 0,  0,  0, 0, 0},
+        {"攻杀剑术", 19, MAFA_SK_PROC,    200, 0, 20, 0, 0,  0,  0, 0, 0},
+        {"刺杀剑术", 25, MAFA_SK_DMG,     140, 1,  0, 0, 0,  0,  0, 5, 0},
+        {"半月弯刀", 28, MAFA_SK_AOE,      90, 0,  0, 0, 0,  0,  0, 6, 0},
+        {"野蛮冲撞", 30, MAFA_SK_STUN,     130, 0,  0, 1, 0,  0,  0, 8, 0},
+        {"烈火剑法", 35, MAFA_SK_CHARGE,   220, 0,  0, 0, 0,  0,  0, 8, 0},
+        {"逐日剑法", 38, MAFA_SK_DMG,     260, 1,  0, 0, 0,  0,  0, 10, 0},
     },
     [MAFA_CLS_MAGE] = {
-        {"火球术",    1, MAFA_SK_DMG,     160, 0,  0, 0, 0,  0,  0, 0,  8},
-        {"雷电术",    3, MAFA_SK_DMG,     220, 1,  0, 0, 0,  0,  0, 0, 14},
-        {"火墙",      8, MAFA_SK_BURN,     60, 0,  0, 3, 0,  0,  0, 0, 18},
-        {"魔法盾",   10, MAFA_SK_SHIELD,    0, 0,  0, 4, 0,  0, 40, 0, 16},
-        {"冰咆哮",   13, MAFA_SK_AOE,     160, 1,  0, 0, 0,  0,  0, 0, 26},
+        {"火球术",    7, MAFA_SK_DMG,     160, 0,  0, 0, 0,  0,  0, 0, 8},
+        {"雷电术",   17, MAFA_SK_DMG,     220, 1,  0, 0, 0,  0,  0, 0, 14},
+        {"爆裂火焰", 22, MAFA_SK_AOE,     120, 0,  0, 0, 0,  0,  0, 0, 20},
+        {"火墙",     24, MAFA_SK_BURN,     60, 0,  0, 3, 0,  0,  0, 0, 18},
+        {"地狱雷光", 30, MAFA_SK_AOE,     150, 1,  0, 0, 0,  0,  0, 0, 26},
+        {"魔法盾",   31, MAFA_SK_SHIELD,    0, 0,  0, 4, 0,  0, 40, 0, 16},
+        {"冰咆哮",   35, MAFA_SK_AOE,     160, 1,  0, 0, 0,  0,  0, 0, 30},
     },
     [MAFA_CLS_TAOIST] = {
-        {"治愈术",    3, MAFA_SK_HEAL,     30, 0,  0, 0, 0,  0,  0, 0, 12},
-        {"召唤骷髅",  7, MAFA_SK_PET,       1, 0,  0, 0, 0,  0,  0, 6, 20},
-        {"施毒术",    9, MAFA_SK_POISON,    0, 0,  0, 5, 5, 30,  0, 0, 12},
-        {"灵魂火符", 11, MAFA_SK_DMG,     240, 0,  0, 0, 0,  0,  0, 0, 14},
-        {"召唤神兽", 13, MAFA_SK_PET,       2, 0,  0, 0, 0,  0,  0, 6, 30},
+        {"治愈术",    7, MAFA_SK_HEAL,      30, 0,  0, 0, 0,  0,  0, 0, 12},
+        {"精神力战法", 9, MAFA_SK_PASSIVE,  115, 0,  0, 0, 0,  0,  0, 0, 0},
+        {"施毒术",   14, MAFA_SK_POISON,    0, 0,  0, 5, 5, 30,  0, 0, 12},
+        {"灵魂火符", 18, MAFA_SK_DMG,      240, 0,  0, 0, 0,  0,  0, 0, 14},
+        {"召唤骷髅", 19, MAFA_SK_PET,        1, 0,  0, 0, 0,  0,  0, 6, 20},
+        {"神圣战甲术", 25, MAFA_SK_ARMOR,    0, 0,  0, 4, 0,  0, 50, 8, 18},
+        {"召唤神兽", 35, MAFA_SK_PET,        2, 0,  0, 0, 0,  0,  0, 6, 30},
     },
 };
 
-/* Floor ladder (PRD 8.7, v1.3): mirrors the original's 沃玛 3 层 / 祖玛
- * 7 层 dungeon shape — one boss checkpoint per floor, the next map opens
- * through the last floor's boss. */
-const uint8_t MAFA_MAP_FLOORS[MAFA_MAP_COUNT] = {0, 2, 3, 7};
+/* Floor ladder (PRD 8.7, 1.76 plan): 比奇 2 / 兽人古墓 3 / 石墓 4 / 沃玛 3 /
+ * 死亡山谷 4 / 祖玛 7 / 赤月 3 — one boss checkpoint per floor, the next
+ * map opens through the last floor's boss. */
+const uint8_t MAFA_MAP_FLOORS[MAFA_MAP_COUNT] = {0, 2, 3, 4, 3, 4, 7, 3};
 
-/* Names verified against the original's mob lists (2026-09-29 web research:
- * 比奇省 trash incl. 半兽人/钉耙猫 — 17173 白金典藏练级攻略; 废矿区 尸王 =
- * 僵尸首领 — 百度百科; 祖玛 教主之下三强 = 雕像/弓箭手/卫士, 卫士分血量
- * 档次 — 17173 大锤怪专文; 骷髅精灵 = 兽人古墓系 boss). 恶灵僵尸 rejected:
- * it belongs to 苍月岛尸魔洞, not the mine. */
+/* Names verified against the original's mob lists (2026-09-29/30 research:
+ * 比奇省 trash incl. 半兽人/钉耙猫 — 17173 白金典藏练级攻略; 半兽勇士/半兽
+ * 统领 = 比奇省西部/野外 半兽系 — 17173 专文 + 腾讯官方怪物库; 骷髅系 =
+ * 兽人古墓(骷髅洞), 骷髅精灵 在 3 层 — 新浪练级指南/百度经验; 白野猪/蝎蛇/
+ * 楔蛾 = 石墓(猪洞) — 17173; 尸王 按用户批准映射落位石墓末层; 沃玛战士/
+ * 勇士/卫士/教主 = 沃玛寺庙; 蜈蚣/黑色恶蛆/钳虫/邪恶钳虫 = 死亡山谷
+ * (蜈蚣洞); 祖玛 教主之下三强 = 雕像/弓箭手/卫士 — 17173 大锤怪专文;
+ * 月魔蜘蛛/天狼蜘蛛/双头金刚/双头血魔/赤月恶魔 = 赤月峡谷). */
 const mafa_monster_t MAFA_MONSTERS[] = {
-    /* -- map 1 比奇森林, 2 floors ---------------------------------------- */
+    /* -- map 1 比奇省, 2 floors ------------------------------------------ */
     {"鸡",       1, 1,  1,   50,  7,  0,   12, MAFA_MSK_NONE,    false},
     {"鹿",       1, 1,  1,   65,  8,  1,   15, MAFA_MSK_NONE,    false},
     {"稻草人",   1, 1,  2,   95, 10,  1,   18, MAFA_MSK_FIRE,    false},
     {"多钩猫",   1, 1,  3,  130, 12,  2,   22, MAFA_MSK_FLURRY,  false},
     {"钉耙猫",   1, 2,  3,  140, 13,  2,   26, MAFA_MSK_FLURRY,  false},
     {"半兽人",   1, 2,  4,  200, 15,  3,   30, MAFA_MSK_HEAVY,   false},
-    {"森林雪人", 1, 1,  4,  340, 16,  3,  120, MAFA_MSK_HEAVY,   true},
-    {"森林巨猿", 1, 2,  5,  380, 20,  4,  150, MAFA_MSK_ROAR,    true},
-    /* -- map 2 废矿洞, 3 floors ------------------------------------------ */
-    {"骷髅",     2, 1,  5,   90, 11,  4,   34, MAFA_MSK_NONE,    false},
-    {"矿鼠",     2, 1,  6,   80, 12,  2,   38, MAFA_MSK_FLURRY,  false},
-    {"骷髅战士", 2, 2,  7,  130, 14,  6,   44, MAFA_MSK_HEAVY,   false},
-    {"掷斧骷髅", 2, 2,  8,  120, 15,  5,   50, MAFA_MSK_FIRE,    false},
-    {"洞蝎",     2, 3,  9,  150, 16,  7,   58, MAFA_MSK_STING,   false},
-    {"僵尸",     2, 1,  6,  440, 22,  5,  180, MAFA_MSK_NONE,    true},
-    {"骷髅精灵", 2, 2,  8,  700, 26,  6,  240, MAFA_MSK_FLURRY,  true},
-    {"尸王",     2, 3, 10,  830, 27,  8,  300, MAFA_MSK_ROAR,    true},
-    /* -- map 3 祖玛寺庙, 7 floors ---------------------------------------- */
-    {"祖玛卫士",  3, 1, 10,  175, 15,  9,   72, MAFA_MSK_HEAVY,   false},
-    {"大老鼠",    3, 2, 11,  180, 16,  6,   80, MAFA_MSK_FLURRY,  false},
-    {"黑色恶蛆",  3, 3, 12,  230, 18, 10,   92, MAFA_MSK_STING,   false},
-    {"契蛾",      3, 4, 13,  220, 20,  8,  104, MAFA_MSK_FIRE,    false},
-    {"祖玛弓箭手",3, 4, 12,  190, 19,  7,  100, MAFA_MSK_STING,   false},
-    {"祖玛雕像",  3, 5, 14,  300, 22, 12,  118, MAFA_MSK_HEAVY,   false},
-    {"祖玛卫士",  3, 1, 10, 1250, 27,  7,  280, MAFA_MSK_HEAVY,   true},
-    {"祖玛弓箭手",3, 2, 11, 1150, 28,  8,  330, MAFA_MSK_STING,   true},
-    {"祖玛卫士",  3, 3, 12, 1400, 28, 10,  390, MAFA_MSK_HEAVY,   true},
-    {"祖玛雕像",  3, 4, 12, 1450, 29, 11,  430, MAFA_MSK_HEAVY,   true},
-    {"祖玛卫士",  3, 5, 13, 1500, 30, 11,  460, MAFA_MSK_ROAR,    true},
-    {"祖玛雕像",  3, 6, 14, 1550, 31, 13,  530, MAFA_MSK_HEAVY,   true},
-    {"祖玛教主",  3, 7, 15, 1600, 31, 14,  800, MAFA_MSK_HELLFIRE, true},
+    {"半兽勇士", 1, 1,  4,  450, 21,  3,  120, MAFA_MSK_HEAVY,   true},
+    {"半兽统领", 1, 2,  5,  520, 26,  4,  150, MAFA_MSK_ROAR,    true},
+    /* -- map 2 兽人古墓, 3 floors ---------------------------------------- */
+    {"骷髅",     2, 1,  7,  160, 16,  5,   85, MAFA_MSK_NONE,    false},
+    {"洞蛆",     2, 1,  8,  155, 17,  4,   95, MAFA_MSK_STING,   false},
+    {"骷髅战士", 2, 2,  9,  190, 19,  6,  110, MAFA_MSK_HEAVY,   false},
+    {"掷斧骷髅", 2, 2, 10,  175, 20,  5,  125, MAFA_MSK_FIRE,    false},
+    {"骷髅战士", 2, 1,  8,  730, 31,  6,  280, MAFA_MSK_HEAVY,   true},
+    {"掷斧骷髅", 2, 2, 10,  830, 34,  7,  340, MAFA_MSK_FIRE,    true},
+    {"骷髅精灵", 2, 3, 12, 1100, 40,  8,  420, MAFA_MSK_FLURRY,  true},
+    /* -- map 3 石墓, 4 floors -------------------------------------------- */
+    {"红野猪",   3, 1, 14,  195, 26,  9,  280, MAFA_MSK_HEAVY,   false},
+    {"黑野猪",   3, 1, 15,  210, 28, 10,  320, MAFA_MSK_HEAVY,   false},
+    {"蝎蛇",     3, 2, 16,  230, 29, 11,  360, MAFA_MSK_STING,   false},
+    {"楔蛾",     3, 2, 17,  215, 30,  9,  390, MAFA_MSK_FIRE,    false},
+    {"僵尸",     3, 1, 14,  940, 50, 10,  520, MAFA_MSK_NONE,    true},
+    {"白野猪",   3, 2, 16, 1100, 44, 11,  650, MAFA_MSK_ROAR,    true},
+    {"蝎蛇",     3, 3, 17, 1200, 54, 12,  720, MAFA_MSK_STING,   true},
+    {"尸王",     3, 4, 18, 1365, 47, 12,  850, MAFA_MSK_ROAR,    true},
+    /* -- map 4 沃玛寺庙, 3 floors ---------------------------------------- */
+    {"沃玛战士", 4, 1, 22,  325, 38, 14,  700, MAFA_MSK_HEAVY,   false},
+    {"沃玛勇士", 4, 1, 23,  345, 40, 13,  750, MAFA_MSK_FLURRY,  false},
+    {"沃玛卫士", 4, 2, 24,  390, 42, 16,  820, MAFA_MSK_HEAVY,   false},
+    {"沃玛战士", 4, 1, 22, 1300, 60, 15, 1400, MAFA_MSK_HEAVY,   true},
+    {"沃玛卫士", 4, 2, 24, 1430, 62, 16, 1600, MAFA_MSK_HEAVY,   true},
+    {"沃玛教主", 4, 3, 26, 1755, 68, 18, 2200, MAFA_MSK_HELLFIRE, true},
+    /* -- map 5 死亡山谷, 4 floors ---------------------------------------- */
+    {"蜈蚣",     5, 1, 28,  360, 50, 18, 1500, MAFA_MSK_FLURRY,  false},
+    {"黑色恶蛆", 5, 1, 29,  380, 52, 19, 1600, MAFA_MSK_STING,   false},
+    {"钳虫",     5, 2, 30,  410, 54, 20, 1700, MAFA_MSK_HEAVY,   false},
+    {"蜈蚣",     5, 1, 28, 1560, 84, 20, 3000, MAFA_MSK_FLURRY,  true},
+    {"钳虫",     5, 2, 30, 1665, 78, 21, 3300, MAFA_MSK_HEAVY,   true},
+    {"黑色恶蛆", 5, 3, 31, 1755, 90, 22, 3600, MAFA_MSK_STING,   true},
+    {"邪恶钳虫", 5, 4, 33, 2015, 86, 24, 4400, MAFA_MSK_ROAR,    true},
+    /* -- map 6 祖玛寺庙, 7 floors ---------------------------------------- */
+    {"祖玛卫士",  6, 1, 34,  440, 54, 24, 3300, MAFA_MSK_HEAVY,  false},
+    {"祖玛弓箭手",6, 2, 35,  425, 55, 22, 3400, MAFA_MSK_STING,  false},
+    {"祖玛雕像",  6, 3, 36,  495, 58, 26, 3600, MAFA_MSK_HEAVY,  false},
+    {"祖玛卫士",  6, 1, 34, 1650, 90, 25, 5200, MAFA_MSK_HEAVY,  true},
+    {"祖玛弓箭手",6, 2, 35, 1700, 100, 26, 5600, MAFA_MSK_STING,  true},
+    {"祖玛卫士",  6, 3, 36, 1620, 87, 27, 6000, MAFA_MSK_HEAVY,  true},
+    {"祖玛雕像",  6, 4, 36, 1700, 90, 28, 6500, MAFA_MSK_HEAVY,  true},
+    {"祖玛卫士",  6, 5, 37, 1900, 99, 29, 7000, MAFA_MSK_ROAR,   true},
+    {"祖玛雕像",  6, 6, 37, 1850, 94, 30, 7500, MAFA_MSK_HEAVY,  true},
+    {"祖玛教主",  6, 7, 38, 2150, 99, 32, 9000, MAFA_MSK_HELLFIRE, true},
+    /* -- map 7 赤月峡谷, 3 floors --------------------------------------- */
+    {"月魔蜘蛛", 7, 1, 38,  430, 71, 30, 6200, MAFA_MSK_STING,   false},
+    {"天狼蜘蛛", 7, 1, 39,  455, 73, 31, 6500, MAFA_MSK_FLURRY,  false},
+    {"双头金刚", 7, 2, 39,  515, 71, 33, 7000, MAFA_MSK_HEAVY,   false},
+    {"双头血魔", 7, 2, 40,  530, 73, 32, 7200, MAFA_MSK_HEAVY,   false},
+    {"天狼蜘蛛", 7, 1, 39, 1750, 116, 32, 9000, MAFA_MSK_FLURRY,  true},
+    {"双头金刚", 7, 2, 40, 1900, 108, 34, 10000, MAFA_MSK_HEAVY,  true},
+    {"赤月恶魔", 7, 3, 40, 2200, 115, 36, 14000, MAFA_MSK_HELLFIRE, true},
 };
 const int MAFA_MONSTER_COUNT = (int)(sizeof MAFA_MONSTERS / sizeof MAFA_MONSTERS[0]);
 
 const char *const MAFA_MAP_NAMES[MAFA_MAP_COUNT] = {
-    "安全区", "比奇森林", "废矿洞", "祖玛寺庙",
+    "安全区", "比奇省", "兽人古墓", "石墓",
+    "沃玛寺庙", "死亡山谷", "祖玛寺庙", "赤月峡谷",
 };
 
 const mafa_monster_t *mafa_map_boss(uint8_t map, uint8_t floor) {
@@ -133,16 +294,22 @@ const mafa_monster_t *mafa_map_boss(uint8_t map, uint8_t floor) {
 
 static const uint32_t MAFA_SELL_PRICE[MAFA_Q_COUNT] = {10, 30, 80, 200, 500};
 
-/* Front-fast, back-wall curve (2026-09-29 rebalance): the early game keeps
- * the original's quick newbie pace, costs compound from mid-game, and the
- * 14→15 wall alone is ~45 % of total time-to-max (L14→15 = 150k of 315k). */
+/* Front-fast, back-wall curve (1.76 plan): the early game keeps the
+ * original's quick newbie pace (L1-7 near-linear), costs compound ~×1.3
+ * through the mid-game, and the 39→40 wall alone is ~46 % of total
+ * time-to-max (12,000,000 of ~26,300,000 XP) — the famous 经验墙. */
 static const uint32_t MAFA_XP_NEXT[MAFA_MAX_LEVEL - 1] = {
-    300, 550, 900, 1400, 2100, 3000, 4200, 5500,
-    8000, 13000, 22000, 38000, 65000, 150000,
+    100, 180, 320, 520, 800, 1200, 1800,
+    2700, 3900, 5500, 7800, 10800, 15000, 20000, 27000, 35000, 45000,
+    58000, 73000, 92000,
+    115000, 142000, 175000, 213000, 258000, 310000, 370000, 440000,
+    520000, 610000,
+    730000, 860000, 1010000, 1180000, 1380000, 1600000, 1850000, 2130000,
+    12000000,
 };
 
-/* Store books (skill 1 / skill 2 per class); books 3-4 drop in battle. */
-static const uint32_t MAFA_BOOK_PRICE[2] = {300, 800};
+/* Store books (skills 1-3 per class, three price steps); books 4-6 drop. */
+static const uint32_t MAFA_BOOK_PRICE[3] = {300, 600, 900};
 
 /* --- RNG: splitmix32 (single randomness source) --------------------------- */
 
@@ -158,7 +325,7 @@ static uint32_t rng_next(mafa_player_t *p) {
 
 uint32_t mafa_book_price(uint8_t cls, uint8_t skill_idx) {
     (void)cls;
-    if (skill_idx < 1 || skill_idx > 2) return 0;    /* only these are sold */
+    if (skill_idx < 1 || skill_idx > 3) return 0;    /* only these are sold */
     return MAFA_BOOK_PRICE[skill_idx - 1];
 }
 
@@ -173,7 +340,7 @@ bool mafa_skill_known(const mafa_player_t *p, uint8_t skill_idx) {
 static void grant_level_books(mafa_player_t *p) {
     for (int i = 1; i < MAFA_SKILLS_PER_CLASS; ++i)
         if (p->level >= MAFA_SKILLS[p->cls][i].unlock)
-            p->books |= (uint16_t)(1u << (p->cls * MAFA_SKILLS_PER_CLASS + i));
+            p->books |= (1u << (p->cls * MAFA_SKILLS_PER_CLASS + i));
 }
 
 /* --- Player --------------------------------------------------------------- */
@@ -183,7 +350,7 @@ void mafa_player_init(mafa_player_t *p, uint8_t cls, uint32_t seed) {
     p->cls = cls;
     p->level = 1;
     p->gold = 0;
-    p->map = MAFA_MAP_SAFE + 1;         /* new games idle at once: Beech */
+    p->map = MAFA_MAP_SAFE + 1;         /* new games idle at once: 比奇省 */
     p->floor = 1;
     p->unlocked = MAFA_MAP_SAFE + 1;
     for (int i = 0; i < MAFA_MAP_COUNT - 1; ++i) p->floor_unlocked[i] = 1;
@@ -211,7 +378,7 @@ void mafa_stats(const mafa_player_t *p, mafa_stats_t *out) {
         st.def = 5 + lv;
         break;
     case MAFA_CLS_MAGE:
-        st.max_hp = 40 + 5 * lv;
+        st.max_hp = 40 + 6 * lv;
         st.atk = 14 + 2 * lv;
         st.def = 3 + (lv + 1) / 2;      /* +1 every 2 levels (L2, L4, …) */
         st.max_mp = 30 + 5 * lv;
@@ -277,10 +444,24 @@ static void inv_remove_all(mafa_player_t *p, uint8_t idx) {
     p->inv_n[idx] = 0;
 }
 
+/* Equip position routing: the free twin of a bracelet/ring takes the item
+ * first; only when both twins are worn does the first twin get replaced. */
+static int equip_position(const mafa_player_t *p, uint8_t type) {
+    int first = -1;
+    for (int i = 0; i < MAFA_EQ_SLOTS; ++i) {
+        if (MAFA_POS_TYPE[i] != type) continue;
+        if (first < 0) first = i;
+        if (p->equipped[i] == MAFA_INV_EMPTY) return i;
+    }
+    return first;
+}
+
 bool mafa_equip(mafa_player_t *p, uint8_t idx) {
     if (idx >= MAFA_BACKPACK || p->inv_id[idx] == MAFA_INV_EMPTY) return false;
     uint8_t id = p->inv_id[idx];
-    uint8_t slot = MAFA_ITEMS[id].slot;
+    int pos = equip_position(p, MAFA_ITEMS[id].slot);
+    if (pos < 0) return false;
+    uint8_t slot = (uint8_t)pos;
     uint8_t old = p->equipped[slot];
 
     /* Take the new item first; remember whether its slot freed up. */
@@ -329,8 +510,11 @@ void mafa_compare(const mafa_player_t *p, uint8_t item_id, mafa_compare_t *out) 
     out->item = &MAFA_ITEMS[item_id];
     mafa_stats_t cur;
     mafa_stats(p, &cur);
-    uint8_t old = p->equipped[out->item->slot];
     mafa_stats_t next = cur;
+    /* Compare against the position this item would land in: a twin bracelet
+     * compares vs the free twin when one is open (else the first twin). */
+    int pos = equip_position(p, out->item->slot);
+    uint8_t old = pos >= 0 ? p->equipped[pos] : MAFA_INV_EMPTY;
     if (old != MAFA_INV_EMPTY) {
         const mafa_item_t *o = &MAFA_ITEMS[old];
         next.atk -= o->atk;
@@ -377,8 +561,10 @@ bool mafa_buy_potion(mafa_player_t *p, bool red) {
 }
 
 bool mafa_buy_book(mafa_player_t *p, uint8_t skill_idx) {
-    if (skill_idx < 1 || skill_idx > 2) return false;   /* 3-4 drop in battle */
-    uint16_t bit = (uint16_t)(1u << (p->cls * MAFA_SKILLS_PER_CLASS + skill_idx));
+    if (skill_idx < 1 || skill_idx > 3) return false;   /* 4-6 drop in battle */
+    /* 1.76 plan gate: the store refuses to sell below the learn level. */
+    if (p->level < MAFA_SKILLS[p->cls][skill_idx].unlock) return false;
+    uint32_t bit = 1u << (p->cls * MAFA_SKILLS_PER_CLASS + skill_idx);
     if (p->books & bit) return false;               /* already learned */
     uint32_t price = mafa_book_price(p->cls, skill_idx);
     if (p->gold < price) return false;
@@ -394,6 +580,13 @@ void mafa_switch_map(mafa_player_t *p, uint8_t map, uint8_t floor) {
         p->map = MAFA_MAP_SAFE;
         p->floor = 0;
         p->kills = 0;
+        /* Entering town restores full HP/MP (1.76 plan): death respawn and
+         * a voluntary walk home heal the same — the safe zone is a real
+         * rest spot, not just a death hub. */
+        mafa_stats_t st;
+        mafa_stats(p, &st);
+        p->hp = (int16_t)st.max_hp;
+        if (st.max_mp > 0) p->mp = st.max_mp;
         return;
     }
     if (floor < 1 || floor > p->floor_unlocked[map - 1]) return;
@@ -426,7 +619,7 @@ static void spawn_mob(mafa_player_t *p, const mafa_monster_t *base,
 
 /* Non-boss pack size shifts toward 3 mobs on deeper maps (skills-2.0 B):
  * more bodies per fight lengthens battles into the 5-15 s band and gives
- * AoE skills their identity back. */
+ * AoE skills their identity back. Maps 3+ share the deep-dungeon weights. */
 static uint8_t roll_pack(mafa_player_t *p, uint8_t map) {
     uint32_t r = rng_next(p) % 10;
     if (map == 1) return r < 7 ? 1 : 2;
@@ -513,14 +706,14 @@ static void grant_levelups(mafa_player_t *p, mafa_events_t *ev) {
     }
 }
 
-/* Book drops (skills-2.0 D): elites sometimes drop a missing late book;
- * a boss kill guarantees the next missing one (skill 3 first, then 4). */
+/* Book drops (1.76 plan): elites sometimes drop a missing late book; a boss
+ * kill guarantees the next missing one (skill 4 first, then 5, then 6). */
 static void roll_book_drop(mafa_player_t *p, bool boss, bool elite,
                            mafa_events_t *ev) {
     if (!boss && !elite) return;
     if (!boss && rng_next(p) % 100 >= 20) return;
-    for (int i = 3; i < MAFA_SKILLS_PER_CLASS; ++i) {
-        uint16_t bit = (uint16_t)(1u << (p->cls * MAFA_SKILLS_PER_CLASS + i));
+    for (int i = 4; i < MAFA_SKILLS_PER_CLASS; ++i) {
+        uint32_t bit = 1u << (p->cls * MAFA_SKILLS_PER_CLASS + i);
         if (!(p->books & bit)) {
             p->books |= bit;
             mafa_ev_push(ev, MAFA_EV_BOOK, (uint8_t)i, 1, 0);
@@ -529,9 +722,10 @@ static void roll_book_drop(mafa_player_t *p, bool boss, bool elite,
     }
 }
 
-/* Drop roll (PRD 8.6, retuned): gate 20 % for normal mobs; gold-tier gear
- * comes from bosses only (8 %) — elites and trash stop at the map's purple
- * line so top items stay a chase. */
+/* Drop roll (PRD 8.6, 1.76 plan): gate 20 % for normal mobs; gold-tier gear
+ * comes from bosses only (8 %) — elites and trash stop at the map's top
+ * non-gold tier so 屠龙 stays a chase. Maps 5-7 carry gold rows; trash on
+ * those maps caps at tier 2. */
 static void roll_gear_drop(mafa_player_t *p, const mafa_battle_t *b,
                            const mafa_mob_t *m, mafa_events_t *ev) {
     uint32_t drop_roll = rng_next(p) % 100;
@@ -543,12 +737,12 @@ static void roll_gear_drop(mafa_player_t *p, const mafa_battle_t *b,
             uint32_t tr = rng_next(p) % 100;
             if (tr < 60) tier = 1;
             else if (tr < 92) tier = 2;
-            else tier = m->base->map == 3 ? 2 : 3;   /* trash never drops gold */
+            else tier = m->base->map >= 5 ? 2 : 3;    /* trash never drops gold */
         }
-    uint8_t slot = (uint8_t)(rng_next(p) % MAFA_EQ_SLOTS);
+    uint8_t stype = (uint8_t)(rng_next(p) % MAFA_SLOT_TYPES);
     for (int i = 0; i < MAFA_ITEM_COUNT; ++i)
         if (MAFA_ITEMS[i].map == m->base->map && MAFA_ITEMS[i].tier == tier
-            && MAFA_ITEMS[i].slot == slot) {
+            && MAFA_ITEMS[i].slot == stype) {
             uint8_t q = MAFA_ITEMS[i].quality;
             /* The auto-sell quality set (v1.2); gold never auto-sells —
              * legendary drops always reach the player. */
@@ -614,7 +808,7 @@ static void kill_mob(mafa_player_t *p, mafa_battle_t *b, uint8_t mob_idx,
     if (b->alive_n == 0) b->over = true;
 }
 
-/* --- Combat (PRD 8.3, skills-2.0) ------------------------------------------------ */
+/* --- Combat (PRD 8.3, 1.76 plan) ------------------------------------------------ */
 
 void mafa_ev_push(mafa_events_t *ev, uint8_t kind, uint8_t id, int32_t a,
                   int32_t b) {
@@ -704,14 +898,14 @@ static const mafa_skill_t *pick_skill(mafa_player_t *p, mafa_battle_t *b,
     mafa_stats_t st;
     mafa_stats(p, &st);
     /* Per-class priority over castable skills; PASSIVE/PROC never cast.
-     * Gates keep each form honest: AoE only into a crowd, shield when hurt
-     * and none up, pet while down, heal when hurt, poison once, and the
-     * taoist talisman only with mana to spare. Skills switched off on the
-     * gear page (skills_off, v1.2) are skipped here. */
+     * Gates keep each form honest: AoE only into a crowd, shield/armor when
+     * hurt and none up, pet while down, heal when hurt, poison once, and
+     * the taoist talisman only with mana to spare. Skills switched off on
+     * the skill page (skills_off, v1.2) are skipped here. */
     static const uint8_t ORDER[MAFA_CLS_COUNT][MAFA_SKILLS_PER_CLASS] = {
-        {4, 3, 2, 0xFF, 0xFF},          /* warrior: 烈火 半月 刺杀 */
-        {3, 4, 1, 2, 0},                /* mage: 盾 冰咆哮 雷电 火墙 火球 */
-        {0, 1, 2, 3, 0xFF},             /* taoist: 治愈 骷髅 毒 火符 */
+        {5, 6, 4, 3, 2, 0xFF, 0xFF},  /* warrior: 烈火 逐日 野蛮 半月 刺杀 */
+        {5, 6, 4, 3, 2, 1, 0},       /* mage: 盾 冰咆 雷光 火墙 爆裂 雷电 火球 */
+        {0, 6, 4, 2, 5, 3, 0xFF},    /* taoist: 治愈 神兽 骷髅 毒 战甲 火符 */
     };
     uint8_t target = first_alive(b);
     for (int o = 0; o < MAFA_SKILLS_PER_CLASS; ++o) {
@@ -735,6 +929,9 @@ static const mafa_skill_t *pick_skill(mafa_player_t *p, mafa_battle_t *b,
             break;
         case MAFA_SK_SHIELD:
             if (b->shield_rounds > 0 || p->hp * 10 >= st.max_hp * 7) continue;
+            break;
+        case MAFA_SK_ARMOR:
+            if (b->armor_rounds > 0 || p->hp * 10 >= st.max_hp * 7) continue;
             break;
         case MAFA_SK_PET:
             if (b->pet_alive || b->pet_cd > 0) continue;
@@ -778,6 +975,18 @@ static void player_turn(mafa_player_t *p, mafa_battle_t *b, mafa_events_t *ev) {
                          idx, dmg, first_alive(b));
             break;
         }
+        case MAFA_SK_STUN: {
+            uint8_t t = first_alive(b);
+            int32_t mdef = mob_effective_def(&b->mob[t]);
+            bool crit;
+            int32_t dmg = roll_damage(p, st.atk, mdef, s->mult, false, &crit);
+            b->mob[t].hp -= dmg;
+            b->mob[t].stun_rounds = s->rounds;
+            mafa_ev_push(ev, crit ? MAFA_EV_PLAYER_CRIT : MAFA_EV_SKILL_HIT,
+                         idx, dmg, t);
+            mafa_ev_push(ev, MAFA_EV_MOB_STUNNED, t, 0, 0);
+            break;
+        }
         case MAFA_SK_AOE: {
             for (uint8_t i = 0; i < b->mob_n; ++i) {
                 if (!b->mob[i].alive) continue;
@@ -815,6 +1024,10 @@ static void player_turn(mafa_player_t *p, mafa_battle_t *b, mafa_events_t *ev) {
         }
         case MAFA_SK_SHIELD:
             b->shield_rounds = s->rounds;
+            mafa_ev_push(ev, MAFA_EV_SKILL_SUPPORT, idx, 0, 0);
+            break;
+        case MAFA_SK_ARMOR:
+            b->armor_rounds = s->rounds;
             mafa_ev_push(ev, MAFA_EV_SKILL_SUPPORT, idx, 0, 0);
             break;
         case MAFA_SK_CHARGE:
@@ -884,18 +1097,28 @@ static void mob_turn(mafa_player_t *p, mafa_battle_t *b, mafa_events_t *ev) {
     mafa_stats(p, &st);
     int32_t pdef = st.def;
     if (b->is_boss) pdef /= 2;      /* bosses pierce 50 % of defense (PRD 9.2) */
-    /* 魔法盾 reduction, resolved once per round from the known skill. */
+    /* 魔法盾 reduction and 神圣战甲术 defense bonus, resolved once per round
+     * from the known skills. */
     uint8_t shield_pct = 0;
     if (b->shield_rounds > 0)
         for (int k = 0; k < MAFA_SKILLS_PER_CLASS; ++k)
             if (mafa_skill_known(p, (uint8_t)k)
                 && MAFA_SKILLS[p->cls][k].kind == MAFA_SK_SHIELD)
                 shield_pct = MAFA_SKILLS[p->cls][k].shield_pct;
+    if (b->armor_rounds > 0)
+        for (int k = 0; k < MAFA_SKILLS_PER_CLASS; ++k)
+            if (mafa_skill_known(p, (uint8_t)k)
+                && MAFA_SKILLS[p->cls][k].kind == MAFA_SK_ARMOR)
+                pdef = pdef * (100 + MAFA_SKILLS[p->cls][k].shield_pct) / 100;
     /* The pet is re-checked per hit: it can fall mid-round and the next
      * monster swings at the player instead. */
 
     for (uint8_t i = 0; i < b->mob_n && !b->over; ++i) {
         if (!b->mob[i].alive) continue;
+        if (b->mob[i].stun_rounds > 0) {        /* 野蛮冲撞: turn skipped */
+            b->mob[i].stun_rounds--;
+            continue;
+        }
         const mafa_monster_t *m = b->mob[i].base;
         bool low = b->mob[i].hp * 10 < b->mob[i].max_hp * 3;
         bool use_skill = m->skill != MAFA_MSK_NONE && low
@@ -1032,8 +1255,8 @@ void mafa_battle_round(mafa_player_t *p, mafa_battle_t *b, mafa_events_t *ev) {
         return;
     }
 
-    /* End of round: DoTs on the monsters, cooldowns, shield/pet timers,
-     * mana regen. */
+    /* End of round: DoTs on the monsters, cooldowns, shield/armor/pet
+     * timers, mana regen. */
     for (uint8_t i = 0; i < b->mob_n && !b->over; ++i) {
         if (!b->mob[i].alive) continue;
         if (b->mob[i].burn_rounds > 0) {
@@ -1052,6 +1275,7 @@ void mafa_battle_round(mafa_player_t *p, mafa_battle_t *b, mafa_events_t *ev) {
     if (b->over) return;
 
     if (b->shield_rounds > 0) b->shield_rounds--;
+    if (b->armor_rounds > 0) b->armor_rounds--;
     if (b->pet_cd > 0) b->pet_cd--;
     for (int i = 0; i < MAFA_SKILLS_PER_CLASS; ++i)
         if (b->cd[i] > 0) b->cd[i]--;
@@ -1082,7 +1306,7 @@ void mafa_drop_discard(mafa_player_t *p) {
     p->pending_drop = MAFA_DROP_NONE;
 }
 
-/* --- Save (PRD 8.10, v2) ---------------------------------------------------------- */
+/* --- Save (PRD 8.10, v6) ---------------------------------------------------------- */
 
 static uint8_t crc8(const uint8_t *d, size_t n) {
     uint8_t c = 0;
@@ -1094,6 +1318,9 @@ static uint8_t crc8(const uint8_t *d, size_t n) {
     return c;
 }
 
+/* v6 payload (1.76 plan): v5 body with books widened to 4 bytes, 8 equipped
+ * positions, 7 floor bytes and the 3-bit map fields = 57 bytes. */
+#define MAFA_SAVE_BODY_V6 57
 /* v5 payload (v1.3): v4 body + 3 per-map floor_unlocked bytes = 46. The old
  * v4 spare byte comes back as the first floor byte. */
 #define MAFA_SAVE_BODY_V5 46
@@ -1108,7 +1335,7 @@ static uint8_t crc8(const uint8_t *d, size_t n) {
 #define MAFA_SAVE_BODY_V1 36
 
 size_t mafa_save_serialize(const mafa_player_t *p, uint8_t *buf, size_t cap) {
-    const size_t total = 4 + MAFA_SAVE_BODY_V5 + 1;
+    const size_t total = 4 + MAFA_SAVE_BODY_V6 + 1;
     if (cap < total) return 0;
     buf[0] = 'M'; buf[1] = 'F'; buf[2] = 'C'; buf[3] = MAFA_SAVE_VERSION;
     uint8_t *w = buf + 4;
@@ -1119,30 +1346,63 @@ size_t mafa_save_serialize(const mafa_player_t *p, uint8_t *buf, size_t cap) {
     *w++ = (uint8_t)(p->gold & 0xFF); *w++ = (uint8_t)(p->gold >> 8);
     *w++ = (uint8_t)((uint16_t)p->hp & 0xFF); *w++ = (uint8_t)((uint16_t)p->hp >> 8);
     *w++ = (uint8_t)((uint16_t)p->mp & 0xFF); *w++ = (uint8_t)((uint16_t)p->mp >> 8);
-    *w++ = (uint8_t)(p->books & 0xFF); *w++ = (uint8_t)(p->books >> 8);
+    *w++ = (uint8_t)(p->books & 0xFF); *w++ = (uint8_t)((p->books >> 8) & 0xFF);
+    *w++ = (uint8_t)((p->books >> 16) & 0xFF); *w++ = (uint8_t)(p->books >> 24);
     *w++ = p->pot_red; *w++ = p->pot_blue;
     *w++ = p->kills & 0xFF; *w++ = p->kills >> 8;
-    *w++ = (uint8_t)(p->map | (p->unlocked << 2)
-                     | (p->auto_potion ? 0x10 : 0)
-                     | (p->auto_boss ? 0x40 : 0));
+    *w++ = (uint8_t)(p->map | (p->unlocked << 3)
+                     | (p->auto_potion ? 0x40 : 0)
+                     | (p->auto_boss ? 0x80 : 0));
     *w++ = p->pending_drop;
     for (int i = 0; i < MAFA_EQ_SLOTS; ++i) *w++ = p->equipped[i];
     for (int i = 0; i < MAFA_BACKPACK; ++i) { *w++ = p->inv_id[i]; *w++ = p->inv_n[i]; }
-    *w++ = p->skills_off & 0x1F;
+    *w++ = p->skills_off & 0x7F;
     *w++ = p->pot_hp_pct;
     *w++ = p->pot_mp_pct;
     *w++ = p->auto_sell & 0x0F;
     for (int i = 0; i < MAFA_MAP_COUNT - 1; ++i) *w++ = p->floor_unlocked[i];
     size_t body = (size_t)(w - (buf + 4));
-    if (body != MAFA_SAVE_BODY_V5) return 0;
+    if (body != MAFA_SAVE_BODY_V6) return 0;
     buf[4 + body] = crc8(buf + 4, body);
     return total;
 }
 
+/* The map the level places the player in — used by the v<6 starter kit. */
+static uint8_t band_map(uint8_t level) {
+    if (level <= 6) return 1;
+    if (level <= 13) return 2;
+    if (level <= 21) return 3;
+    if (level <= 27) return 4;
+    if (level <= 33) return 5;
+    return 6;
+}
+
+/* v<6 saves carry item ids from the old 27-row table — the table changed
+ * wholesale, so the migration replaces the loadout with tier-2 pieces of
+ * the player's level band (weapon/helmet/armor/necklace equipped, bag
+ * empty; twins stay grindable). */
+static void grant_migration_kit(mafa_player_t *t) {
+    for (int i = 0; i < MAFA_EQ_SLOTS; ++i) t->equipped[i] = MAFA_INV_EMPTY;
+    for (int i = 0; i < MAFA_BACKPACK; ++i) {
+        t->inv_id[i] = MAFA_INV_EMPTY;
+        t->inv_n[i] = 0;
+    }
+    t->pending_drop = MAFA_DROP_NONE;
+    uint8_t m = band_map(t->level);
+    for (int i = 0; i < MAFA_ITEM_COUNT; ++i)
+        if (MAFA_ITEMS[i].map == m && MAFA_ITEMS[i].tier == 2) {
+            int pos = equip_position(t, MAFA_ITEMS[i].slot);
+            if (pos >= 0 && pos < MAFA_ST_BRACELET)   /* singles only */
+                t->equipped[pos] = (uint8_t)i;
+        }
+}
+
 /* Version-aware payload reader: v1 (36 B) has xp16 and no books; v2/v3
- * (40 B) have xp32 + books; v4 (44 B) adds the skills_off / threshold /
- * auto-sell tail; v5 (46 B) replaces v4's spare byte with the three
- * per-map floor_unlocked bytes. Everything after mp shifts accordingly. */
+ * (40 B) have xp32 + books16; v4 (44 B) adds the skills_off / threshold /
+ * auto-sell tail; v5 (46 B) replaces v4's spare byte with three floor
+ * bytes; v6 (57 B) widens books to 32 bits, grows the paper doll to 8
+ * positions and the floor array to 7 maps. Everything after mp shifts
+ * accordingly. */
 static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
                          uint8_t version) {
     t->cls = r[0];
@@ -1161,18 +1421,28 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
     t->gold = (uint16_t)(r[0] | (r[1] << 8)); r += 2;
     t->hp = (int16_t)(r[0] | (r[1] << 8)); r += 2;
     t->mp = (int16_t)(r[0] | (r[1] << 8)); r += 2;
-    if (body >= MAFA_SAVE_BODY_V2) {
-        t->books = (uint16_t)(r[0] | (r[1] << 8));
+    if (body == MAFA_SAVE_BODY_V6) {
+        t->books = (uint32_t)r[0] | ((uint32_t)r[1] << 8)
+                   | ((uint32_t)r[2] << 16) | ((uint32_t)r[3] << 24);
+        r += 4;
+    } else if (body >= MAFA_SAVE_BODY_V2) {
+        /* v<6 book bits index the old 5-skill tables — dropped; the
+         * migration re-grants by the NEW unlock levels. */
         r += 2;
     }
     t->pot_red = *r++; t->pot_blue = *r++;
     t->kills = (uint16_t)(r[0] | (r[1] << 8)); r += 2;
     uint8_t flags = *r++;
-    t->map = flags & 3;
-    t->unlocked = (flags >> 2) & 3;
+    if (body == MAFA_SAVE_BODY_V6) {
+        t->map = flags & 7;
+        t->unlocked = (flags >> 3) & 7;
+    } else {
+        t->map = flags & 3;
+        t->unlocked = (flags >> 2) & 3;
+    }
     if (t->map >= MAFA_MAP_COUNT) return false;
     if (version >= 3) {
-        /* v3: 0 = safe zone, 1-3 combat maps; unlocked must leave the
+        /* v3+: 0 = safe zone, combat maps 1..; unlocked must leave the
          * player somewhere to fight. */
         if (t->unlocked < 1) return false;
     } else {
@@ -1182,8 +1452,13 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
         t->map = t->map == 3 ? MAFA_MAP_SAFE : (uint8_t)(t->map + 1);
         t->unlocked = (uint8_t)(t->unlocked + 1);
     }
-    t->auto_potion = (flags & 0x10) != 0;
-    t->auto_boss = (flags & 0x40) != 0;
+    if (body == MAFA_SAVE_BODY_V6) {
+        t->auto_potion = (flags & 0x40) != 0;
+        t->auto_boss = (flags & 0x80) != 0;
+    } else {
+        t->auto_potion = (flags & 0x10) != 0;
+        t->auto_boss = (flags & 0x40) != 0;
+    }
     /* v1-v3 defaults; the v4 tail below overwrites them. The old white-only
      * auto-sell flag maps onto the quality mask's white bit. */
     t->auto_sell = (flags & 0x20) ? 0x01 : 0x00;
@@ -1193,20 +1468,32 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
     t->pending_drop = *r++;
     if (t->pending_drop != MAFA_DROP_NONE
         && t->pending_drop >= MAFA_ITEM_COUNT) return false;
-    for (int i = 0; i < MAFA_EQ_SLOTS; ++i) {
-        t->equipped[i] = *r++;
-        if (t->equipped[i] != MAFA_INV_EMPTY
-            && (t->equipped[i] >= MAFA_ITEM_COUNT
-                || MAFA_ITEMS[t->equipped[i]].slot != i)) return false;
+    if (body == MAFA_SAVE_BODY_V6) {
+        for (int i = 0; i < MAFA_EQ_SLOTS; ++i) {
+            t->equipped[i] = *r++;
+            if (t->equipped[i] != MAFA_INV_EMPTY
+                && (t->equipped[i] >= MAFA_ITEM_COUNT
+                    || MAFA_ITEMS[t->equipped[i]].slot != MAFA_POS_TYPE[i]))
+                return false;
+        }
+    } else {
+        /* v<6: old 3-slot ids — validated against nothing, wiped by the
+         * migration kit. Skip the 3 bytes. */
+        r += 3;
     }
     for (int i = 0; i < MAFA_BACKPACK; ++i) {
-        t->inv_id[i] = *r++; t->inv_n[i] = *r++;
-        if (t->inv_id[i] != MAFA_INV_EMPTY
-            && (t->inv_id[i] >= MAFA_ITEM_COUNT || t->inv_n[i] == 0)) return false;
-        if (t->inv_id[i] == MAFA_INV_EMPTY) t->inv_n[i] = 0;
+        if (body == MAFA_SAVE_BODY_V6) {
+            t->inv_id[i] = *r++; t->inv_n[i] = *r++;
+            if (t->inv_id[i] != MAFA_INV_EMPTY
+                && (t->inv_id[i] >= MAFA_ITEM_COUNT || t->inv_n[i] == 0))
+                return false;
+            if (t->inv_id[i] == MAFA_INV_EMPTY) t->inv_n[i] = 0;
+        } else {
+            r += 2;    /* old ids are meaningless in the new table */
+        }
     }
     if (body >= MAFA_SAVE_BODY_V4) {
-        t->skills_off = (uint8_t)(*r++ & 0x1F);
+        t->skills_off = (uint8_t)(*r++ & 0x7F);
         t->pot_hp_pct = *r++;
         t->pot_mp_pct = *r++;
         if (t->pot_hp_pct < MAFA_POT_PCT_MIN || t->pot_hp_pct > MAFA_POT_PCT_MAX)
@@ -1215,7 +1502,7 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
             return false;
         t->auto_sell = (uint8_t)(*r++ & 0x0F);
     }
-    if (body == MAFA_SAVE_BODY_V5) {
+    if (body == MAFA_SAVE_BODY_V6) {
         for (int i = 0; i < MAFA_MAP_COUNT - 1; ++i) {
             t->floor_unlocked[i] = *r++;
             if (t->floor_unlocked[i] < 1
@@ -1227,6 +1514,16 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
                 && t->floor_unlocked[i - 1] != MAFA_MAP_FLOORS[i]) return false;
         t->floor = t->map == MAFA_MAP_SAFE
                        ? 0 : t->floor_unlocked[t->map - 1];
+    } else if (body == MAFA_SAVE_BODY_V5) {
+        /* v5's three floor bytes belong to the OLD ladders (祖玛 had 7
+         * floors; it is 石墓's band now) — read then clamp to the new
+         * ladders; the remap below extends to maps 4-7. */
+        for (int i = 0; i < 3; ++i) {
+            uint8_t f = *r++;
+            if (f < 1) f = 1;
+            if (f > MAFA_MAP_FLOORS[i + 1]) f = MAFA_MAP_FLOORS[i + 1];
+            t->floor_unlocked[i] = f;
+        }
     }
     return true;
 }
@@ -1235,7 +1532,8 @@ bool mafa_save_deserialize(mafa_player_t *p, const uint8_t *buf, size_t len) {
     if (len < 4 + MAFA_SAVE_BODY_V1 + 1) return false;
     if (buf[0] != 'M' || buf[1] != 'F' || buf[2] != 'C') return false;
     size_t body;
-    if (buf[3] == MAFA_SAVE_VERSION) body = MAFA_SAVE_BODY_V5;
+    if (buf[3] == MAFA_SAVE_VERSION) body = MAFA_SAVE_BODY_V6;
+    else if (buf[3] == 5) body = MAFA_SAVE_BODY_V5;
     else if (buf[3] == 4) body = MAFA_SAVE_BODY_V4;
     else if (buf[3] == 3 || buf[3] == 2) body = MAFA_SAVE_BODY_V2;
     else if (buf[3] == 1) body = MAFA_SAVE_BODY_V1;
@@ -1248,17 +1546,33 @@ bool mafa_save_deserialize(mafa_player_t *p, const uint8_t *buf, size_t len) {
     t.rng = p->rng;                     /* the live stream is never saved */
     if (!load_payload(&t, buf + 4, body, buf[3])) return false;
     if (buf[3] == 1) {
-        /* v1 → v3 migration: every skill whose unlock level is reached is
-         * granted its book, so old saves never lose learned skills. */
+        /* v1 → v6 migration: every skill whose (new) unlock level is
+         * reached is granted its book, so old saves never lose learned
+         * skills. */
         grant_level_books(&t);
     }
-    if (buf[3] < 5) {
-        /* v1-v4 → v5 floor migration: maps the player has left behind count
-         * as fully cleared; the top map's floor ladder re-climbs from
-         * floor 1 — that ladder is the v1.3 content. */
-        for (int i = 0; i < MAFA_MAP_COUNT - 1; ++i)
-            t.floor_unlocked[i] = t.unlocked >= i + 2
-                                      ? MAFA_MAP_FLOORS[i + 1] : 1;
+    if (buf[3] < 6) {
+        /* v1-v5 → v6 migration. Maps: old combat ids stay 1-3 by content
+         * band (森林→比奇省, 废矿→兽人古墓, 祖玛's old band→石墓), so the
+         * ids already read correctly; maps 4-7 are fresh ladders at floor
+         * 1 and stay locked until their own last-floor bosses fall — the
+         * old endgame content (祖玛) is re-earned as the new map 6. v1-v4
+         * saves carry no floor bytes: maps left behind count as fully
+         * cleared, the top map re-climbs from floor 1 (v5's clamped
+         * bytes stay). Books re-grant by the new unlock levels, carried xp
+         * clamps to the new curve, and the old loadout becomes the band
+         * starter kit. */
+        if (body < MAFA_SAVE_BODY_V5)
+            for (int i = 0; i < 3; ++i)
+                t.floor_unlocked[i] = t.unlocked >= i + 2
+                                          ? MAFA_MAP_FLOORS[i + 1] : 1;
+        for (int i = 3; i < MAFA_MAP_COUNT - 1; ++i) t.floor_unlocked[i] = 1;
+        t.unlocked = t.unlocked > 3 ? 3 : t.unlocked;
+        t.books = 0;
+        grant_level_books(&t);
+        uint32_t cap = mafa_xp_to_next(t.level);
+        if (cap && t.xp >= cap) t.xp = cap - 1;
+        grant_migration_kit(&t);
         t.floor = t.map == MAFA_MAP_SAFE ? 0 : t.floor_unlocked[t.map - 1];
     }
     *p = t;
