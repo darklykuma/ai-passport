@@ -143,7 +143,7 @@ save(img, "01-menu")
 img, d = new_page()
 title_band(d, "选择职业")
 panel(d, 6, 42, 228, 150, PANEL_BG, PANEL_EDGE)
-for i, nm in enumerate(["战士  高血高防", "法师  高攻脆皮", "道士  攻守兼备"]):
+for i, nm in enumerate(["战士  高血高防", "法师  高魔脆皮", "道士  道术续航"]):
     mark = "＞" if i == 0 else "　"
     text(d, (18, 52 + i * (LH16 + 6)), mark + nm, F16, GOLD if i == 0 else MAIN)
 panel(d, 6, 200, 228, 112, PANEL_BG, PANEL_EDGE)
@@ -219,12 +219,12 @@ save(img, "06-modal-boss")
 # / necklace / bracelet x2 / ring x2. Rows wear the item's quality color
 # (sample: a level-33 warrior in 沃玛-tier gear); the slot prefix keeps the
 # twin bracelet/ring rows distinguishable. Skills moved to their own page
-# (17); the dim stat pair and the potion line keep this page as the
-# "character" page (v1.2 potion-visibility home). 8 rows at pitch 24 mirror
-# the backpack panel (208px); the detail box carries stats + potions.
+# (17). v1.5: the detail box grew to three rows — the four combat stats
+# (攻/魔/道/防; the warrior reads 魔0 道0), both pools (the small warrior
+# mana pool), and the potion counters. 8 rows at pitch 24 in a 200px list.
 img, d = new_page()
 title_band(d, "装备")
-panel(d, 6, 42, 228, 208, PANEL_BG, PANEL_EDGE)
+panel(d, 6, 42, 228, 200, PANEL_BG, PANEL_EDGE)
 gear = [
     ("＞武器 井中月", "purple"),
     ("　头盔 黑铁头盔", "blue"),
@@ -239,12 +239,12 @@ y = 50
 for s, q in gear:
     text(d, (18, y), s, F16, QUAL.get(q, MAIN))
     y += LH16 + 4
-panel(d, 6, 256, 228, 56, PANEL_BG, PANEL_EDGE)
-text(d, (18, 264), "攻41 防26 血233/260", F16, DIM)
-text(d, (18, 288), "蓝58/90", F16, DIM)
-x0 = 18 + d.textlength("蓝58/90", font=F16) + 20
-text(d, (x0, 288), "红药x3", F16, RED)
-text(d, (x0 + d.textlength("红药x3  ", font=F16), 288), "蓝药x2", F16, MP_BLUE)
+panel(d, 6, 246, 228, 74, PANEL_BG, PANEL_EDGE)
+text(d, (18, 254), "攻41 魔0 道0 防26", F16, DIM)
+text(d, (18, 278), "血233/260 蓝20/43", F16, DIM)
+x0 = 18 + d.textlength("血233/260 蓝20/43  ", font=F16)
+text(d, (x0, 278), "红药x3", F16, RED)
+text(d, (x0 + d.textlength("红药x3  ", font=F16), 278), "蓝药x2", F16, MP_BLUE)
 save(img, "07-status")
 
 # ---- 17. skill page: 7 class skills with on/off states (1.76 plan) -----------
@@ -280,11 +280,12 @@ save(img, "17-skills")
 
 # ---- 8. backpack (gear-only slots; potions live on the gear page) ------------
 # The device font's real line height is 20 (LH16 here approximates 19), so
-# the list panel mirrors the code's 208px: 8 rows at pitch 24 fit with a
-# symmetric 10px pad instead of riding the bottom border.
+# the list panel mirrors the code's 200px: 8 rows at pitch 24 fit. v1.5: the
+# detail box grew to three rows — the five stat deltas of the comparison
+# (攻/魔/道 then 防/血) plus the gold line.
 img, d = new_page()
 title_band(d, "背包")
-panel(d, 6, 42, 228, 208, PANEL_BG, PANEL_EDGE)
+panel(d, 6, 42, 228, 200, PANEL_BG, PANEL_EDGE)
 items = [("＞1.炼狱 x1", "purple"), ("　2.骷髅头盔 x1", "white"),
          ("　3.恶魔铃铛 x1", "blue"), ("　4.空", DIM), ("　5.空", DIM),
          ("　6.空", DIM), ("　7.空", DIM), ("　8.空", DIM)]
@@ -293,9 +294,10 @@ for s, q in items:
     color = q if isinstance(q, tuple) else QUAL.get(q, MAIN)
     text(d, (18, y), s, F16, color)
     y += LH16 + 4
-panel(d, 6, 256, 228, 56, PANEL_BG, PANEL_EDGE)
-text(d, (18, 264), "攻+9 防+5 血+30", F16, DIM)
-text(d, (18, 288), "金币 2380", F16, DIM)
+panel(d, 6, 246, 228, 74, PANEL_BG, PANEL_EDGE)
+text(d, (18, 254), "攻+9 魔+0 道+0", F16, DIM)
+text(d, (18, 278), "防+5 血+30", F16, DIM)
+text(d, (18, 302), "金币 2380", F16, DIM)
 save(img, "08-backpack")
 
 # ---- 9. store: potions + three class books, level-gated (1.76 plan) ----------

@@ -17,27 +17,48 @@ static void test_stats_and_growth(void) {
     mafa_player_init(&p, MAFA_CLS_WARRIOR, 42);
     mafa_stats_t st;
     mafa_stats(&p, &st);
-    assert(st.max_hp == 60 && st.atk == 10 && st.def == 5 && st.max_mp == 0);
+    /* v1.5: warriors carry the small mana pool, no 魔/道 lines. */
+    assert(st.max_hp == 60 && st.atk == 11 && st.def == 5
+           && st.max_mp == 10 && st.mc == 0 && st.sc == 0);
     p.level = 5;
     mafa_stats(&p, &st);
-    assert(st.max_hp == 60 + 8 * 4 && st.atk == 10 + 2 * 4 && st.def == 9);
+    assert(st.max_hp == 60 + 8 * 4 && st.atk == 11 + 2 * 4 && st.def == 9
+           && st.max_mp == 10 + 4);
 
     mafa_player_init(&p, MAFA_CLS_MAGE, 42);
     mafa_stats(&p, &st);
-    assert(st.max_hp == 40 && st.atk == 14 && st.def == 3 && st.max_mp == 30);
+    /* The mage's main stat moved to 魔法 (v1.5); 平砍 keeps a small 攻. */
+    assert(st.max_hp == 40 && st.atk == 10 && st.mc == 14 && st.sc == 0
+           && st.def == 3 && st.max_mp == 30);
     p.level = 6;                        /* def +1 every 2 levels */
     mafa_stats(&p, &st);
-    assert(st.def == 3 + 6 / 2 && st.max_mp == 30 + 5 * 5);
+    assert(st.def == 3 + 6 / 2 && st.mc == 14 + 2 * 5 && st.atk == 10 + 5
+           && st.max_mp == 30 + 5 * 5);
 
     mafa_player_init(&p, MAFA_CLS_TAOIST, 42);
     mafa_stats(&p, &st);
-    assert(st.max_hp == 60 && st.max_mp == 25);
+    assert(st.max_hp == 60 && st.max_mp == 25 && st.sc == 12 && st.mc == 0
+           && st.atk == 10);
+    p.level = 20;
+    mafa_stats(&p, &st);
+    assert(st.sc == 12 + 19 && st.atk == 10 + 19);
 
     /* The paper doll: 8 positions, twins share a slot type. */
     assert(MAFA_POS_TYPE[0] == MAFA_ST_WEAPON && MAFA_POS_TYPE[1] == MAFA_ST_HELMET);
     assert(MAFA_POS_TYPE[2] == MAFA_ST_ARMOR && MAFA_POS_TYPE[3] == MAFA_ST_NECKLACE);
     assert(MAFA_POS_TYPE[4] == MAFA_ST_BRACELET && MAFA_POS_TYPE[5] == MAFA_ST_BRACELET);
     assert(MAFA_POS_TYPE[6] == MAFA_ST_RING && MAFA_POS_TYPE[7] == MAFA_ST_RING);
+}
+
+/* First table id matching name/map/tier — keeps assertions honest across
+ * table edits (v1.5 renumbered every id). */
+static uint8_t find_item(const char *name, uint8_t map, uint8_t tier) {
+    for (int i = 0; i < MAFA_ITEM_COUNT; ++i)
+        if (MAFA_ITEMS[i].map == map && MAFA_ITEMS[i].tier == tier
+            && strcmp(MAFA_ITEMS[i].name, name) == 0)
+            return (uint8_t)i;
+    assert(0 && "item not found");
+    return MAFA_INV_EMPTY;
 }
 
 static void test_xp_curve_front_fast_back_wall(void) {
@@ -531,26 +552,27 @@ static void test_safe_zone_full_restore(void) {
 static void test_inventory_equip_and_compare(void) {
     mafa_player_t p;
     mafa_player_init(&p, MAFA_CLS_WARRIOR, 3);
-    /* Map-1 weapon ids: 0 修罗(+4), 1 修罗绿(+7), 2 修罗蓝(+11). */
+    /* Map-1 weapon ids: 0 木剑(+4), 1 木剑绿(+7), 2 木剑蓝(+11). */
     assert(mafa_inv_add(&p, 0));
     assert(mafa_inv_add(&p, 0));        /* stacks */
     assert(p.inv_n[0] == 2);
     assert(mafa_equip(&p, 0));
     mafa_stats_t st;
     mafa_stats(&p, &st);
-    assert(st.atk == 10 + 4);           /* 修罗 +4 */
+    assert(st.atk == 11 + 4);           /* 木剑 +4 */
     assert(p.inv_n[0] == 1);            /* one left in the stack */
 
     mafa_compare_t cmp;
-    mafa_compare(&p, 2, &cmp);          /* 修罗蓝 +11 vs 修罗 +4 */
+    mafa_compare(&p, 2, &cmp);          /* 木剑蓝 +11 vs 木剑 +4 */
     assert(cmp.d_atk == 7);
+    assert(cmp.d_mc == 4 && cmp.d_sc == 4);   /* v1.5: the 魔法/道术 lines */
 
     assert(mafa_equip(&p, 0));          /* stack shrinks to zero, slot frees */
     assert(p.equipped[0] == 0);
     mafa_stats(&p, &st);
-    assert(st.atk == 10 + 4);           /* unchanged: swapped, not stacked */
+    assert(st.atk == 11 + 4);           /* unchanged: swapped, not stacked */
 
-    /* The returned 修罗 sits in the backpack; sell-all-whites clears it. */
+    /* The returned 木剑 sits in the backpack; sell-all-whites clears it. */
     assert(mafa_sell_all_white(&p) == 10);
     uint32_t gold_before = p.gold;
     assert(mafa_inv_add(&p, 12));       /* 大手镯, white bracelet */
@@ -565,7 +587,7 @@ static void test_inventory_equip_and_compare(void) {
     assert(mafa_equip(&p, 1));          /* green → right wrist (pos 5) */
     assert(p.equipped[5] == 13);
     mafa_stats(&p, &st);
-    assert(st.atk == 10 + 4 + 1 + 1 && st.def == 5 + 2 + 3);
+    assert(st.atk == 11 + 4 + 1 + 1 && st.def == 5 + 2 + 3);
     /* A third bracelet replaces the LEFT twin (first position of the type). */
     assert(mafa_inv_add(&p, 14));       /* 大手镯 blue → slot 0 */
     assert(mafa_equip(&p, 0));
@@ -670,8 +692,8 @@ static void test_save_roundtrip_v6(void) {
     p.skills_off = (uint8_t)(1u << 2);  /* 施毒术 switched off */
     p.auto_sell = 0x05;                 /* white + blue sell at once */
     grant_books(&p, 3);                 /* books for idx 1..3 (精神力/施毒/火符) */
-    assert(mafa_inv_add(&p, 11));       /* 金项链蓝 → slot 0 */
-    assert(mafa_inv_add(&p, 3));        /* 骷髅头盔白 → slot 1 */
+    assert(mafa_inv_add(&p, find_item("金项链", 1, 3)));   /* → slot 0 */
+    assert(mafa_inv_add(&p, find_item("骷髅头盔", 1, 1))); /* → slot 1 */
     assert(mafa_equip(&p, 0));          /* wears 金项链 (pos 3) */
     p.hp = 111;
     p.mp = 22;
@@ -679,8 +701,8 @@ static void test_save_roundtrip_v6(void) {
 
     uint8_t buf[80];
     size_t n = mafa_save_serialize(&p, buf, sizeof buf);
-    assert(n == 4 + MAFA_SAVE_BODY_V6 + 1);
-    assert(buf[3] == MAFA_SAVE_VERSION && buf[3] == 6);
+    assert(n == 4 + MAFA_SAVE_BODY_V7 + 1);
+    assert(buf[3] == MAFA_SAVE_VERSION && buf[3] == 7);
 
     mafa_player_t q;
     mafa_player_init(&q, MAFA_CLS_WARRIOR, 1);
@@ -695,7 +717,7 @@ static void test_save_roundtrip_v6(void) {
     assert(q.auto_potion == false && q.auto_boss == true);
     assert(q.pot_hp_pct == 70 && q.pot_mp_pct == 40);
     assert(q.skills_off == (1u << 2) && q.auto_sell == 0x05);
-    assert(q.equipped[3] == 11);        /* necklace position */
+    assert(q.equipped[3] == find_item("金项链", 1, 3));  /* necklace position */
     assert(q.hp == 111 && q.mp == 22);
     assert(q.rng > 0);                  /* the live stream is kept, not saved */
 
@@ -817,8 +839,10 @@ static void test_v1_save_migration(void) {
     assert(!mafa_skill_known(&p, 2));   /* 爆裂 L22 > 18 */
     uint32_t expected = (1u << (MAFA_CLS_MAGE * MAFA_SKILLS_PER_CLASS + 1));
     assert(p.books == expected);
-    /* Level 18 → band 3 (石墓): the migration kit wears its tier-2 set. */
-    assert(p.equipped[0] == 36 + 1 && p.equipped[3] == 36 + 10);
+    /* Level 18 → band 3 (石墓): the migration kit wears its tier-2 set for
+     * the mage's own line (偃月) plus the neutral singles. */
+    assert(p.equipped[0] == find_item("偃月", 3, 2)
+           && p.equipped[3] == find_item("放大镜", 3, 2));
     /* The v1 flags byte had 自动卖白 on (0x30 = potion + sell). */
     assert(p.auto_sell == 0x01);
     assert(p.pot_hp_pct == MAFA_POT_HP_PCT_DEFAULT && p.pot_mp_pct == 30);
@@ -912,8 +936,10 @@ static void test_v5_save_migration(void) {
     assert(q.books == expect);
     /* xp clamps below the new L15→16 cost (27000). */
     assert(q.xp == 26999);
-    /* Level 15 → band 3 (石墓): the migration kit wears its tier-2 set. */
-    assert(q.equipped[0] == 36 + 1 && q.equipped[3] == 36 + 10);
+    /* Level 15 → band 3 (石墓): the kit wears the taoist-line weapon
+     * (降魔) plus the neutral singles. */
+    assert(q.equipped[0] == find_item("降魔", 3, 2)
+           && q.equipped[3] == find_item("放大镜", 3, 2));
     assert(q.auto_sell == 0x01);
 }
 
@@ -1223,6 +1249,99 @@ static void test_battle_terminates_over_many_maps(void) {
     }
 }
 
+static void test_ring_and_potion_drops(void) {
+    /* v1.5: rings drop again (the old MAFA_SLOT_TYPES=5 bug made the ring
+     * slot unreachable), and trash supplies 金创药/魔法药 straight into the
+     * counters. */
+    int rings = 0, potions = 0, reds = 0, blues = 0;
+    for (int i = 0; i < 400 && (rings == 0 || potions == 0); ++i) {
+        mafa_player_t p;
+        mafa_player_init(&p, MAFA_CLS_WARRIOR, (uint32_t)(700 + i));
+        p.level = 6;
+        p.auto_sell = 0;                /* keep every drop observable */
+        p.unlocked = 1;
+        p.map = 1;
+        p.floor = MAFA_MAP_FLOORS[1];
+        mafa_battle_t b;
+        if (!mafa_battle_start(&p, &b)) continue;
+        mafa_events_t ev;
+        int guard = 0;
+        while (!b.over && guard++ < 1000) {
+            mafa_battle_round(&p, &b, &ev);
+            for (int k = 0; k < ev.n; ++k) {
+                if (ev.e[k].kind == MAFA_EV_DROP
+                    && MAFA_ITEMS[ev.e[k].id].slot == MAFA_ST_RING)
+                    rings++;
+                if (ev.e[k].kind == MAFA_EV_POTION) {
+                    potions++;
+                    if (ev.e[k].id == 1) reds++;
+                    else blues++;
+                }
+            }
+            if (p.pending_drop != MAFA_DROP_NONE) mafa_drop_discard(&p);
+        }
+    }
+    assert(rings > 0);                  /* the ring slot is reachable again */
+    assert(potions > 0);
+    assert(reds > blues);               /* the 60/40 red weighting shows */
+}
+
+static void test_class_line_scaling(void) {
+    /* 治愈术 heals max_hp×30 % + 2×道术: the v1.5 道术 line is live. */
+    mafa_player_t p;
+    mafa_player_init(&p, MAFA_CLS_TAOIST, 1010);
+    p.level = 20;
+    mafa_stats_t st;
+    mafa_stats(&p, &st);
+    int32_t expected = st.max_hp * 25 / 100 + st.sc;
+    assert(expected > st.max_hp * 25 / 100);   /* the 道术 term matters */
+    p.hp = 1;                           /* well under the 60 % gate */
+    p.pot_red = 0;
+    p.unlocked = 1;
+    p.map = 1;
+    p.floor = 1;
+    mafa_battle_t b;
+    assert(mafa_battle_start(&p, &b));
+    mafa_events_t ev;
+    int healed = -1;
+    int guard = 0;
+    while (healed < 0 && guard++ < 200 && !b.over) {
+        mafa_battle_round(&p, &b, &ev);
+        for (int k = 0; k < ev.n; ++k)
+            if (ev.e[k].kind == MAFA_EV_HEAL && ev.e[k].id == 0)
+                healed = (int)ev.e[k].a;
+    }
+    assert(healed == (int)expected);
+}
+
+static void test_warrior_pays_mp(void) {
+    /* 烈火 costs 8 MP now: the charge only arms on a mana-funded turn and
+     * the pool drains below max during long fights. */
+    mafa_player_t p;
+    mafa_player_init(&p, MAFA_CLS_WARRIOR, 2024);
+    p.level = 36;
+    grant_books(&p, 6);
+    p.unlocked = 1;
+    p.map = 1;
+    p.floor = 1;
+    mafa_stats_t st;
+    mafa_stats(&p, &st);
+    int32_t pool = st.max_mp;
+    assert(pool >= 8);                  /* 烈火's cost is affordable */
+    mafa_battle_t b;
+    assert(mafa_battle_start(&p, &b));
+    mafa_events_t ev;
+    bool spent = false;
+    int guard = 0;
+    while (!b.over && guard++ < 200) {
+        int32_t before = p.mp;
+        mafa_battle_round(&p, &b, &ev);
+        if (p.mp < before) spent = true;   /* a skill drank from the pool */
+        if (p.hp < st.max_hp / 2) p.hp = (int16_t)st.max_hp;
+    }
+    assert(spent);                      /* warrior actives are mana-fed */
+}
+
 int main(void) {
     test_stats_and_growth();
     test_xp_curve_front_fast_back_wall();
@@ -1254,6 +1373,9 @@ int main(void) {
     test_v5_save_migration();
     test_floor_ladder_walk();
     test_battle_terminates_over_many_maps();
+    test_ring_and_potion_drops();
+    test_class_line_scaling();
+    test_warrior_pays_mp();
     printf("test_mafa_model: all assertions passed\n");
     return 0;
 }

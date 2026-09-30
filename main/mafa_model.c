@@ -1,10 +1,11 @@
 // main/mafa_model.c — MAFA CHRONICLE pure game model. Host-testable;
 // no LVGL/ESP-IDF. All rolls draw from one splitmix32 stream (PRD 8.1 rule
 // carried over from FOG MARCH: a single source of randomness).
-// 1.76 alignment (2026-09-30): level cap 40, 7 skills per class at the
-// original's real learn levels, the 7-map route with 26 floor bosses, the
-// 8-slot paper doll (5 slot types, bracelets/rings doubled), level-gated
-// store books, safe-zone full restore, and save v6.
+// v1.5 stats 2.0 (2026-09-30): the original's 攻击/魔法/道术 lines — each
+// class's skills scale its own stat (warrior 攻 / mage 魔 / taoist 道),
+// gear carries class-affine stat lines (圣战=攻 法神=魔 天尊=道), warriors
+// gain a small mana pool (烈火/半月/野蛮 cost MP), taoist pet/poison/heal
+// scale with 道术, trash also drops potions, and save v7 migrates v6 ids.
 #include "mafa_model.h"
 
 #include <string.h>
@@ -19,186 +20,325 @@ const uint8_t MAFA_POS_TYPE[MAFA_EQ_SLOTS] = {
     MAFA_ST_BRACELET, MAFA_ST_BRACELET, MAFA_ST_RING, MAFA_ST_RING,
 };
 
-/* 105 rows: (map 1-7) x (tier 1-3) x (5 slot types). Names are the
- * original's real item ladder (verified 2026-09-30: weapon line 修罗→炼狱→
- * 铜锤→井中月→血饮→裁决之杖→屠龙; helmets 骷髅→道士→黑铁 (+黑铁 holds the
- * 沃玛 band: the classic game has no helmet between 黑铁 and the 赤月 sets);
- * armors 布衣→轻型→重型→天魔神甲→法神披风→天尊道袍→圣战宝甲; necklaces
- * 金项链→竹笛→放大镜→天珠→恶魔铃铛→绿色项链→灵魂项链; bracelets 大手镯→
- * 铁手镯→思贝儿→三眼→龙之→骑士→圣战; rings 古铜→珊瑚→龙之戒→红宝石→
- * 紫碧螺→力量→圣战). Quality lines escalate W..GOLD by map; 屠龙 stays the
- * gold easter egg. */
+/* 252 rows (v1.5 stats 2.0): per (map, tier) the weapon and — from the
+ * 沃玛 tier on — every jewelry slot carries 战/法/道 class lines, mirroring
+ * the original's per-tier triads; helmets/armors stay single rows (neutral
+ * early, class-tilted 赤月名 later). Item ids are stored as bytes across
+ * saves/events, so the table must stay within 256 rows (asserted below).
+ * Names are the original's real lines (verified 2026-09-30 against
+ * community tables: warrior 匕首→青铜斧→修罗→炼狱→井中月→裁决之杖→屠龙;
+ * mage 乌木剑→海魂→偃月→魔杖→血饮→骨玉权杖→嗜魂法杖; taoist 木剑→降魔→
+ * 银蛇→无极棍→龙纹剑→逍遥扇(1.75, approved exception); 沃玛 triads 幽灵/
+ * 生命/天珠 项链 + 幽灵手套/思贝儿/心灵 手镯 + 龙之戒/红宝石/铂金 戒指;
+ * 祖玛 triads 绿色/恶魔铃铛/灵魂 项链 + 骑士/龙之手镯/三眼 手镯 + 力量/
+ * 紫碧螺/泰坦 戒指; 赤月 sets 圣战/法神/天尊). The line column drives the
+ * drop roll (own line ~60 %) and the kit pickers. */
 const mafa_item_t MAFA_ITEMS[] = {
-    /* map 1 比奇省: white / green / blue */
-    {"修罗",     MAFA_ST_WEAPON,   MAFA_Q_WHITE,  1, 1,   4,  0,  0},
-    {"修罗",     MAFA_ST_WEAPON,   MAFA_Q_GREEN,  1, 2,   7,  0,  0},
-    {"修罗",     MAFA_ST_WEAPON,   MAFA_Q_BLUE,   1, 3,  11,  0,  0},
-    {"骷髅头盔", MAFA_ST_HELMET,   MAFA_Q_WHITE,  1, 1,   0,  2, 18},
-    {"骷髅头盔", MAFA_ST_HELMET,   MAFA_Q_GREEN,  1, 2,   0,  3, 23},
-    {"骷髅头盔", MAFA_ST_HELMET,   MAFA_Q_BLUE,   1, 3,   0,  4, 28},
-    {"布衣",     MAFA_ST_ARMOR,    MAFA_Q_WHITE,  1, 1,   0,  4, 35},
-    {"布衣",     MAFA_ST_ARMOR,    MAFA_Q_GREEN,  1, 2,   0,  5, 45},
-    {"布衣",     MAFA_ST_ARMOR,    MAFA_Q_BLUE,   1, 3,   0,  7, 55},
-    {"金项链",   MAFA_ST_NECKLACE, MAFA_Q_WHITE,  1, 1,   4,  0, 11},
-    {"金项链",   MAFA_ST_NECKLACE, MAFA_Q_GREEN,  1, 2,   5,  0, 14},
-    {"金项链",   MAFA_ST_NECKLACE, MAFA_Q_BLUE,   1, 3,   7,  0, 18},
-    {"大手镯",   MAFA_ST_BRACELET, MAFA_Q_WHITE,  1, 1,   1,  2,  0},
-    {"大手镯",   MAFA_ST_BRACELET, MAFA_Q_GREEN,  1, 2,   1,  3,  0},
-    {"大手镯",   MAFA_ST_BRACELET, MAFA_Q_BLUE,   1, 3,   2,  4,  0},
-    {"古铜戒指", MAFA_ST_RING,     MAFA_Q_WHITE,  1, 1,   4,  0,  0},
-    {"古铜戒指", MAFA_ST_RING,     MAFA_Q_GREEN,  1, 2,   5,  0,  0},
-    {"古铜戒指", MAFA_ST_RING,     MAFA_Q_BLUE,   1, 3,   6,  0,  0},
+    /* map 1 比奇省: white / green / blue — the original's generic starter
+     * gear (木剑 is the classic all-class first weapon, 盛趣 official) */
+    {"木剑",   MAFA_ST_WEAPON,   MAFA_Q_WHITE, 1, 1, MAFA_LINE_NEUTRAL,  4, 0, 2, 2,  0},
+    {"木剑",   MAFA_ST_WEAPON,   MAFA_Q_GREEN, 1, 2, MAFA_LINE_NEUTRAL,  7, 0, 4, 4,  0},
+    {"木剑",   MAFA_ST_WEAPON,   MAFA_Q_BLUE,  1, 3, MAFA_LINE_NEUTRAL, 11, 0, 6, 6,  0},
+    {"骷髅头盔", MAFA_ST_HELMET, MAFA_Q_WHITE, 1, 1, MAFA_LINE_NEUTRAL,  0, 2, 0, 0, 18},
+    {"骷髅头盔", MAFA_ST_HELMET, MAFA_Q_GREEN, 1, 2, MAFA_LINE_NEUTRAL,  0, 3, 0, 0, 23},
+    {"骷髅头盔", MAFA_ST_HELMET, MAFA_Q_BLUE,  1, 3, MAFA_LINE_NEUTRAL,  0, 4, 0, 0, 28},
+    {"布衣",   MAFA_ST_ARMOR,    MAFA_Q_WHITE, 1, 1, MAFA_LINE_NEUTRAL,  0, 4, 0, 0, 35},
+    {"布衣",   MAFA_ST_ARMOR,    MAFA_Q_GREEN, 1, 2, MAFA_LINE_NEUTRAL,  0, 5, 0, 0, 45},
+    {"布衣",   MAFA_ST_ARMOR,    MAFA_Q_BLUE,  1, 3, MAFA_LINE_NEUTRAL,  0, 7, 0, 0, 55},
+    {"金项链", MAFA_ST_NECKLACE, MAFA_Q_WHITE, 1, 1, MAFA_LINE_NEUTRAL,  4, 0, 4, 4, 11},
+    {"金项链", MAFA_ST_NECKLACE, MAFA_Q_GREEN, 1, 2, MAFA_LINE_NEUTRAL,  5, 0, 5, 5, 14},
+    {"金项链", MAFA_ST_NECKLACE, MAFA_Q_BLUE,  1, 3, MAFA_LINE_NEUTRAL,  7, 0, 7, 7, 18},
+    {"大手镯", MAFA_ST_BRACELET, MAFA_Q_WHITE, 1, 1, MAFA_LINE_NEUTRAL,  1, 2, 1, 1,  0},
+    {"大手镯", MAFA_ST_BRACELET, MAFA_Q_GREEN, 1, 2, MAFA_LINE_NEUTRAL,  1, 3, 2, 2,  0},
+    {"大手镯", MAFA_ST_BRACELET, MAFA_Q_BLUE,  1, 3, MAFA_LINE_NEUTRAL,  2, 4, 3, 3,  0},
+    {"古铜戒指", MAFA_ST_RING,   MAFA_Q_WHITE, 1, 1, MAFA_LINE_NEUTRAL,  4, 0, 4, 4,  0},
+    {"古铜戒指", MAFA_ST_RING,   MAFA_Q_GREEN, 1, 2, MAFA_LINE_NEUTRAL,  5, 0, 5, 5,  0},
+    {"古铜戒指", MAFA_ST_RING,   MAFA_Q_BLUE,  1, 3, MAFA_LINE_NEUTRAL,  6, 0, 6, 6,  0},
     /* map 2 兽人古墓: green / blue / purple */
-    {"炼狱",     MAFA_ST_WEAPON,   MAFA_Q_GREEN,  2, 1,   7,  0,  0},
-    {"炼狱",     MAFA_ST_WEAPON,   MAFA_Q_BLUE,   2, 2,  10,  0,  0},
-    {"炼狱",     MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 2, 3,  14,  0,  0},
-    {"道士头盔", MAFA_ST_HELMET,   MAFA_Q_GREEN,  2, 1,   0,  3, 26},
-    {"道士头盔", MAFA_ST_HELMET,   MAFA_Q_BLUE,   2, 2,   0,  4, 31},
-    {"道士头盔", MAFA_ST_HELMET,   MAFA_Q_PURPLE, 2, 3,   0,  5, 36},
-    {"轻型盔甲", MAFA_ST_ARMOR,    MAFA_Q_GREEN,  2, 1,   0,  6, 50},
-    {"轻型盔甲", MAFA_ST_ARMOR,    MAFA_Q_BLUE,   2, 2,   0,  7, 60},
-    {"轻型盔甲", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 2, 3,   0,  9, 70},
-    {"竹笛",     MAFA_ST_NECKLACE, MAFA_Q_GREEN,  2, 1,   6,  0, 17},
-    {"竹笛",     MAFA_ST_NECKLACE, MAFA_Q_BLUE,   2, 2,   7,  0, 20},
-    {"竹笛",     MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 2, 3,   9,  0, 24},
-    {"铁手镯",   MAFA_ST_BRACELET, MAFA_Q_GREEN,  2, 1,   2,  3,  0},
-    {"铁手镯",   MAFA_ST_BRACELET, MAFA_Q_BLUE,   2, 2,   2,  4,  0},
-    {"铁手镯",   MAFA_ST_BRACELET, MAFA_Q_PURPLE, 2, 3,   3,  5,  0},
-    {"珊瑚戒指", MAFA_ST_RING,     MAFA_Q_GREEN,  2, 1,   6,  0,  0},
-    {"珊瑚戒指", MAFA_ST_RING,     MAFA_Q_BLUE,   2, 2,   7,  0,  0},
-    {"珊瑚戒指", MAFA_ST_RING,     MAFA_Q_PURPLE, 2, 3,   8,  0,  0},
+    {"青铜斧", MAFA_ST_WEAPON,   MAFA_Q_GREEN, 2, 1, MAFA_LINE_WARRIOR,  7, 0, 0, 0,  0},
+    {"海魂",   MAFA_ST_WEAPON,   MAFA_Q_GREEN, 2, 1, MAFA_LINE_MAGE,     4, 0, 7, 0,  0},
+    {"降魔",   MAFA_ST_WEAPON,   MAFA_Q_GREEN, 2, 1, MAFA_LINE_TAOIST,   4, 0, 0, 7,  0},
+    {"青铜斧", MAFA_ST_WEAPON,   MAFA_Q_BLUE,  2, 2, MAFA_LINE_WARRIOR, 10, 0, 0, 0,  0},
+    {"海魂",   MAFA_ST_WEAPON,   MAFA_Q_BLUE,  2, 2, MAFA_LINE_MAGE,     5, 0,10, 0,  0},
+    {"降魔",   MAFA_ST_WEAPON,   MAFA_Q_BLUE,  2, 2, MAFA_LINE_TAOIST,   5, 0, 0,10,  0},
+    {"青铜斧", MAFA_ST_WEAPON,   MAFA_Q_PURPLE,2, 3, MAFA_LINE_WARRIOR, 14, 0, 0, 0,  0},
+    {"海魂",   MAFA_ST_WEAPON,   MAFA_Q_PURPLE,2, 3, MAFA_LINE_MAGE,     7, 0,14, 0,  0},
+    {"降魔",   MAFA_ST_WEAPON,   MAFA_Q_PURPLE,2, 3, MAFA_LINE_TAOIST,   7, 0, 0,14,  0},
+    {"黑铁头盔", MAFA_ST_HELMET, MAFA_Q_GREEN, 2, 1, MAFA_LINE_NEUTRAL,  0, 3, 0, 0, 26},
+    {"黑铁头盔", MAFA_ST_HELMET, MAFA_Q_BLUE,  2, 2, MAFA_LINE_NEUTRAL,  0, 4, 0, 0, 31},
+    {"黑铁头盔", MAFA_ST_HELMET, MAFA_Q_PURPLE,2, 3, MAFA_LINE_NEUTRAL,  0, 5, 0, 0, 36},
+    {"轻型盔甲", MAFA_ST_ARMOR,  MAFA_Q_GREEN, 2, 1, MAFA_LINE_NEUTRAL,  0, 6, 0, 0, 50},
+    {"轻型盔甲", MAFA_ST_ARMOR,  MAFA_Q_BLUE,  2, 2, MAFA_LINE_NEUTRAL,  0, 7, 0, 0, 60},
+    {"轻型盔甲", MAFA_ST_ARMOR,  MAFA_Q_PURPLE,2, 3, MAFA_LINE_NEUTRAL,  0, 9, 0, 0, 70},
+    {"竹笛",   MAFA_ST_NECKLACE, MAFA_Q_GREEN, 2, 1, MAFA_LINE_NEUTRAL,  6, 0, 6, 6, 17},
+    {"竹笛",   MAFA_ST_NECKLACE, MAFA_Q_BLUE,  2, 2, MAFA_LINE_NEUTRAL,  7, 0, 7, 7, 20},
+    {"竹笛",   MAFA_ST_NECKLACE, MAFA_Q_PURPLE,2, 3, MAFA_LINE_NEUTRAL,  9, 0, 9, 9, 24},
+    {"铁手镯", MAFA_ST_BRACELET, MAFA_Q_GREEN, 2, 1, MAFA_LINE_NEUTRAL,  2, 3, 2, 2,  0},
+    {"铁手镯", MAFA_ST_BRACELET, MAFA_Q_BLUE,  2, 2, MAFA_LINE_NEUTRAL,  2, 4, 4, 4,  0},
+    {"铁手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE,2, 3, MAFA_LINE_NEUTRAL,  3, 5, 6, 6,  0},
+    {"珊瑚戒指", MAFA_ST_RING,   MAFA_Q_GREEN, 2, 1, MAFA_LINE_NEUTRAL,  6, 0, 6, 6,  0},
+    {"珊瑚戒指", MAFA_ST_RING,   MAFA_Q_BLUE,  2, 2, MAFA_LINE_NEUTRAL,  7, 0, 7, 7,  0},
+    {"珊瑚戒指", MAFA_ST_RING,   MAFA_Q_PURPLE,2, 3, MAFA_LINE_NEUTRAL,  8, 0, 8, 8,  0},
     /* map 3 石墓: green / blue / purple */
-    {"铜锤",     MAFA_ST_WEAPON,   MAFA_Q_GREEN,  3, 1,  10,  0,  0},
-    {"铜锤",     MAFA_ST_WEAPON,   MAFA_Q_BLUE,   3, 2,  13,  0,  0},
-    {"铜锤",     MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 3, 3,  17,  0,  0},
-    {"黑铁头盔", MAFA_ST_HELMET,   MAFA_Q_GREEN,  3, 1,   0,  4, 34},
-    {"黑铁头盔", MAFA_ST_HELMET,   MAFA_Q_BLUE,   3, 2,   0,  5, 39},
-    {"黑铁头盔", MAFA_ST_HELMET,   MAFA_Q_PURPLE, 3, 3,   0,  6, 44},
-    {"重型盔甲", MAFA_ST_ARMOR,    MAFA_Q_GREEN,  3, 1,   0,  8, 65},
-    {"重型盔甲", MAFA_ST_ARMOR,    MAFA_Q_BLUE,   3, 2,   0,  9, 75},
-    {"重型盔甲", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 3, 3,   0, 11, 85},
-    {"放大镜",   MAFA_ST_NECKLACE, MAFA_Q_GREEN,  3, 1,   8,  0, 23},
-    {"放大镜",   MAFA_ST_NECKLACE, MAFA_Q_BLUE,   3, 2,   9,  0, 26},
-    {"放大镜",   MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 3, 3,  11,  0, 30},
-    {"思贝儿手镯", MAFA_ST_BRACELET, MAFA_Q_GREEN,  3, 1, 2,  4,  0},
-    {"思贝儿手镯", MAFA_ST_BRACELET, MAFA_Q_BLUE,   3, 2, 2,  5,  0},
-    {"思贝儿手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 3, 3, 3,  6,  0},
-    {"龙之戒",   MAFA_ST_RING,     MAFA_Q_GREEN,  3, 1,   8,  0,  0},
-    {"龙之戒",   MAFA_ST_RING,     MAFA_Q_BLUE,   3, 2,   9,  0,  0},
-    {"龙之戒",   MAFA_ST_RING,     MAFA_Q_PURPLE, 3, 3,  10,  0,  0},
-    /* map 4 沃玛寺庙: blue / purple / purple */
-    {"井中月",   MAFA_ST_WEAPON,   MAFA_Q_BLUE,   4, 1,  13,  0,  0},
-    {"井中月",   MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 4, 2,  16,  0,  0},
-    {"井中月",   MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 4, 3,  20,  0,  0},
-    {"黑铁头盔", MAFA_ST_HELMET,   MAFA_Q_BLUE,   4, 1,   0,  5, 42},
-    {"黑铁头盔", MAFA_ST_HELMET,   MAFA_Q_PURPLE, 4, 2,   0,  6, 47},
-    {"黑铁头盔", MAFA_ST_HELMET,   MAFA_Q_PURPLE, 4, 3,   0,  7, 52},
-    {"天魔神甲", MAFA_ST_ARMOR,    MAFA_Q_BLUE,   4, 1,   0, 10, 80},
-    {"天魔神甲", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 4, 2,   0, 11, 90},
-    {"天魔神甲", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 4, 3,   0, 13, 100},
-    {"天珠项链", MAFA_ST_NECKLACE, MAFA_Q_BLUE,   4, 1,  10,  0, 29},
-    {"天珠项链", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 4, 2,  11,  0, 32},
-    {"天珠项链", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 4, 3,  13,  0, 36},
-    {"三眼手镯", MAFA_ST_BRACELET, MAFA_Q_BLUE,   4, 1,   3,  5,  0},
-    {"三眼手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 4, 2,  3,  6,  0},
-    {"三眼手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 4, 3,   4,  7,  0},
-    {"红宝石戒指", MAFA_ST_RING,   MAFA_Q_BLUE,   4, 1,  10,  0,  0},
-    {"红宝石戒指", MAFA_ST_RING,   MAFA_Q_PURPLE, 4, 2,  11,  0,  0},
-    {"红宝石戒指", MAFA_ST_RING,   MAFA_Q_PURPLE, 4, 3,  12,  0,  0},
-    /* map 5 死亡山谷: blue / purple / gold */
-    {"血饮",     MAFA_ST_WEAPON,   MAFA_Q_BLUE,   5, 1,  16,  0,  0},
-    {"血饮",     MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 5, 2,  19,  0,  0},
-    {"血饮",     MAFA_ST_WEAPON,   MAFA_Q_GOLD,   5, 3,  23,  0,  0},
-    {"圣战头盔", MAFA_ST_HELMET,   MAFA_Q_BLUE,   5, 1,   0,  6, 50},
-    {"圣战头盔", MAFA_ST_HELMET,   MAFA_Q_PURPLE, 5, 2,   0,  7, 55},
-    {"圣战头盔", MAFA_ST_HELMET,   MAFA_Q_GOLD,   5, 3,   0,  8, 60},
-    {"法神披风", MAFA_ST_ARMOR,    MAFA_Q_BLUE,   5, 1,   0, 12, 95},
-    {"法神披风", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 5, 2,   0, 13, 105},
-    {"法神披风", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   5, 3,   0, 15, 115},
-    {"恶魔铃铛", MAFA_ST_NECKLACE, MAFA_Q_BLUE,   5, 1,  12,  0, 35},
-    {"恶魔铃铛", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 5, 2,  13,  0, 38},
-    {"恶魔铃铛", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   5, 3,  15,  0, 42},
-    {"龙之手镯", MAFA_ST_BRACELET, MAFA_Q_BLUE,   5, 1,   3,  6,  0},
-    {"龙之手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 5, 2,   3,  7,  0},
-    {"龙之手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   5, 3,   4,  8,  0},
-    {"紫碧螺",   MAFA_ST_RING,     MAFA_Q_BLUE,   5, 1,  12,  0,  0},
-    {"紫碧螺",   MAFA_ST_RING,     MAFA_Q_PURPLE, 5, 2,  13,  0,  0},
-    {"紫碧螺",   MAFA_ST_RING,     MAFA_Q_GOLD,   5, 3,  14,  0,  0},
-    /* map 6 祖玛寺庙: purple / gold / gold */
-    {"裁决之杖", MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 6, 1,  19,  0,  0},
-    {"裁决之杖", MAFA_ST_WEAPON,   MAFA_Q_GOLD,   6, 2,  22,  0,  0},
-    {"裁决之杖", MAFA_ST_WEAPON,   MAFA_Q_GOLD,   6, 3,  26,  0,  0},
-    {"法神头盔", MAFA_ST_HELMET,   MAFA_Q_PURPLE, 6, 1,   0,  7, 58},
-    {"法神头盔", MAFA_ST_HELMET,   MAFA_Q_GOLD,   6, 2,   0,  8, 63},
-    {"法神头盔", MAFA_ST_HELMET,   MAFA_Q_GOLD,   6, 3,   0,  9, 68},
-    {"天尊道袍", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 6, 1,   0, 14, 110},
-    {"天尊道袍", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   6, 2,   0, 15, 120},
-    {"天尊道袍", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   6, 3,   0, 17, 130},
-    {"绿色项链", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 6, 1,  14,  0, 41},
-    {"绿色项链", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   6, 2,  15,  0, 44},
-    {"绿色项链", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   6, 3,  17,  0, 48},
-    {"骑士手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 6, 1,   4,  7,  0},
-    {"骑士手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   6, 2,   4,  8,  0},
-    {"骑士手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   6, 3,   5,  9,  0},
-    {"力量戒指", MAFA_ST_RING,     MAFA_Q_PURPLE, 6, 1,  14,  0,  0},
-    {"力量戒指", MAFA_ST_RING,     MAFA_Q_GOLD,   6, 2,  15,  0,  0},
-    {"力量戒指", MAFA_ST_RING,     MAFA_Q_GOLD,   6, 3,  16,  0,  0},
-    /* map 7 赤月峡谷: purple / gold / gold (屠龙 = the graduation easter egg) */
-    {"屠龙",     MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 7, 1,  23,  0,  0},
-    {"屠龙",     MAFA_ST_WEAPON,   MAFA_Q_GOLD,   7, 2,  26,  0,  0},
-    {"屠龙",     MAFA_ST_WEAPON,   MAFA_Q_GOLD,   7, 3,  30,  0,  0},
-    {"天尊头盔", MAFA_ST_HELMET,   MAFA_Q_PURPLE, 7, 1,   0,  8, 66},
-    {"天尊头盔", MAFA_ST_HELMET,   MAFA_Q_GOLD,   7, 2,   0,  9, 71},
-    {"天尊头盔", MAFA_ST_HELMET,   MAFA_Q_GOLD,   7, 3,   0, 10, 76},
-    {"圣战宝甲", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 7, 1,   0, 16, 125},
-    {"圣战宝甲", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   7, 2,   0, 17, 135},
-    {"圣战宝甲", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   7, 3,   0, 19, 145},
-    {"灵魂项链", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 7, 1,  16,  0, 47},
-    {"灵魂项链", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   7, 2,  17,  0, 50},
-    {"灵魂项链", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   7, 3,  19,  0, 54},
-    {"圣战手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 7, 1,   4,  8,  0},
-    {"圣战手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   7, 2,   4,  9,  0},
-    {"圣战手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   7, 3,   5, 10,  0},
-    {"圣战戒指", MAFA_ST_RING,     MAFA_Q_PURPLE, 7, 1,  16,  0,  0},
-    {"圣战戒指", MAFA_ST_RING,     MAFA_Q_GOLD,   7, 2,  17,  0,  0},
-    {"圣战戒指", MAFA_ST_RING,     MAFA_Q_GOLD,   7, 3,  18,  0,  0},
+    {"修罗",   MAFA_ST_WEAPON,   MAFA_Q_GREEN, 3, 1, MAFA_LINE_WARRIOR, 10, 0, 0, 0,  0},
+    {"偃月",   MAFA_ST_WEAPON,   MAFA_Q_GREEN, 3, 1, MAFA_LINE_MAGE,     5, 0,10, 0,  0},
+    {"降魔",   MAFA_ST_WEAPON,   MAFA_Q_GREEN, 3, 1, MAFA_LINE_TAOIST,   5, 0, 0,10,  0},
+    {"修罗",   MAFA_ST_WEAPON,   MAFA_Q_BLUE,  3, 2, MAFA_LINE_WARRIOR, 13, 0, 0, 0,  0},
+    {"偃月",   MAFA_ST_WEAPON,   MAFA_Q_BLUE,  3, 2, MAFA_LINE_MAGE,     7, 0,13, 0,  0},
+    {"降魔",   MAFA_ST_WEAPON,   MAFA_Q_BLUE,  3, 2, MAFA_LINE_TAOIST,   7, 0, 0,13,  0},
+    {"修罗",   MAFA_ST_WEAPON,   MAFA_Q_PURPLE,3, 3, MAFA_LINE_WARRIOR, 17, 0, 0, 0,  0},
+    {"偃月",   MAFA_ST_WEAPON,   MAFA_Q_PURPLE,3, 3, MAFA_LINE_MAGE,     9, 0,17, 0,  0},
+    {"降魔",   MAFA_ST_WEAPON,   MAFA_Q_PURPLE,3, 3, MAFA_LINE_TAOIST,   9, 0, 0,17,  0},
+    {"黑铁头盔", MAFA_ST_HELMET, MAFA_Q_GREEN, 3, 1, MAFA_LINE_NEUTRAL,  0, 4, 0, 0, 34},
+    {"黑铁头盔", MAFA_ST_HELMET, MAFA_Q_BLUE,  3, 2, MAFA_LINE_NEUTRAL,  0, 5, 0, 0, 39},
+    {"黑铁头盔", MAFA_ST_HELMET, MAFA_Q_PURPLE,3, 3, MAFA_LINE_NEUTRAL,  0, 6, 0, 0, 44},
+    {"重型盔甲", MAFA_ST_ARMOR,  MAFA_Q_GREEN, 3, 1, MAFA_LINE_NEUTRAL,  0, 8, 0, 0, 65},
+    {"重型盔甲", MAFA_ST_ARMOR,  MAFA_Q_BLUE,  3, 2, MAFA_LINE_NEUTRAL,  0, 9, 0, 0, 75},
+    {"重型盔甲", MAFA_ST_ARMOR,  MAFA_Q_PURPLE,3, 3, MAFA_LINE_NEUTRAL,  0,11, 0, 0, 85},
+    {"放大镜", MAFA_ST_NECKLACE, MAFA_Q_GREEN, 3, 1, MAFA_LINE_NEUTRAL,  8, 0, 8, 8, 23},
+    {"放大镜", MAFA_ST_NECKLACE, MAFA_Q_BLUE,  3, 2, MAFA_LINE_NEUTRAL,  9, 0, 9, 9, 26},
+    {"放大镜", MAFA_ST_NECKLACE, MAFA_Q_PURPLE,3, 3, MAFA_LINE_NEUTRAL, 11, 0,11,11, 30},
+    {"铁手镯", MAFA_ST_BRACELET, MAFA_Q_GREEN, 3, 1, MAFA_LINE_NEUTRAL,  2, 4, 2, 2,  0},
+    {"铁手镯", MAFA_ST_BRACELET, MAFA_Q_BLUE,  3, 2, MAFA_LINE_NEUTRAL,  2, 5, 4, 4,  0},
+    {"铁手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE,3, 3, MAFA_LINE_NEUTRAL,  3, 6, 6, 6,  0},
+    {"降妖除魔戒指", MAFA_ST_RING, MAFA_Q_GREEN, 3, 1, MAFA_LINE_NEUTRAL,  8, 0, 8, 8,  0},
+    {"降妖除魔戒指", MAFA_ST_RING, MAFA_Q_BLUE,  3, 2, MAFA_LINE_NEUTRAL,  9, 0, 9, 9,  0},
+    {"降妖除魔戒指", MAFA_ST_RING, MAFA_Q_PURPLE,3, 3, MAFA_LINE_NEUTRAL, 10, 0,10,10,  0},
+    /* map 4 沃玛寺庙: blue / purple / purple — 沃玛级 triads begin */
+    {"炼狱",     MAFA_ST_WEAPON,   MAFA_Q_BLUE,   4, 1, MAFA_LINE_WARRIOR, 13, 0, 0, 0,  0},
+    {"魔杖",     MAFA_ST_WEAPON,   MAFA_Q_BLUE,   4, 1, MAFA_LINE_MAGE,     7, 0,13, 0,  0},
+    {"银蛇",     MAFA_ST_WEAPON,   MAFA_Q_BLUE,   4, 1, MAFA_LINE_TAOIST,   7, 0, 0,13,  0},
+    {"炼狱",     MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 4, 2, MAFA_LINE_WARRIOR, 16, 0, 0, 0,  0},
+    {"魔杖",     MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 4, 2, MAFA_LINE_MAGE,     8, 0,16, 0,  0},
+    {"银蛇",     MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 4, 2, MAFA_LINE_TAOIST,   8, 0, 0,16,  0},
+    {"炼狱",     MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 4, 3, MAFA_LINE_WARRIOR, 20, 0, 0, 0,  0},
+    {"魔杖",     MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 4, 3, MAFA_LINE_MAGE,    10, 0,20, 0,  0},
+    {"银蛇",     MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 4, 3, MAFA_LINE_TAOIST,  10, 0, 0,20,  0},
+    {"黑铁头盔", MAFA_ST_HELMET,   MAFA_Q_BLUE,   4, 1, MAFA_LINE_NEUTRAL,  0, 5, 0, 0, 42},
+    {"黑铁头盔", MAFA_ST_HELMET,   MAFA_Q_PURPLE, 4, 2, MAFA_LINE_NEUTRAL,  0, 6, 0, 0, 47},
+    {"黑铁头盔", MAFA_ST_HELMET,   MAFA_Q_PURPLE, 4, 3, MAFA_LINE_NEUTRAL,  0, 7, 0, 0, 52},
+    {"重型盔甲", MAFA_ST_ARMOR,    MAFA_Q_BLUE,   4, 1, MAFA_LINE_NEUTRAL,  0,10, 0, 0, 80},
+    {"重型盔甲", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 4, 2, MAFA_LINE_NEUTRAL,  0,11, 0, 0, 90},
+    {"重型盔甲", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 4, 3, MAFA_LINE_NEUTRAL,  0,13, 0, 0,100},
+    {"幽灵项链", MAFA_ST_NECKLACE, MAFA_Q_BLUE,   4, 1, MAFA_LINE_WARRIOR, 10, 0, 0, 0, 29},
+    {"生命项链", MAFA_ST_NECKLACE, MAFA_Q_BLUE,   4, 1, MAFA_LINE_MAGE,     3, 0,10, 0, 29},
+    {"天珠项链", MAFA_ST_NECKLACE, MAFA_Q_BLUE,   4, 1, MAFA_LINE_TAOIST,   3, 0, 0,10, 29},
+    {"幽灵项链", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 4, 2, MAFA_LINE_WARRIOR, 11, 0, 0, 0, 32},
+    {"生命项链", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 4, 2, MAFA_LINE_MAGE,     3, 0,11, 0, 32},
+    {"天珠项链", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 4, 2, MAFA_LINE_TAOIST,   3, 0, 0,11, 32},
+    {"幽灵项链", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 4, 3, MAFA_LINE_WARRIOR, 13, 0, 0, 0, 36},
+    {"生命项链", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 4, 3, MAFA_LINE_MAGE,     4, 0,13, 0, 36},
+    {"天珠项链", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 4, 3, MAFA_LINE_TAOIST,   4, 0, 0,13, 36},
+    {"幽灵手套", MAFA_ST_BRACELET, MAFA_Q_BLUE,   4, 1, MAFA_LINE_WARRIOR,  3, 5, 0, 0,  0},
+    {"思贝儿手镯", MAFA_ST_BRACELET, MAFA_Q_BLUE, 4, 1, MAFA_LINE_MAGE,     0, 5, 3, 0,  0},
+    {"心灵手镯", MAFA_ST_BRACELET, MAFA_Q_BLUE,   4, 1, MAFA_LINE_TAOIST,   0, 5, 0, 3,  0},
+    {"幽灵手套", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 4, 2, MAFA_LINE_WARRIOR,  3, 6, 0, 0,  0},
+    {"思贝儿手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE,4, 2, MAFA_LINE_MAGE,    0, 6, 3, 0,  0},
+    {"心灵手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 4, 2, MAFA_LINE_TAOIST,   0, 6, 0, 3,  0},
+    {"幽灵手套", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 4, 3, MAFA_LINE_WARRIOR,  4, 7, 0, 0,  0},
+    {"思贝儿手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE,4, 3, MAFA_LINE_MAGE,    0, 7, 4, 0,  0},
+    {"心灵手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 4, 3, MAFA_LINE_TAOIST,   0, 7, 0, 4,  0},
+    {"龙之戒",   MAFA_ST_RING,     MAFA_Q_BLUE,   4, 1, MAFA_LINE_WARRIOR, 10, 0, 0, 0,  0},
+    {"红宝石戒指", MAFA_ST_RING,   MAFA_Q_BLUE,   4, 1, MAFA_LINE_MAGE,     0, 0,10, 0,  0},
+    {"铂金戒指", MAFA_ST_RING,     MAFA_Q_BLUE,   4, 1, MAFA_LINE_TAOIST,   0, 0, 0,10,  0},
+    {"龙之戒",   MAFA_ST_RING,     MAFA_Q_PURPLE, 4, 2, MAFA_LINE_WARRIOR, 11, 0, 0, 0,  0},
+    {"红宝石戒指", MAFA_ST_RING,   MAFA_Q_PURPLE, 4, 2, MAFA_LINE_MAGE,     0, 0,11, 0,  0},
+    {"铂金戒指", MAFA_ST_RING,     MAFA_Q_PURPLE, 4, 2, MAFA_LINE_TAOIST,   0, 0, 0,11,  0},
+    {"龙之戒",   MAFA_ST_RING,     MAFA_Q_PURPLE, 4, 3, MAFA_LINE_WARRIOR, 12, 0, 0, 0,  0},
+    {"红宝石戒指", MAFA_ST_RING,   MAFA_Q_PURPLE, 4, 3, MAFA_LINE_MAGE,     0, 0,12, 0,  0},
+    {"铂金戒指", MAFA_ST_RING,     MAFA_Q_PURPLE, 4, 3, MAFA_LINE_TAOIST,   0, 0, 0,12,  0},
+    /* map 5 死亡山谷: blue / purple / gold — 祖玛级 triads + 赤月-class
+     * helmets/armors begin */
+    {"井中月",   MAFA_ST_WEAPON,   MAFA_Q_BLUE,   5, 1, MAFA_LINE_WARRIOR, 16, 0, 0, 0,  0},
+    {"血饮",     MAFA_ST_WEAPON,   MAFA_Q_BLUE,   5, 1, MAFA_LINE_MAGE,     8, 0,16, 0,  0},
+    {"无极棍",   MAFA_ST_WEAPON,   MAFA_Q_BLUE,   5, 1, MAFA_LINE_TAOIST,   8, 0, 0,16,  0},
+    {"井中月",   MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 5, 2, MAFA_LINE_WARRIOR, 19, 0, 0, 0,  0},
+    {"血饮",     MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 5, 2, MAFA_LINE_MAGE,    10, 0,19, 0,  0},
+    {"无极棍",   MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 5, 2, MAFA_LINE_TAOIST,  10, 0, 0,19,  0},
+    {"井中月",   MAFA_ST_WEAPON,   MAFA_Q_GOLD,   5, 3, MAFA_LINE_WARRIOR, 23, 0, 0, 0,  0},
+    {"血饮",     MAFA_ST_WEAPON,   MAFA_Q_GOLD,   5, 3, MAFA_LINE_MAGE,    12, 0,23, 0,  0},
+    {"无极棍",   MAFA_ST_WEAPON,   MAFA_Q_GOLD,   5, 3, MAFA_LINE_TAOIST,  12, 0, 0,23,  0},
+    {"圣战头盔", MAFA_ST_HELMET,   MAFA_Q_BLUE,   5, 1, MAFA_LINE_WARRIOR,  2, 6, 0, 0, 50},
+    {"圣战头盔", MAFA_ST_HELMET,   MAFA_Q_PURPLE, 5, 2, MAFA_LINE_WARRIOR,  3, 7, 0, 0, 55},
+    {"圣战头盔", MAFA_ST_HELMET,   MAFA_Q_GOLD,   5, 3, MAFA_LINE_WARRIOR,  4, 8, 0, 0, 60},
+    {"天魔神甲", MAFA_ST_ARMOR,    MAFA_Q_BLUE,   5, 1, MAFA_LINE_WARRIOR,  2,12, 0, 0, 95},
+    {"法神披风", MAFA_ST_ARMOR,    MAFA_Q_BLUE,   5, 1, MAFA_LINE_MAGE,     0,12, 2, 0, 95},
+    {"天尊道袍", MAFA_ST_ARMOR,    MAFA_Q_BLUE,   5, 1, MAFA_LINE_TAOIST,   0,12, 0, 2, 95},
+    {"天魔神甲", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 5, 2, MAFA_LINE_WARRIOR,  3,13, 0, 0,105},
+    {"法神披风", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 5, 2, MAFA_LINE_MAGE,     0,13, 3, 0,105},
+    {"天尊道袍", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 5, 2, MAFA_LINE_TAOIST,   0,13, 0, 3,105},
+    {"天魔神甲", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   5, 3, MAFA_LINE_WARRIOR,  4,15, 0, 0,115},
+    {"法神披风", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   5, 3, MAFA_LINE_MAGE,     0,15, 4, 0,115},
+    {"天尊道袍", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   5, 3, MAFA_LINE_TAOIST,   0,15, 0, 4,115},
+    {"绿色项链", MAFA_ST_NECKLACE, MAFA_Q_BLUE,   5, 1, MAFA_LINE_WARRIOR, 12, 0, 0, 0, 35},
+    {"恶魔铃铛", MAFA_ST_NECKLACE, MAFA_Q_BLUE,   5, 1, MAFA_LINE_MAGE,     4, 0,12, 0, 35},
+    {"灵魂项链", MAFA_ST_NECKLACE, MAFA_Q_BLUE,   5, 1, MAFA_LINE_TAOIST,   4, 0, 0,12, 35},
+    {"绿色项链", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 5, 2, MAFA_LINE_WARRIOR, 13, 0, 0, 0, 38},
+    {"恶魔铃铛", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 5, 2, MAFA_LINE_MAGE,     4, 0,13, 0, 38},
+    {"灵魂项链", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 5, 2, MAFA_LINE_TAOIST,   4, 0, 0,13, 38},
+    {"绿色项链", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   5, 3, MAFA_LINE_WARRIOR, 15, 0, 0, 0, 42},
+    {"恶魔铃铛", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   5, 3, MAFA_LINE_MAGE,     5, 0,15, 0, 42},
+    {"灵魂项链", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   5, 3, MAFA_LINE_TAOIST,   5, 0, 0,15, 42},
+    {"骑士手镯", MAFA_ST_BRACELET, MAFA_Q_BLUE,   5, 1, MAFA_LINE_WARRIOR,  3, 6, 0, 0,  0},
+    {"龙之手镯", MAFA_ST_BRACELET, MAFA_Q_BLUE,   5, 1, MAFA_LINE_MAGE,     0, 6, 3, 0,  0},
+    {"三眼手镯", MAFA_ST_BRACELET, MAFA_Q_BLUE,   5, 1, MAFA_LINE_TAOIST,   0, 6, 0, 3,  0},
+    {"骑士手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 5, 2, MAFA_LINE_WARRIOR,  3, 7, 0, 0,  0},
+    {"龙之手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 5, 2, MAFA_LINE_MAGE,     0, 7, 3, 0,  0},
+    {"三眼手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 5, 2, MAFA_LINE_TAOIST,   0, 7, 0, 3,  0},
+    {"骑士手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   5, 3, MAFA_LINE_WARRIOR,  4, 8, 0, 0,  0},
+    {"龙之手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   5, 3, MAFA_LINE_MAGE,     0, 8, 4, 0,  0},
+    {"三眼手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   5, 3, MAFA_LINE_TAOIST,   0, 8, 0, 4,  0},
+    {"力量戒指", MAFA_ST_RING,     MAFA_Q_BLUE,   5, 1, MAFA_LINE_WARRIOR, 12, 0, 0, 0,  0},
+    {"紫碧螺",   MAFA_ST_RING,     MAFA_Q_BLUE,   5, 1, MAFA_LINE_MAGE,     0, 0,12, 0,  0},
+    {"泰坦戒指", MAFA_ST_RING,     MAFA_Q_BLUE,   5, 1, MAFA_LINE_TAOIST,   0, 0, 0,12,  0},
+    {"力量戒指", MAFA_ST_RING,     MAFA_Q_PURPLE, 5, 2, MAFA_LINE_WARRIOR, 13, 0, 0, 0,  0},
+    {"紫碧螺",   MAFA_ST_RING,     MAFA_Q_PURPLE, 5, 2, MAFA_LINE_MAGE,     0, 0,13, 0,  0},
+    {"泰坦戒指", MAFA_ST_RING,     MAFA_Q_PURPLE, 5, 2, MAFA_LINE_TAOIST,   0, 0, 0,13,  0},
+    {"力量戒指", MAFA_ST_RING,     MAFA_Q_GOLD,   5, 3, MAFA_LINE_WARRIOR, 14, 0, 0, 0,  0},
+    {"紫碧螺",   MAFA_ST_RING,     MAFA_Q_GOLD,   5, 3, MAFA_LINE_MAGE,     0, 0,14, 0,  0},
+    {"泰坦戒指", MAFA_ST_RING,     MAFA_Q_GOLD,   5, 3, MAFA_LINE_TAOIST,   0, 0, 0,14,  0},
+    /* map 6 祖玛寺庙: purple / gold / gold — 祖玛三神兵 + 圣战-class armors */
+    {"裁决之杖", MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 6, 1, MAFA_LINE_WARRIOR, 19, 0, 0, 0,  0},
+    {"骨玉权杖", MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 6, 1, MAFA_LINE_MAGE,    10, 0,19, 0,  0},
+    {"龙纹剑",   MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 6, 1, MAFA_LINE_TAOIST,  10, 0, 0,19,  0},
+    {"裁决之杖", MAFA_ST_WEAPON,   MAFA_Q_GOLD,   6, 2, MAFA_LINE_WARRIOR, 22, 0, 0, 0,  0},
+    {"骨玉权杖", MAFA_ST_WEAPON,   MAFA_Q_GOLD,   6, 2, MAFA_LINE_MAGE,    11, 0,22, 0,  0},
+    {"龙纹剑",   MAFA_ST_WEAPON,   MAFA_Q_GOLD,   6, 2, MAFA_LINE_TAOIST,  11, 0, 0,22,  0},
+    {"裁决之杖", MAFA_ST_WEAPON,   MAFA_Q_GOLD,   6, 3, MAFA_LINE_WARRIOR, 26, 0, 0, 0,  0},
+    {"骨玉权杖", MAFA_ST_WEAPON,   MAFA_Q_GOLD,   6, 3, MAFA_LINE_MAGE,    13, 0,26, 0,  0},
+    {"龙纹剑",   MAFA_ST_WEAPON,   MAFA_Q_GOLD,   6, 3, MAFA_LINE_TAOIST,  13, 0, 0,26,  0},
+    {"法神头盔", MAFA_ST_HELMET,   MAFA_Q_PURPLE, 6, 1, MAFA_LINE_MAGE,     0, 7, 2, 0, 58},
+    {"法神头盔", MAFA_ST_HELMET,   MAFA_Q_GOLD,   6, 2, MAFA_LINE_MAGE,     0, 8, 3, 0, 63},
+    {"法神头盔", MAFA_ST_HELMET,   MAFA_Q_GOLD,   6, 3, MAFA_LINE_MAGE,     0, 9, 4, 0, 68},
+    {"圣战宝甲", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 6, 1, MAFA_LINE_WARRIOR,  3,14, 0, 0,110},
+    {"霓裳羽衣", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 6, 1, MAFA_LINE_MAGE,     0,14, 3, 0,110},
+    {"天师长袍", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 6, 1, MAFA_LINE_TAOIST,   0,14, 0, 3,110},
+    {"圣战宝甲", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   6, 2, MAFA_LINE_WARRIOR,  4,15, 0, 0,120},
+    {"霓裳羽衣", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   6, 2, MAFA_LINE_MAGE,     0,15, 4, 0,120},
+    {"天师长袍", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   6, 2, MAFA_LINE_TAOIST,   0,15, 0, 4,120},
+    {"圣战宝甲", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   6, 3, MAFA_LINE_WARRIOR,  4,17, 0, 0,130},
+    {"霓裳羽衣", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   6, 3, MAFA_LINE_MAGE,     0,17, 4, 0,130},
+    {"天师长袍", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   6, 3, MAFA_LINE_TAOIST,   0,17, 0, 4,130},
+    {"绿色项链", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 6, 1, MAFA_LINE_WARRIOR, 14, 0, 0, 0, 41},
+    {"恶魔铃铛", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 6, 1, MAFA_LINE_MAGE,     4, 0,14, 0, 41},
+    {"灵魂项链", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 6, 1, MAFA_LINE_TAOIST,   4, 0, 0,14, 41},
+    {"绿色项链", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   6, 2, MAFA_LINE_WARRIOR, 15, 0, 0, 0, 44},
+    {"恶魔铃铛", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   6, 2, MAFA_LINE_MAGE,     5, 0,15, 0, 44},
+    {"灵魂项链", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   6, 2, MAFA_LINE_TAOIST,   5, 0, 0,15, 44},
+    {"绿色项链", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   6, 3, MAFA_LINE_WARRIOR, 17, 0, 0, 0, 48},
+    {"恶魔铃铛", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   6, 3, MAFA_LINE_MAGE,     5, 0,17, 0, 48},
+    {"灵魂项链", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   6, 3, MAFA_LINE_TAOIST,   5, 0, 0,17, 48},
+    {"骑士手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 6, 1, MAFA_LINE_WARRIOR,  4, 7, 0, 0,  0},
+    {"龙之手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 6, 1, MAFA_LINE_MAGE,     0, 7, 4, 0,  0},
+    {"三眼手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 6, 1, MAFA_LINE_TAOIST,   0, 7, 0, 4,  0},
+    {"骑士手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   6, 2, MAFA_LINE_WARRIOR,  4, 8, 0, 0,  0},
+    {"龙之手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   6, 2, MAFA_LINE_MAGE,     0, 8, 4, 0,  0},
+    {"三眼手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   6, 2, MAFA_LINE_TAOIST,   0, 8, 0, 4,  0},
+    {"骑士手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   6, 3, MAFA_LINE_WARRIOR,  5, 9, 0, 0,  0},
+    {"龙之手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   6, 3, MAFA_LINE_MAGE,     0, 9, 5, 0,  0},
+    {"三眼手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   6, 3, MAFA_LINE_TAOIST,   0, 9, 0, 5,  0},
+    {"力量戒指", MAFA_ST_RING,     MAFA_Q_PURPLE, 6, 1, MAFA_LINE_WARRIOR, 14, 0, 0, 0,  0},
+    {"紫碧螺",   MAFA_ST_RING,     MAFA_Q_PURPLE, 6, 1, MAFA_LINE_MAGE,     0, 0,14, 0,  0},
+    {"泰坦戒指", MAFA_ST_RING,     MAFA_Q_PURPLE, 6, 1, MAFA_LINE_TAOIST,   0, 0, 0,14,  0},
+    {"力量戒指", MAFA_ST_RING,     MAFA_Q_GOLD,   6, 2, MAFA_LINE_WARRIOR, 15, 0, 0, 0,  0},
+    {"紫碧螺",   MAFA_ST_RING,     MAFA_Q_GOLD,   6, 2, MAFA_LINE_MAGE,     0, 0,15, 0,  0},
+    {"泰坦戒指", MAFA_ST_RING,     MAFA_Q_GOLD,   6, 2, MAFA_LINE_TAOIST,   0, 0, 0,15,  0},
+    {"力量戒指", MAFA_ST_RING,     MAFA_Q_GOLD,   6, 3, MAFA_LINE_WARRIOR, 16, 0, 0, 0,  0},
+    {"紫碧螺",   MAFA_ST_RING,     MAFA_Q_GOLD,   6, 3, MAFA_LINE_MAGE,     0, 0,16, 0,  0},
+    {"泰坦戒指", MAFA_ST_RING,     MAFA_Q_GOLD,   6, 3, MAFA_LINE_TAOIST,   0, 0, 0,16,  0},
+    /* map 7 赤月峡谷: purple / gold / gold — 赤月 sets; 屠龙 = the graduation
+     * easter egg, 嗜魂法杖/逍遥扇 the 法/道 counterparts (逍遥扇 1.75) */
+    {"屠龙",     MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 7, 1, MAFA_LINE_WARRIOR, 23, 0, 0, 0,  0},
+    {"嗜魂法杖", MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 7, 1, MAFA_LINE_MAGE,    12, 0,23, 0,  0},
+    {"逍遥扇",   MAFA_ST_WEAPON,   MAFA_Q_PURPLE, 7, 1, MAFA_LINE_TAOIST,  12, 0, 0,23,  0},
+    {"屠龙",     MAFA_ST_WEAPON,   MAFA_Q_GOLD,   7, 2, MAFA_LINE_WARRIOR, 26, 0, 0, 0,  0},
+    {"嗜魂法杖", MAFA_ST_WEAPON,   MAFA_Q_GOLD,   7, 2, MAFA_LINE_MAGE,    13, 0,26, 0,  0},
+    {"逍遥扇",   MAFA_ST_WEAPON,   MAFA_Q_GOLD,   7, 2, MAFA_LINE_TAOIST,  13, 0, 0,26,  0},
+    {"屠龙",     MAFA_ST_WEAPON,   MAFA_Q_GOLD,   7, 3, MAFA_LINE_WARRIOR, 30, 0, 0, 0,  0},
+    {"嗜魂法杖", MAFA_ST_WEAPON,   MAFA_Q_GOLD,   7, 3, MAFA_LINE_MAGE,    15, 0,30, 0,  0},
+    {"逍遥扇",   MAFA_ST_WEAPON,   MAFA_Q_GOLD,   7, 3, MAFA_LINE_TAOIST,  15, 0, 0,30,  0},
+    {"天尊头盔", MAFA_ST_HELMET,   MAFA_Q_PURPLE, 7, 1, MAFA_LINE_TAOIST,   0, 8, 0, 2, 66},
+    {"天尊头盔", MAFA_ST_HELMET,   MAFA_Q_GOLD,   7, 2, MAFA_LINE_TAOIST,   0, 9, 0, 3, 71},
+    {"天尊头盔", MAFA_ST_HELMET,   MAFA_Q_GOLD,   7, 3, MAFA_LINE_TAOIST,   0,10, 0, 4, 76},
+    {"圣战宝甲", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 7, 1, MAFA_LINE_WARRIOR,  3,16, 0, 0,125},
+    {"霓裳羽衣", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 7, 1, MAFA_LINE_MAGE,     0,16, 3, 0,125},
+    {"天师长袍", MAFA_ST_ARMOR,    MAFA_Q_PURPLE, 7, 1, MAFA_LINE_TAOIST,   0,16, 0, 3,125},
+    {"圣战宝甲", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   7, 2, MAFA_LINE_WARRIOR,  4,17, 0, 0,135},
+    {"霓裳羽衣", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   7, 2, MAFA_LINE_MAGE,     0,17, 4, 0,135},
+    {"天师长袍", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   7, 2, MAFA_LINE_TAOIST,   0,17, 0, 4,135},
+    {"圣战宝甲", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   7, 3, MAFA_LINE_WARRIOR,  4,19, 0, 0,145},
+    {"霓裳羽衣", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   7, 3, MAFA_LINE_MAGE,     0,19, 4, 0,145},
+    {"天师长袍", MAFA_ST_ARMOR,    MAFA_Q_GOLD,   7, 3, MAFA_LINE_TAOIST,   0,19, 0, 4,145},
+    {"圣战项链", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 7, 1, MAFA_LINE_WARRIOR, 16, 0, 0, 0, 47},
+    {"法神项链", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 7, 1, MAFA_LINE_MAGE,     5, 0,16, 0, 47},
+    {"天尊项链", MAFA_ST_NECKLACE, MAFA_Q_PURPLE, 7, 1, MAFA_LINE_TAOIST,   5, 0, 0,16, 47},
+    {"圣战项链", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   7, 2, MAFA_LINE_WARRIOR, 17, 0, 0, 0, 50},
+    {"法神项链", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   7, 2, MAFA_LINE_MAGE,     5, 0,17, 0, 50},
+    {"天尊项链", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   7, 2, MAFA_LINE_TAOIST,   5, 0, 0,17, 50},
+    {"圣战项链", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   7, 3, MAFA_LINE_WARRIOR, 19, 0, 0, 0, 54},
+    {"法神项链", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   7, 3, MAFA_LINE_MAGE,     6, 0,19, 0, 54},
+    {"天尊项链", MAFA_ST_NECKLACE, MAFA_Q_GOLD,   7, 3, MAFA_LINE_TAOIST,   6, 0, 0,19, 54},
+    {"圣战手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 7, 1, MAFA_LINE_WARRIOR,  4, 8, 0, 0,  0},
+    {"法神手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 7, 1, MAFA_LINE_MAGE,     0, 8, 4, 0,  0},
+    {"天尊手镯", MAFA_ST_BRACELET, MAFA_Q_PURPLE, 7, 1, MAFA_LINE_TAOIST,   0, 8, 0, 4,  0},
+    {"圣战手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   7, 2, MAFA_LINE_WARRIOR,  4, 9, 0, 0,  0},
+    {"法神手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   7, 2, MAFA_LINE_MAGE,     0, 9, 4, 0,  0},
+    {"天尊手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   7, 2, MAFA_LINE_TAOIST,   0, 9, 0, 4,  0},
+    {"圣战手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   7, 3, MAFA_LINE_WARRIOR,  5,10, 0, 0,  0},
+    {"法神手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   7, 3, MAFA_LINE_MAGE,     0,10, 5, 0,  0},
+    {"天尊手镯", MAFA_ST_BRACELET, MAFA_Q_GOLD,   7, 3, MAFA_LINE_TAOIST,   0,10, 0, 5,  0},
+    {"圣战戒指", MAFA_ST_RING,     MAFA_Q_PURPLE, 7, 1, MAFA_LINE_WARRIOR, 16, 0, 0, 0,  0},
+    {"法神戒指", MAFA_ST_RING,     MAFA_Q_PURPLE, 7, 1, MAFA_LINE_MAGE,     0, 0,16, 0,  0},
+    {"天尊戒指", MAFA_ST_RING,     MAFA_Q_PURPLE, 7, 1, MAFA_LINE_TAOIST,   0, 0, 0,16,  0},
+    {"圣战戒指", MAFA_ST_RING,     MAFA_Q_GOLD,   7, 2, MAFA_LINE_WARRIOR, 17, 0, 0, 0,  0},
+    {"法神戒指", MAFA_ST_RING,     MAFA_Q_GOLD,   7, 2, MAFA_LINE_MAGE,     0, 0,17, 0,  0},
+    {"天尊戒指", MAFA_ST_RING,     MAFA_Q_GOLD,   7, 2, MAFA_LINE_TAOIST,   0, 0, 0,17,  0},
+    {"圣战戒指", MAFA_ST_RING,     MAFA_Q_GOLD,   7, 3, MAFA_LINE_WARRIOR, 18, 0, 0, 0,  0},
+    {"法神戒指", MAFA_ST_RING,     MAFA_Q_GOLD,   7, 3, MAFA_LINE_MAGE,     0, 0,18, 0,  0},
+    {"天尊戒指", MAFA_ST_RING,     MAFA_Q_GOLD,   7, 3, MAFA_LINE_TAOIST,   0, 0, 0,18,  0},
 };
 const int MAFA_ITEM_COUNT = (int)(sizeof MAFA_ITEMS / sizeof MAFA_ITEMS[0]);
+
+/* Item ids ride in single bytes (backpack, paper doll, save payload, event
+ * payloads): the table must never outgrow the byte range. */
+_Static_assert(sizeof MAFA_ITEMS / sizeof MAFA_ITEMS[0] <= 256,
+               "item ids must fit uint8_t");
 
 /* Seven forms per class at the original's real 1.76 learn levels (verified
  * 2026-09-30, community tables): the book gate lives in mafa_skill_known —
  * skill 0 is free, skills 1-3 are store books (level-gated), skills 4-6
- * drop from elites/bosses. mult is ×100 for damage kinds, the pet tier for
- * MAFA_SK_PET, and % max HP for MAFA_SK_HEAL; shield_pct doubles as the
- * ARMOR defense bonus. 逐日剑法 is the one post-1.76 skill (user-approved).
- */
+ * drop from elites/bosses. mult is ×100 against the row's stat source
+ * (战士 攻 / 法师 魔 / 道士 道, v1.5); the pet tier for MAFA_SK_PET and %
+ * max HP for MAFA_SK_HEAL (the heal adds 2×道术). Warrior actives pay the
+ * original's small MP costs (~烈火8/半月5/野蛮3, community values);
+ * 逐日剑法 is the one post-1.76 skill (user-approved). */
 const mafa_skill_t MAFA_SKILLS[MAFA_CLS_COUNT][MAFA_SKILLS_PER_CLASS] = {
     [MAFA_CLS_WARRIOR] = {
-        {"基本剑术",  7, MAFA_SK_PASSIVE, 110, 0,  0, 0, 0,  0,  0, 0, 0},
-        {"攻杀剑术", 19, MAFA_SK_PROC,    200, 0, 20, 0, 0,  0,  0, 0, 0},
-        {"刺杀剑术", 25, MAFA_SK_DMG,     140, 1,  0, 0, 0,  0,  0, 5, 0},
-        {"半月弯刀", 28, MAFA_SK_AOE,      90, 0,  0, 0, 0,  0,  0, 6, 0},
-        {"野蛮冲撞", 30, MAFA_SK_STUN,     130, 0,  0, 1, 0,  0,  0, 8, 0},
-        {"烈火剑法", 35, MAFA_SK_CHARGE,   220, 0,  0, 0, 0,  0,  0, 8, 0},
-        {"逐日剑法", 38, MAFA_SK_DMG,     260, 1,  0, 0, 0,  0,  0, 10, 0},
+        {"基本剑术",  7, MAFA_SK_PASSIVE, MAFA_SK_STAT_ATK, 110, 0,  0, 0, 0,  0,  0, 0, 0},
+        {"攻杀剑术", 19, MAFA_SK_PROC,    MAFA_SK_STAT_ATK, 200, 0, 20, 0, 0,  0,  0, 0, 0},
+        {"刺杀剑术", 25, MAFA_SK_DMG,     MAFA_SK_STAT_ATK, 140, 1,  0, 0, 0,  0,  0, 5, 0},
+        {"半月弯刀", 28, MAFA_SK_AOE,     MAFA_SK_STAT_ATK,  90, 0,  0, 0, 0,  0,  0, 6, 5},
+        {"野蛮冲撞", 30, MAFA_SK_STUN,    MAFA_SK_STAT_ATK, 130, 0,  0, 1, 0,  0,  0, 8, 3},
+        {"烈火剑法", 35, MAFA_SK_CHARGE,  MAFA_SK_STAT_ATK, 220, 0,  0, 0, 0,  0,  0, 8, 8},
+        {"逐日剑法", 38, MAFA_SK_DMG,     MAFA_SK_STAT_ATK, 260, 1,  0, 0, 0,  0,  0, 10, 0},
     },
     [MAFA_CLS_MAGE] = {
-        {"火球术",    7, MAFA_SK_DMG,     160, 0,  0, 0, 0,  0,  0, 0, 8},
-        {"雷电术",   17, MAFA_SK_DMG,     220, 1,  0, 0, 0,  0,  0, 0, 14},
-        {"爆裂火焰", 22, MAFA_SK_AOE,     120, 0,  0, 0, 0,  0,  0, 0, 20},
-        {"火墙",     24, MAFA_SK_BURN,     60, 0,  0, 3, 0,  0,  0, 0, 18},
-        {"地狱雷光", 30, MAFA_SK_AOE,     150, 1,  0, 0, 0,  0,  0, 0, 26},
-        {"魔法盾",   31, MAFA_SK_SHIELD,    0, 0,  0, 4, 0,  0, 40, 0, 16},
-        {"冰咆哮",   35, MAFA_SK_AOE,     160, 1,  0, 0, 0,  0,  0, 0, 30},
+        {"火球术",    7, MAFA_SK_DMG,     MAFA_SK_STAT_MC, 160, 0,  0, 0, 0,  0,  0, 0, 8},
+        {"雷电术",   17, MAFA_SK_DMG,     MAFA_SK_STAT_MC, 220, 1,  0, 0, 0,  0,  0, 0, 14},
+        {"爆裂火焰", 22, MAFA_SK_AOE,     MAFA_SK_STAT_MC, 120, 0,  0, 0, 0,  0,  0, 0, 20},
+        {"火墙",     24, MAFA_SK_BURN,    MAFA_SK_STAT_MC,  60, 0,  0, 3, 0,  0,  0, 0, 18},
+        {"地狱雷光", 30, MAFA_SK_AOE,     MAFA_SK_STAT_MC, 150, 1,  0, 0, 0,  0,  0, 0, 26},
+        {"魔法盾",   31, MAFA_SK_SHIELD,  MAFA_SK_STAT_MC,   0, 0,  0, 4, 0,  0, 40, 0, 16},
+        {"冰咆哮",   35, MAFA_SK_AOE,     MAFA_SK_STAT_MC, 160, 1,  0, 0, 0,  0,  0, 0, 30},
     },
     [MAFA_CLS_TAOIST] = {
-        {"治愈术",    7, MAFA_SK_HEAL,      30, 0,  0, 0, 0,  0,  0, 0, 12},
-        {"精神力战法", 9, MAFA_SK_PASSIVE,  115, 0,  0, 0, 0,  0,  0, 0, 0},
-        {"施毒术",   14, MAFA_SK_POISON,    0, 0,  0, 5, 5, 30,  0, 0, 12},
-        {"灵魂火符", 18, MAFA_SK_DMG,      240, 0,  0, 0, 0,  0,  0, 0, 14},
-        {"召唤骷髅", 19, MAFA_SK_PET,        1, 0,  0, 0, 0,  0,  0, 6, 20},
-        {"神圣战甲术", 25, MAFA_SK_ARMOR,    0, 0,  0, 4, 0,  0, 50, 8, 18},
-        {"召唤神兽", 35, MAFA_SK_PET,        2, 0,  0, 0, 0,  0,  0, 6, 30},
+        {"治愈术",    7, MAFA_SK_HEAL,    MAFA_SK_STAT_SC,  25, 0,  0, 0, 0,  0,  0, 0, 12},
+        {"精神力战法", 9, MAFA_SK_PASSIVE, MAFA_SK_STAT_ATK, 115, 0,  0, 0, 0,  0,  0, 0, 0},
+        {"施毒术",   14, MAFA_SK_POISON,  MAFA_SK_STAT_SC,   0, 0,  0, 5, 5, 30,  0, 0, 12},
+        {"灵魂火符", 18, MAFA_SK_DMG,     MAFA_SK_STAT_SC, 240, 0,  0, 0, 0,  0,  0, 0, 14},
+        {"召唤骷髅", 19, MAFA_SK_PET,     MAFA_SK_STAT_SC,   1, 0,  0, 0, 0,  0,  0, 6, 20},
+        {"神圣战甲术", 25, MAFA_SK_ARMOR, MAFA_SK_STAT_SC,   0, 0,  0, 4, 0,  0, 40, 8, 18},
+        {"召唤神兽", 35, MAFA_SK_PET,     MAFA_SK_STAT_SC,   2, 0,  0, 0, 0,  0,  0, 6, 30},
     },
 };
 
@@ -240,8 +380,8 @@ const mafa_monster_t MAFA_MONSTERS[] = {
     {"楔蛾",     3, 2, 17,  215, 30,  9,  390, MAFA_MSK_FIRE,    false},
     {"僵尸",     3, 1, 14,  940, 50, 10,  520, MAFA_MSK_NONE,    true},
     {"白野猪",   3, 2, 16, 1100, 44, 11,  650, MAFA_MSK_ROAR,    true},
-    {"蝎蛇",     3, 3, 17, 1200, 54, 12,  720, MAFA_MSK_STING,   true},
-    {"尸王",     3, 4, 18, 1365, 47, 12,  850, MAFA_MSK_ROAR,    true},
+    {"蝎蛇",     3, 3, 17, 1200, 50, 12,  720, MAFA_MSK_STING,   true},
+    {"尸王",     3, 4, 18, 1365, 51, 12,  850, MAFA_MSK_ROAR,    true},
     /* -- map 4 沃玛寺庙, 3 floors ---------------------------------------- */
     {"沃玛战士", 4, 1, 22,  325, 38, 14,  700, MAFA_MSK_HEAVY,   false},
     {"沃玛勇士", 4, 1, 23,  345, 40, 13,  750, MAFA_MSK_FLURRY,  false},
@@ -263,7 +403,7 @@ const mafa_monster_t MAFA_MONSTERS[] = {
     {"祖玛雕像",  6, 3, 36,  495, 58, 26, 3600, MAFA_MSK_HEAVY,  false},
     {"祖玛卫士",  6, 1, 34, 1650, 90, 25, 5200, MAFA_MSK_HEAVY,  true},
     {"祖玛弓箭手",6, 2, 35, 1700, 100, 26, 5600, MAFA_MSK_STING,  true},
-    {"祖玛卫士",  6, 3, 36, 1620, 87, 27, 6000, MAFA_MSK_HEAVY,  true},
+    {"祖玛卫士",  6, 3, 36, 1750, 87, 27, 6000, MAFA_MSK_HEAVY,  true},
     {"祖玛雕像",  6, 4, 36, 1700, 90, 28, 6500, MAFA_MSK_HEAVY,  true},
     {"祖玛卫士",  6, 5, 37, 1900, 99, 29, 7000, MAFA_MSK_ROAR,   true},
     {"祖玛雕像",  6, 6, 37, 1850, 94, 30, 7500, MAFA_MSK_HEAVY,  true},
@@ -370,22 +510,25 @@ void mafa_player_init(mafa_player_t *p, uint8_t cls, uint32_t seed) {
 
 void mafa_stats(const mafa_player_t *p, mafa_stats_t *out) {
     int lv = p->level - 1;
-    mafa_stats_t st = {0, 0, 0, 0};
+    mafa_stats_t st = {0, 0, 0, 0, 0, 0};
     switch (p->cls) {
     case MAFA_CLS_WARRIOR:
         st.max_hp = 60 + 8 * lv;
-        st.atk = 10 + 2 * lv;
+        st.max_mp = 10 + lv;            /* v1.5: the small warrior pool */
+        st.atk = 11 + 2 * lv;
         st.def = 5 + lv;
         break;
     case MAFA_CLS_MAGE:
         st.max_hp = 40 + 6 * lv;
-        st.atk = 14 + 2 * lv;
+        st.atk = 10 + lv;               /* 平砍走武器; spells scale 魔 */
+        st.mc = 14 + 2 * lv;
         st.def = 3 + (lv + 1) / 2;      /* +1 every 2 levels (L2, L4, …) */
         st.max_mp = 30 + 5 * lv;
         break;
     default: /* taoist */
         st.max_hp = 60 + 6 * lv;
-        st.atk = 12 + lv;
+        st.atk = 10 + lv;
+        st.sc = 12 + lv;                /* 道 drives 火符/毒/治愈/神兽 */
         st.def = 4 + lv;
         st.max_mp = 25 + 4 * lv;
         break;
@@ -395,6 +538,8 @@ void mafa_stats(const mafa_player_t *p, mafa_stats_t *out) {
         const mafa_item_t *it = &MAFA_ITEMS[p->equipped[i]];
         st.atk += it->atk;
         st.def += it->def;
+        st.mc += it->mc;
+        st.sc += it->sc;
         st.max_hp += it->hp;
     }
     *out = st;
@@ -519,13 +664,19 @@ void mafa_compare(const mafa_player_t *p, uint8_t item_id, mafa_compare_t *out) 
         const mafa_item_t *o = &MAFA_ITEMS[old];
         next.atk -= o->atk;
         next.def -= o->def;
+        next.mc -= o->mc;
+        next.sc -= o->sc;
         next.max_hp -= o->hp;
     }
     next.atk += out->item->atk;
     next.def += out->item->def;
+    next.mc += out->item->mc;
+    next.sc += out->item->sc;
     next.max_hp += out->item->hp;
     out->d_atk = next.atk - cur.atk;
     out->d_def = next.def - cur.def;
+    out->d_mc = next.mc - cur.mc;
+    out->d_sc = next.sc - cur.sc;
     out->d_hp = next.max_hp - cur.max_hp;
 }
 
@@ -722,42 +873,71 @@ static void roll_book_drop(mafa_player_t *p, bool boss, bool elite,
     }
 }
 
-/* Drop roll (PRD 8.6, 1.76 plan): gate 20 % for normal mobs; gold-tier gear
+/* Drop roll (PRD 8.6, v1.5): gate 10 % for normal mobs; gold-tier gear
  * comes from bosses only (8 %) — elites and trash stop at the map's top
  * non-gold tier so 屠龙 stays a chase. Maps 5-7 carry gold rows; trash on
- * those maps caps at tier 2. */
+ * those maps caps at tier 2. Class-line rows (weapon triads, the 沃玛/
+ * 祖玛/赤月 jewelry triads): the player's own line wins ~60 % of rolls so
+ * farming your class's gear stays the norm, off-line pieces still drop. */
 static void roll_gear_drop(mafa_player_t *p, const mafa_battle_t *b,
                            const mafa_mob_t *m, mafa_events_t *ev) {
     uint32_t drop_roll = rng_next(p) % 100;
-    if (!(b->is_boss || m->elite || drop_roll < 20)) return;
+    if (!(b->is_boss || m->elite || drop_roll < 10)) return;
     uint8_t tier;
     if (b->is_boss) tier = rng_next(p) % 100 < 8 ? 3 : 2;
     else if (m->elite) tier = rng_next(p) % 100 < 30 ? 3 : 2;
         else {
             uint32_t tr = rng_next(p) % 100;
-            if (tr < 60) tier = 1;
-            else if (tr < 92) tier = 2;
+            if (tr < 70) tier = 1;
+            else if (tr < 96) tier = 2;
             else tier = m->base->map >= 5 ? 2 : 3;    /* trash never drops gold */
         }
     uint8_t stype = (uint8_t)(rng_next(p) % MAFA_SLOT_TYPES);
-    for (int i = 0; i < MAFA_ITEM_COUNT; ++i)
+    uint8_t matches[3];
+    int nm = 0;
+    for (int i = 0; i < MAFA_ITEM_COUNT && nm < 3; ++i)
         if (MAFA_ITEMS[i].map == m->base->map && MAFA_ITEMS[i].tier == tier
-            && MAFA_ITEMS[i].slot == stype) {
-            uint8_t q = MAFA_ITEMS[i].quality;
-            /* The auto-sell quality set (v1.2); gold never auto-sells —
-             * legendary drops always reach the player. */
-            if (q != MAFA_Q_GOLD && (p->auto_sell >> q) & 1) {
-                uint32_t g = MAFA_SELL_PRICE[q];
-                add_gold(p, g);
-                mafa_ev_push(ev, MAFA_EV_DROP, (uint8_t)i, 2, 0);
-            } else if (mafa_inv_add(p, (uint8_t)i)) {
-                mafa_ev_push(ev, MAFA_EV_DROP, (uint8_t)i, 1, 0);
-            } else if (p->pending_drop == MAFA_DROP_NONE) {
-                p->pending_drop = (uint8_t)i;
-                mafa_ev_push(ev, MAFA_EV_DROP, (uint8_t)i, 3, 0);
-            }
-            break;
+            && MAFA_ITEMS[i].slot == stype)
+            matches[nm++] = (uint8_t)i;
+    if (nm == 0) return;
+    uint8_t choice = matches[0];
+    if (nm > 1) {
+        uint8_t others[2];
+        int no = 0;
+        uint8_t own = 0xFF;
+        for (int k = 0; k < nm; ++k) {
+            if (MAFA_ITEMS[matches[k]].line == p->cls) own = matches[k];
+            else others[no++] = matches[k];
         }
+        if (own != 0xFF && rng_next(p) % 100 < 60) choice = own;
+        else if (no > 0) choice = others[rng_next(p) % (uint32_t)no];
+        else choice = own;
+    }
+    uint8_t q = MAFA_ITEMS[choice].quality;
+    /* The auto-sell quality set (v1.2); gold never auto-sells —
+     * legendary drops always reach the player. */
+    if (q != MAFA_Q_GOLD && (p->auto_sell >> q) & 1) {
+        uint32_t g = MAFA_SELL_PRICE[q];
+        add_gold(p, g);
+        mafa_ev_push(ev, MAFA_EV_DROP, choice, 2, 0);
+    } else if (mafa_inv_add(p, choice)) {
+        mafa_ev_push(ev, MAFA_EV_DROP, choice, 1, 0);
+    } else if (p->pending_drop == MAFA_DROP_NONE) {
+        p->pending_drop = choice;
+        mafa_ev_push(ev, MAFA_EV_DROP, choice, 3, 0);
+    }
+}
+
+/* Potion drops (v1.5): the original's trash supplies 金创药/魔法药. A ~15 %
+ * roll per kill, weighted toward the red bottle; potions go straight into
+ * the stack counters (never the backpack) and cap at 99. */
+static void roll_potion_drop(mafa_player_t *p, mafa_events_t *ev) {
+    if (rng_next(p) % 100 >= MAFA_POTION_DROP_PCT) return;
+    bool red = rng_next(p) % 100 < 60;
+    uint8_t *pot = red ? &p->pot_red : &p->pot_blue;
+    if (*pot >= 99) return;
+    (*pot)++;
+    mafa_ev_push(ev, MAFA_EV_POTION, red ? 1 : 2, 1, 0);
 }
 
 static void settle_kill(mafa_player_t *p, mafa_battle_t *b, uint8_t mob_idx,
@@ -775,6 +955,7 @@ static void settle_kill(mafa_player_t *p, mafa_battle_t *b, uint8_t mob_idx,
     grant_levelups(p, ev);
     roll_book_drop(p, b->is_boss, m->elite, ev);
     roll_gear_drop(p, b, m, ev);
+    roll_potion_drop(p, ev);
 
     if (b->is_boss) {
         p->kills = 0;
@@ -831,6 +1012,13 @@ static int32_t mob_effective_def(const mafa_mob_t *m) {
     return m->def * (m->def_down_rounds > 0 ? 7 : 10) / 10;
 }
 
+/* The stat a skill row scales with (v1.5: the 攻击/魔法/道术 lines). */
+static int32_t skill_src(const mafa_skill_t *s, const mafa_stats_t *st) {
+    return s->stat == MAFA_SK_STAT_MC ? st->mc
+         : s->stat == MAFA_SK_STAT_SC ? st->sc
+         : st->atk;
+}
+
 static int32_t roll_damage(mafa_player_t *p, int32_t atk, int32_t def,
                            uint16_t mult, bool ignore_def, bool *crit) {
     *crit = false;
@@ -876,17 +1064,21 @@ static bool try_potion(mafa_player_t *p, mafa_events_t *ev) {
     return false;
 }
 
+/* Pet stats grow with the player's level AND 道术 (v1.5): the original's
+ * 召唤兽 scales with the summoner's power. */
 static void summon_pet(mafa_player_t *p, mafa_battle_t *b, uint8_t tier) {
     int lv = p->level;
+    mafa_stats_t st;
+    mafa_stats(p, &st);
     b->pet_tier = tier;
     b->pet_alive = true;
     if (tier == 2) {
-        b->pet_max_hp = 45 + 12 * lv;
-        b->pet_atk = 6 + 3 * lv / 2;
-        b->pet_def = 3 + lv / 2;
+        b->pet_max_hp = 45 + 12 * lv + st.sc * 3 / 2;
+        b->pet_atk = 6 + 3 * lv / 2 + st.sc / 2;
+        b->pet_def = 3 + lv / 2 + st.sc / 3;
     } else {
-        b->pet_max_hp = 30 + 9 * lv;
-        b->pet_atk = 4 + lv;
+        b->pet_max_hp = 30 + 9 * lv + st.sc;
+        b->pet_atk = 4 + lv + st.sc / 3;
         b->pet_def = 2 + lv / 2;
     }
     b->pet_hp = b->pet_max_hp;
@@ -968,7 +1160,7 @@ static void player_turn(mafa_player_t *p, mafa_battle_t *b, mafa_events_t *ev) {
         case MAFA_SK_DMG: {
             int32_t mdef = mob_effective_def(&b->mob[first_alive(b)]);
             bool crit;
-            int32_t dmg = roll_damage(p, st.atk, mdef, s->mult,
+            int32_t dmg = roll_damage(p, skill_src(s, &st), mdef, s->mult,
                                       s->ignore_def != 0, &crit);
             b->mob[first_alive(b)].hp -= dmg;
             mafa_ev_push(ev, crit ? MAFA_EV_PLAYER_CRIT : MAFA_EV_SKILL_HIT,
@@ -979,7 +1171,8 @@ static void player_turn(mafa_player_t *p, mafa_battle_t *b, mafa_events_t *ev) {
             uint8_t t = first_alive(b);
             int32_t mdef = mob_effective_def(&b->mob[t]);
             bool crit;
-            int32_t dmg = roll_damage(p, st.atk, mdef, s->mult, false, &crit);
+            int32_t dmg = roll_damage(p, skill_src(s, &st), mdef, s->mult,
+                                      false, &crit);
             b->mob[t].hp -= dmg;
             b->mob[t].stun_rounds = s->rounds;
             mafa_ev_push(ev, crit ? MAFA_EV_PLAYER_CRIT : MAFA_EV_SKILL_HIT,
@@ -991,7 +1184,8 @@ static void player_turn(mafa_player_t *p, mafa_battle_t *b, mafa_events_t *ev) {
             for (uint8_t i = 0; i < b->mob_n; ++i) {
                 if (!b->mob[i].alive) continue;
                 bool crit;
-                int32_t dmg = roll_damage(p, st.atk, mob_effective_def(&b->mob[i]),
+                int32_t dmg = roll_damage(p, skill_src(s, &st),
+                                          mob_effective_def(&b->mob[i]),
                                           s->mult, s->ignore_def != 0, &crit);
                 b->mob[i].hp -= dmg;
                 mafa_ev_push(ev, crit ? MAFA_EV_PLAYER_CRIT : MAFA_EV_SKILL_HIT,
@@ -1003,20 +1197,21 @@ static void player_turn(mafa_player_t *p, mafa_battle_t *b, mafa_events_t *ev) {
             for (uint8_t i = 0; i < b->mob_n; ++i)
                 if (b->mob[i].alive) {
                     b->mob[i].burn_rounds = s->rounds;
-                    b->mob[i].burn_dmg = (int16_t)(st.atk * s->mult / 100);
+                    b->mob[i].burn_dmg =
+                        (int16_t)(skill_src(s, &st) * s->mult / 100);
                 }
             mafa_ev_push(ev, MAFA_EV_SKILL_SUPPORT, idx, 0, 0);
             break;
         case MAFA_SK_POISON: {
             uint8_t t = first_alive(b);
             b->mob[t].poison_rounds = s->rounds;
-            b->mob[t].poison_dmg = s->flat;
+            b->mob[t].poison_dmg = (uint8_t)(s->flat + st.sc / 5);
             b->mob[t].def_down_rounds = s->rounds;
             mafa_ev_push(ev, MAFA_EV_SKILL_SUPPORT, idx, 0, 0);
             break;
         }
         case MAFA_SK_HEAL: {
-            int32_t heal = st.max_hp * s->mult / 100;
+            int32_t heal = st.max_hp * s->mult / 100 + st.sc;
             p->hp += (int16_t)heal;
             if (p->hp > st.max_hp) p->hp = (int16_t)st.max_hp;
             mafa_ev_push(ev, MAFA_EV_HEAL, 0, heal, 0);
@@ -1318,9 +1513,12 @@ static uint8_t crc8(const uint8_t *d, size_t n) {
     return c;
 }
 
-/* v6 payload (1.76 plan): v5 body with books widened to 4 bytes, 8 equipped
- * positions, 7 floor bytes and the 3-bit map fields = 57 bytes. */
-#define MAFA_SAVE_BODY_V6 57
+/* v7 payload (v1.5 stats 2.0): byte layout identical to v6 (57 bytes) —
+ * the version byte only marks the item-table generation. v6 saves carry
+ * ids from the old 105-row table: they load, then the migration replaces
+ * the loadout with a band/line-appropriate starter kit. */
+#define MAFA_SAVE_BODY_V7 57
+#define MAFA_SAVE_BODY_V6 MAFA_SAVE_BODY_V7
 /* v5 payload (v1.3): v4 body + 3 per-map floor_unlocked bytes = 46. The old
  * v4 spare byte comes back as the first floor byte. */
 #define MAFA_SAVE_BODY_V5 46
@@ -1335,7 +1533,7 @@ static uint8_t crc8(const uint8_t *d, size_t n) {
 #define MAFA_SAVE_BODY_V1 36
 
 size_t mafa_save_serialize(const mafa_player_t *p, uint8_t *buf, size_t cap) {
-    const size_t total = 4 + MAFA_SAVE_BODY_V6 + 1;
+    const size_t total = 4 + MAFA_SAVE_BODY_V7 + 1;
     if (cap < total) return 0;
     buf[0] = 'M'; buf[1] = 'F'; buf[2] = 'C'; buf[3] = MAFA_SAVE_VERSION;
     uint8_t *w = buf + 4;
@@ -1362,12 +1560,12 @@ size_t mafa_save_serialize(const mafa_player_t *p, uint8_t *buf, size_t cap) {
     *w++ = p->auto_sell & 0x0F;
     for (int i = 0; i < MAFA_MAP_COUNT - 1; ++i) *w++ = p->floor_unlocked[i];
     size_t body = (size_t)(w - (buf + 4));
-    if (body != MAFA_SAVE_BODY_V6) return 0;
+    if (body != MAFA_SAVE_BODY_V7) return 0;
     buf[4 + body] = crc8(buf + 4, body);
     return total;
 }
 
-/* The map the level places the player in — used by the v<6 starter kit. */
+/* The map the level places the player in — used by the v<7 starter kit. */
 static uint8_t band_map(uint8_t level) {
     if (level <= 6) return 1;
     if (level <= 13) return 2;
@@ -1377,10 +1575,10 @@ static uint8_t band_map(uint8_t level) {
     return 6;
 }
 
-/* v<6 saves carry item ids from the old 27-row table — the table changed
+/* v<7 saves carry item ids from an older table — the table changed
  * wholesale, so the migration replaces the loadout with tier-2 pieces of
- * the player's level band (weapon/helmet/armor/necklace equipped, bag
- * empty; twins stay grindable). */
+ * the player's level band and OWN class line (weapon/helmet/armor
+ * equipped, bag empty; twins stay grindable). */
 static void grant_migration_kit(mafa_player_t *t) {
     for (int i = 0; i < MAFA_EQ_SLOTS; ++i) t->equipped[i] = MAFA_INV_EMPTY;
     for (int i = 0; i < MAFA_BACKPACK; ++i) {
@@ -1390,7 +1588,9 @@ static void grant_migration_kit(mafa_player_t *t) {
     t->pending_drop = MAFA_DROP_NONE;
     uint8_t m = band_map(t->level);
     for (int i = 0; i < MAFA_ITEM_COUNT; ++i)
-        if (MAFA_ITEMS[i].map == m && MAFA_ITEMS[i].tier == 2) {
+        if (MAFA_ITEMS[i].map == m && MAFA_ITEMS[i].tier == 2
+            && (MAFA_ITEMS[i].line == MAFA_LINE_NEUTRAL
+                || MAFA_ITEMS[i].line == t->cls)) {
             int pos = equip_position(t, MAFA_ITEMS[i].slot);
             if (pos >= 0 && pos < MAFA_ST_BRACELET)   /* singles only */
                 t->equipped[pos] = (uint8_t)i;
@@ -1471,7 +1671,10 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
     if (body == MAFA_SAVE_BODY_V6) {
         for (int i = 0; i < MAFA_EQ_SLOTS; ++i) {
             t->equipped[i] = *r++;
-            if (t->equipped[i] != MAFA_INV_EMPTY
+            /* v6 ids belong to the old item table: accept them here and
+             * let the v7 migration replace the loadout wholesale. */
+            if (version >= MAFA_SAVE_VERSION
+                && t->equipped[i] != MAFA_INV_EMPTY
                 && (t->equipped[i] >= MAFA_ITEM_COUNT
                     || MAFA_ITEMS[t->equipped[i]].slot != MAFA_POS_TYPE[i]))
                 return false;
@@ -1484,7 +1687,8 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
     for (int i = 0; i < MAFA_BACKPACK; ++i) {
         if (body == MAFA_SAVE_BODY_V6) {
             t->inv_id[i] = *r++; t->inv_n[i] = *r++;
-            if (t->inv_id[i] != MAFA_INV_EMPTY
+            if (version >= MAFA_SAVE_VERSION
+                && t->inv_id[i] != MAFA_INV_EMPTY
                 && (t->inv_id[i] >= MAFA_ITEM_COUNT || t->inv_n[i] == 0))
                 return false;
             if (t->inv_id[i] == MAFA_INV_EMPTY) t->inv_n[i] = 0;
@@ -1532,7 +1736,8 @@ bool mafa_save_deserialize(mafa_player_t *p, const uint8_t *buf, size_t len) {
     if (len < 4 + MAFA_SAVE_BODY_V1 + 1) return false;
     if (buf[0] != 'M' || buf[1] != 'F' || buf[2] != 'C') return false;
     size_t body;
-    if (buf[3] == MAFA_SAVE_VERSION) body = MAFA_SAVE_BODY_V6;
+    if (buf[3] == MAFA_SAVE_VERSION) body = MAFA_SAVE_BODY_V7;
+    else if (buf[3] == 6) body = MAFA_SAVE_BODY_V6;
     else if (buf[3] == 5) body = MAFA_SAVE_BODY_V5;
     else if (buf[3] == 4) body = MAFA_SAVE_BODY_V4;
     else if (buf[3] == 3 || buf[3] == 2) body = MAFA_SAVE_BODY_V2;
@@ -1552,7 +1757,7 @@ bool mafa_save_deserialize(mafa_player_t *p, const uint8_t *buf, size_t len) {
         grant_level_books(&t);
     }
     if (buf[3] < 6) {
-        /* v1-v5 → v6 migration. Maps: old combat ids stay 1-3 by content
+        /* v1-v5 → v7 migration. Maps: old combat ids stay 1-3 by content
          * band (森林→比奇省, 废矿→兽人古墓, 祖玛's old band→石墓), so the
          * ids already read correctly; maps 4-7 are fresh ladders at floor
          * 1 and stay locked until their own last-floor bosses fall — the
@@ -1560,8 +1765,7 @@ bool mafa_save_deserialize(mafa_player_t *p, const uint8_t *buf, size_t len) {
          * saves carry no floor bytes: maps left behind count as fully
          * cleared, the top map re-climbs from floor 1 (v5's clamped
          * bytes stay). Books re-grant by the new unlock levels, carried xp
-         * clamps to the new curve, and the old loadout becomes the band
-         * starter kit. */
+         * clamps to the new curve. */
         if (body < MAFA_SAVE_BODY_V5)
             for (int i = 0; i < 3; ++i)
                 t.floor_unlocked[i] = t.unlocked >= i + 2
@@ -1572,8 +1776,13 @@ bool mafa_save_deserialize(mafa_player_t *p, const uint8_t *buf, size_t len) {
         grant_level_books(&t);
         uint32_t cap = mafa_xp_to_next(t.level);
         if (cap && t.xp >= cap) t.xp = cap - 1;
-        grant_migration_kit(&t);
         t.floor = t.map == MAFA_MAP_SAFE ? 0 : t.floor_unlocked[t.map - 1];
+    }
+    if (buf[3] < 7) {
+        /* v1-v6: the loadout's ids come from an older item table — swap
+         * in the band/line starter kit (level, gear curve, settings and
+         * floors all survive). */
+        grant_migration_kit(&t);
     }
     *p = t;
     return true;

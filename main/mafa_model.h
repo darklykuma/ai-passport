@@ -1,5 +1,6 @@
 // main/mafa_model.h — MAFA CHRONICLE pure game model (PRD_MAFA_CHRONICLE,
-// 1.76-alignment 2026-09-30). No LVGL / ESP-IDF headers: this layer builds
+// v1.5 stats 2.0: 攻击/魔法/道术 lines, class-affine gear, warrior mana,
+// potion drops; save v7). No LVGL / ESP-IDF headers: this layer builds
 // and tests on the host.
 // Combat is automatic: the model runs one round per call and reports what
 // happened through a bounded event list; the view renders log lines from it.
@@ -15,17 +16,19 @@
 #define MAFA_MAP_COUNT 8         /* 0 = safe zone (town), 1-7 combat maps */
 #define MAFA_MAP_SAFE 0          /* always open, no monsters, no boss */
 #define MAFA_BACKPACK 8
-/* 1.76 paper doll minus candle and amulet: 8 positions over 5 slot types
+/* 1.76 paper doll minus candle and amulet: 8 positions over 6 slot types
  * (bracelets and rings each take two positions). */
 #define MAFA_EQ_SLOTS 8
-#define MAFA_SLOT_TYPES 5        /* weapon helmet armor necklace {bracelet,ring}*/
+#define MAFA_SLOT_TYPES 6        /* weapon helmet armor necklace bracelet ring */
 #define MAFA_SKILLS_PER_CLASS 7
 #define MAFA_MOBS_MAX 3          /* monsters in one non-boss battle */
 #define MAFA_KILLS_PER_BOSS 40   /* mobs killed (a 3-mob battle counts 3) */
 #define MAFA_GOLD_CAP 9999
 #define MAFA_INV_EMPTY 0xFF
 #define MAFA_DROP_NONE 0xFF
-#define MAFA_SAVE_VERSION 6
+#define MAFA_SAVE_VERSION 7
+/* v1.5 stats 2.0: ~15 % of kills also drop a potion (金创药/魔法药). */
+#define MAFA_POTION_DROP_PCT 15
 /* Auto-potion trigger lines are settable in steps of 10 (PRD 10, v1.2). */
 #define MAFA_POT_PCT_MIN 20
 #define MAFA_POT_PCT_MAX 80
@@ -38,6 +41,18 @@ typedef enum {
     MAFA_CLS_TAOIST,
     MAFA_CLS_COUNT,
 } mafa_class_t;
+
+/* Equipment class lines (v1.5 stats 2.0): which stat the piece primarily
+ * serves. The values double as mafa_class_t indices; 3 = neutral. */
+#define MAFA_LINE_WARRIOR 0
+#define MAFA_LINE_MAGE 1
+#define MAFA_LINE_TAOIST 2
+#define MAFA_LINE_NEUTRAL 3
+
+/* Skill damage/heal source stat (v1.5): the original's 攻击/魔法/道术. */
+#define MAFA_SK_STAT_ATK 0
+#define MAFA_SK_STAT_MC 1
+#define MAFA_SK_STAT_SC 2
 
 typedef enum {
     MAFA_Q_WHITE = 0,
@@ -66,7 +81,9 @@ typedef struct {
     uint8_t quality;    /* mafa_quality_t: color + sell price */
     uint8_t map;        /* home map 1..7 */
     uint8_t tier;       /* 1..3 within the map's table */
+    uint8_t line;       /* MAFA_LINE_*: the class the piece serves */
     int16_t atk, def;
+    int16_t mc, sc;     /* 魔法 / 道术 lines (v1.5 stats 2.0) */
     uint16_t hp;
 } mafa_item_t;
 
@@ -92,15 +109,16 @@ typedef struct {
     const char *name;
     uint8_t unlock;         /* level; skill 0 of each class needs no book */
     uint8_t kind;           /* mafa_skill_kind_t */
-    uint16_t mult;          /* ×100 vs attack (dmg/aoe/burn/passive/charge/stun) */
+    uint8_t stat;           /* damage/heal source: MAFA_SK_STAT_* (v1.5) */
+    uint16_t mult;          /* ×100 vs the skill's source stat */
     uint8_t ignore_def;     /* damage skips monster defense */
     uint8_t proc_pct;       /* MAFA_SK_PROC trigger chance */
     uint8_t rounds;         /* burn/poison/shield/armor/stun duration */
-    uint8_t flat;           /* poison damage per round */
+    uint8_t flat;           /* poison base damage per round (+道术 scaling) */
     uint8_t def_down_pct;   /* monster defense ×(100−pct)/100 while poisoned */
     uint8_t shield_pct;     /* SHIELD damage reduction / ARMOR defense bonus */
     uint8_t cd;             /* cooldown rounds after cast (0 = none) */
-    uint8_t mp;             /* 0 = cooldown-based (warrior) */
+    uint8_t mp;             /* 0 = cooldown-based; warriors pay MP too (v1.5) */
 } mafa_skill_t;
 
 extern const mafa_skill_t MAFA_SKILLS[MAFA_CLS_COUNT][MAFA_SKILLS_PER_CLASS];
@@ -176,11 +194,13 @@ typedef struct {
 typedef struct {
     int32_t max_hp;
     int16_t max_mp, atk, def;
+    int16_t mc, sc;         /* 魔法 / 道术 (v1.5 stats 2.0) */
 } mafa_stats_t;
 
 typedef struct {
     const mafa_item_t *item;
     int16_t d_atk, d_def;
+    int16_t d_mc, d_sc;
     int32_t d_hp;           /* deltas vs currently equipped (empty = 0) */
 } mafa_compare_t;
 
@@ -253,6 +273,7 @@ typedef enum {
     MAFA_EV_PLAYER_DEATH,
     MAFA_EV_FLOOR,              /* id = the floor just entered (boss win) */
     MAFA_EV_MAP_UNLOCK,         /* id = the combat map just unlocked */
+    MAFA_EV_POTION,             /* id = 1 red / 2 blue, a = gained (v1.5) */
 } mafa_ev_kind_t;
 
 #define MAFA_EV_MAX 12

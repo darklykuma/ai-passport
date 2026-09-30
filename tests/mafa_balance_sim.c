@@ -72,14 +72,18 @@ static void session(mafa_player_t *p, uint8_t map, uint8_t floor,
 }
 
 static void gear_up(mafa_player_t *p, uint8_t map, uint8_t tier) {
-    for (int i = 0; i < MAFA_ITEM_COUNT; ++i)
-        if (MAFA_ITEMS[i].map == map && MAFA_ITEMS[i].tier == tier) {
+    for (int i = 0; i < MAFA_ITEM_COUNT; ++i) {
+        if (MAFA_ITEMS[i].map != map || MAFA_ITEMS[i].tier != tier) continue;
+        /* v1.5 stats 2.0: a player wears the band's own-line pieces plus
+         * the neutral ones — off-line gear is worthless to them. */
+        if (MAFA_ITEMS[i].line != MAFA_LINE_NEUTRAL
+            && MAFA_ITEMS[i].line != p->cls) continue;
+        mafa_inv_add(p, (uint8_t)i);
+        /* Twins: both wrists and both fingers wear the band's pieces. */
+        if (MAFA_ITEMS[i].slot == MAFA_ST_BRACELET
+            || MAFA_ITEMS[i].slot == MAFA_ST_RING)
             mafa_inv_add(p, (uint8_t)i);
-            /* Twins: both wrists and both fingers wear the band's pieces. */
-            if (MAFA_ITEMS[i].slot == MAFA_ST_BRACELET
-                || MAFA_ITEMS[i].slot == MAFA_ST_RING)
-                mafa_inv_add(p, (uint8_t)i);
-        }
+    }
     for (int i = 0; i < MAFA_BACKPACK; ++i)
         if (p->inv_id[i] != MAFA_INV_EMPTY
             && MAFA_ITEMS[p->inv_id[i]].map == map)

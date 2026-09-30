@@ -360,6 +360,10 @@ static void handle_events(const mafa_events_t *ev) {
             settled = true;
             break;
         }
+        case MAFA_EV_POTION:
+            log_line("#5FC85F 获得 %s#", id == 1 ? "金创药" : "魔法药");
+            settled = true;
+            break;
         case MAFA_EV_BOOK:
             log_line("#F0C04A 习得【%s】!#", skill_of(id)->name);
             settled = true;
@@ -585,7 +589,7 @@ static void refresh_menu(void) {
 
 static void refresh_class(void) {
     static const char *ROWS[MAFA_CLS_COUNT] = {
-        "战士  高血高防", "法师  高攻脆皮", "道士  攻守兼备",
+        "战士  高血高防", "法师  高魔脆皮", "道士  道术续航",
     };
     static const char *BLURB[MAFA_CLS_COUNT] = {
         "攻杀/刺杀/半月/烈火", "雷电/火墙/盾/冰咆哮",
@@ -635,11 +639,14 @@ static void refresh_status(void) {
 
     mafa_stats_t st;
     mafa_stats(&s_app.player, &st);
-    char det[96];
-    /* Two detail lines: L40 worst case ("攻200 防93 血372/647 蓝190/230")
-     * does not fit one 204px row. */
-    snprintf(det, sizeof det, "攻%d 防%d 血%d/%ld\n蓝%ld/%ld  红药x%u 蓝药x%u",
-             st.atk, st.def, s_app.player.hp, (long)st.max_hp,
+    char det[128];
+    /* Three detail lines (v1.5): the four combat stats, then both pools,
+     * then the potion counters. Warriors show 魔0 道0 — the class identity
+     * reads at a glance. */
+    snprintf(det, sizeof det, "攻%d 魔%d 道%d 防%d\n血%d/%ld 蓝%ld/%ld"
+             "\n红药x%u 蓝药x%u",
+             st.atk, st.mc, st.sc, st.def,
+             s_app.player.hp, (long)st.max_hp,
              (long)s_app.player.mp, (long)st.max_mp,
              (unsigned)s_app.player.pot_red, (unsigned)s_app.player.pot_blue);
     lv_label_set_text(s_app.view.detail_label, det);
@@ -732,8 +739,9 @@ static void refresh_backpack(void) {
     } else {
         mafa_compare_t cmp;
         mafa_compare(&s_app.player, id, &cmp);
-        snprintf(det, sizeof det, "攻%+d 防%+d 血%+d\n金币 %u",
-                 cmp.d_atk, cmp.d_def, (int)cmp.d_hp,
+        /* v1.5: five stat deltas over three rows. */
+        snprintf(det, sizeof det, "攻%+d 魔%+d 道%+d\n防%+d 血%+d\n金币 %u",
+                 cmp.d_atk, cmp.d_mc, cmp.d_sc, cmp.d_def, (int)cmp.d_hp,
                  (unsigned)s_app.player.gold);
     }
     lv_label_set_text(s_app.view.detail_label, det);
