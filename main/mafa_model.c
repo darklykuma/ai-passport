@@ -723,10 +723,14 @@ uint32_t mafa_sell_all_white(mafa_player_t *p) {
     return total;
 }
 
+bool mafa_potion_full(const mafa_player_t *p, bool red) {
+    return (red ? p->pot_red : p->pot_blue) >= MAFA_POT_CAP;
+}
+
 bool mafa_buy_potion(mafa_player_t *p, bool red) {
     uint32_t price = red ? 50 : 40;
     if (p->gold < price) return false;
-    if ((red ? p->pot_red : p->pot_blue) >= MAFA_POT_CAP) return false;
+    if (mafa_potion_full(p, red)) return false;
     p->gold -= price;
     if (red) p->pot_red++;
     else p->pot_blue++;

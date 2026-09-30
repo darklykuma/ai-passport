@@ -172,6 +172,13 @@ static void buy_hold_tick(void) {
     refresh_store();
 }
 
+/* A refused potion buy is either the stack cap or gold — say which. */
+static void log_buy_fail(bool red) {
+    log_line(mafa_potion_full(&s_app.player, red)
+                 ? "#E05A48 药水已满#"
+                 : "#E05A48 金币不足#");
+}
+
 // --- Compact counters ---------------------------------------------------------
 
 /* 999 raw, 1234 → "1.2k", 65000 → "65k", 12000000 → "12M": gold grows to
@@ -1302,7 +1309,7 @@ static void process_event(const input_event_t *ev) {
             if (s_app.cur_store <= 1) {
                 buy_hold_start(s_app.cur_store == 0);
                 if (!s_app.buy_hold.active)
-                    log_line("#E05A48 金币不足#");
+                    log_buy_fail(s_app.cur_store == 0);
                 refresh_store();
                 break;
             }
@@ -1320,10 +1327,11 @@ static void process_event(const input_event_t *ev) {
                 enter_page(PAGE_MAIN);  /* 返回 row */
                 break;
             }
-            if (s_app.cur_store == 0)
-                mafa_buy_potion(&s_app.player, true);
-            else if (s_app.cur_store == 1)
-                mafa_buy_potion(&s_app.player, false);
+            if (s_app.cur_store <= 1) {
+                bool red = s_app.cur_store == 0;
+                if (!mafa_buy_potion(&s_app.player, red))
+                    log_buy_fail(red);
+            }
             else {
                 /* 1.76 plan gate: the store refuses under-level buys; the
                  * log says why instead of failing silently. */

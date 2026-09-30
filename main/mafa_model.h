@@ -339,6 +339,9 @@ uint32_t mafa_sell_price(uint8_t item_id);
 uint32_t mafa_sell(mafa_player_t *p, uint8_t inv_idx);  /* gold gained */
 uint32_t mafa_sell_all_white(mafa_player_t *p);         /* gold gained */
 bool mafa_buy_potion(mafa_player_t *p, bool red);       /* 50 / 40 gold */
+/* True when that potion stack sits at the uint8-native cap, so callers can
+ * tell "full" apart from "cannot afford" when a buy fails. */
+bool mafa_potion_full(const mafa_player_t *p, bool red);
 /* Buys a store book (skill idx 1-3). The 1.76 plan gate: returns false when
  * the player is under the skill's learn level (or already knows it, or
  * cannot afford it). */

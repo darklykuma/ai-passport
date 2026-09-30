@@ -619,6 +619,7 @@ static void test_potions_and_store(void) {
     assert(mafa_buy_potion(&p, true));      /* 50 */
     assert(mafa_buy_potion(&p, false));     /* 40 */
     assert(p.pot_red == 1 && p.pot_blue == 1 && p.gold == 0);
+    assert(!mafa_potion_full(&p, true) && !mafa_potion_full(&p, false));
     assert(!mafa_buy_potion(&p, true));     /* not enough gold */
 
     p.hp = 1;
@@ -1399,6 +1400,7 @@ static void test_caps_gold_and_potions(void) {
     p.gold = 10000;
     p.pot_red = MAFA_POT_CAP;
     p.pot_blue = MAFA_POT_CAP;
+    assert(mafa_potion_full(&p, true) && mafa_potion_full(&p, false));
     assert(!mafa_buy_potion(&p, true));   /* full red stack refuses */
     assert(!mafa_buy_potion(&p, false));
     assert(p.gold == 10000);              /* no charge, no wrap */
