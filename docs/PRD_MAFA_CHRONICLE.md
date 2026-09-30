@@ -206,8 +206,8 @@ Three classes, chosen at game start, immutable. Stats: HP / MP / attack / defens
 
 - **Seven per class at the original's real 1.76 learn levels (v1.4)** — the table below uses the community-verified 1.76 skill tables; Sun-Chasing Sword is the one post-1.76 skill (user-approved exception). Skills unlock by **level AND skill book** (8.5): skill 0 of each class is free, skills 1–3 are store books, skills 4–6 drop only. Once unlocked they cast fully automatically.
 - Warrior uses cooldowns (no MP); mage/taoist use MP. Two new forms join the roster (v1.4): **stun** (Savage Charge — damage plus the target skips its next turn) and **armor** (Holy Armor — defense +50% for 4 rounds).
-- **Skill state is always visible on the skill page (v1.4)** — its own action-menu cell since the paper doll grew to 8 slots: all seven class skills with their live state — "always on" (passive/proc), "on/off" (active; OK toggles and saves), "store N gold" (buyable book), or the lock reason "Lv35" / "elite/boss" (level gate first, then the source). A dropped book may be **banked before its unlock level**; the skill activates at the level-up that reaches the gate — the skill page is what makes that waiting state visible.
-- **Active skills can be switched off (v1.2)**: OK on a skill row toggles it (passive/proc rows are fixed); the auto-cast policy skips switched-off skills. Switching every active skill off leaves plain attacks — a legitimate choice, not an error.
+- **Skill state is always visible on the skill page (v1.4)** — its own action-menu cell since the paper doll grew to 8 slots: all seven class skills with their live state — "always on" (passive/proc), "on/off" (active; OK toggles and saves), "store N gold" (buyable book), or the lock reason "Lv35" / "elite/boss" (level gate first, then the source; skill 0 needs no book, so its locked row reads "Lv X auto-learned"). A dropped book may be **banked before its unlock level**; the skill activates at the level-up that reaches the gate — the skill page is what makes that waiting state visible.
+- **Active skills can be switched off (v1.2)**: OK on a skill row toggles it (passive/proc rows are fixed); the auto-cast policy skips switched-off skills. Switching every active skill off leaves plain attacks — a legitimate choice, not an error. OK on a fixed or not-yet-learned row no longer falls silent (v1.4): the bottom help panel temporarily shows the reason — level gate, store book, elite/boss drop, or passive always-on — until the cursor moves or the page reopens.
 - **AoE forms are crowd-only by design**: Half-Moon Sweep / Frost Howl / Chain Lightning / Explosive Flame cast only with **2+ living monsters**. The skill page's "AoE" tag is where that condition lives.
 
 | Class | Skill | Unlock | Book | Effect | Cost |
@@ -418,7 +418,7 @@ Global: UP/DOWN move the cursor, OK confirms, long-press returns to the main scr
 | Pick class | move | confirm | back to menu |
 | Main screen (idling) | move action-menu cursor (7 cells, 2×4) | open Backpack/Gear/Skills/Store/Map/Settings/Speed | — |
 | Gear (8 slots + stats + potions, v1.4) | move cursor over the 8 slots | leave to the main screen (view-only page; equipping happens from the backpack) | back to main screen |
-| Skills (v1.4) | move over the 7 class skills | toggle on/off (passive/proc rows fixed; saves at once) | back to main screen |
+| Skills (v1.4) | move over the 7 class skills | toggle on/off and save at once; fixed and not-yet-learned rows explain themselves in the help panel | back to main screen |
 | Main screen — speed | — | cycles 1x → 2x → 4x | — |
 | Backpack | move | select (equip/sell submenu, with comparison) | back to main screen |
 | Store | move | buy; on an under-level book the buy is **refused** with a "level too low" log line (v1.4) | back to main screen |

@@ -251,8 +251,11 @@ save(img, "07-status")
 # Split from the gear page (8 slots + 7 skills no longer fit one screen).
 # State column after two ASCII spaces: 常驻 (passive/proc, never off),
 # 开/关 (OK flips and saves, 群攻 tag rides the toggle), then lock reasons
-# with the level gate first and the book source second. Sample: a level-33
-# warrior — every row state visible in one screen.
+# with the level gate first and the source second — skill 0 needs no book
+# and reads "Lv X 自动习得". OK on a fixed/unknown row swaps the help
+# lines for the reason until the cursor moves (not shown in this static
+# mockup). Sample: a level-33 warrior — every row state visible in one
+# screen.
 img, d = new_page()
 title_band(d, "技能")
 panel(d, 6, 42, 228, 190, PANEL_BG, PANEL_EDGE)

@@ -48,7 +48,9 @@ typedef struct {
     bsp_btn_ev_t event;
 } input_event_t;
 
-/* Quality display (PRD 9.3): recolor codes for the log label. */
+/* Quality display (PRD 9.3): recolor codes for the log label. The LVGL
+ * recolor parser swallows everything between # and the next space, so each
+ * format site must keep a space between the code and the text it colors. */
 static const char *Q_COLOR[MAFA_Q_COUNT] = {
     "#C8C8C8", "#5FC85F", "#4FA8F2", "#B06CF0", "#F0C04A",
 };
@@ -81,6 +83,9 @@ static struct {
     int cur_main;           // action menu cursor (0..6)
     int cur_status;         /* gear page cursor: 0-7 equip slots */
     int cur_skill;          /* skill page cursor: 0-6 class skills */
+    char skill_hint[48];    /* skill page: why OK had nothing to toggle;
+                               empty shows the help lines, any navigation
+                               or page entry restores them */
     int set_edit;           /* settings edit mode: 0 none, 1 potion line,
                                2 auto-sell picker */
     int cur_pick;           /* auto-sell picker cursor: 0-3 colors, 4 done */
@@ -348,8 +353,8 @@ static void handle_events(const mafa_events_t *ev) {
             if (a == 1)
                 log_line("【掉落】%s %s%s!", Q_COLOR[it->quality], it->name, "#");
             else if (a == 2)
-                log_line("#9AA3A8 售出 %s+%d 金#",
-                         Q_COLOR[it->quality], (int)mafa_sell_price(id));
+                log_line("售出 %s %s+%d 金#", Q_COLOR[it->quality],
+                         it->name, (int)mafa_sell_price(id));
             else
                 log_line("#E05A48 背包已满!#");
             settled = true;
@@ -622,7 +627,7 @@ static void refresh_status(void) {
             n += snprintf(buf + n, sizeof buf - n, "#9AA3A8 %s%s 空#\n",
                           mark, SLOT_NAME[i]);
         else
-            n += snprintf(buf + n, sizeof buf - n, "%s%s %s%s#\n", mark,
+            n += snprintf(buf + n, sizeof buf - n, "%s%s %s %s#\n", mark,
                           SLOT_NAME[i], Q_COLOR[MAFA_ITEMS[id].quality],
                           MAFA_ITEMS[id].name);
     }
@@ -643,7 +648,10 @@ static void refresh_status(void) {
 /* Skill page (design 17, 1.76 plan): the seven class skills with their
  * live state — 常驻 for passive/proc (fixed), 开/关 toggles (OK flips and
  * saves, the 群攻 tag rides the toggle), the store price, or the lock
- * reason with the level gate first and the book source second. */
+ * reason with the level gate first and the source second (skill 0 needs
+ * no book: it reads 自动习得). OK on a row with nothing to toggle swaps
+ * the help lines for the reason until the cursor moves or the page is
+ * re-entered — the page never reacts to OK with silence. */
 static void refresh_skills(void) {
     char buf[512];
     int n = 0;
@@ -658,7 +666,9 @@ static void refresh_skills(void) {
             if (s_app.player.level < sk->unlock)
                 m += (size_t)snprintf(state + m, sizeof state - m, "Lv%u ",
                                       (unsigned)sk->unlock);
-            if (i >= 1 && i <= 3)
+            if (i == 0)
+                m += (size_t)snprintf(state + m, sizeof state - m, "自动习得");
+            else if (i <= 3)
                 m += (size_t)snprintf(state + m, sizeof state - m, "书店%u金",
                                       (unsigned)mafa_book_price(s_app.player.cls,
                                                                 (uint8_t)i));
@@ -677,7 +687,10 @@ static void refresh_skills(void) {
     }
     lv_label_set_text(s_app.view.items_label, buf);
     lv_label_set_text(s_app.view.detail_label,
-                      "OK 切换开关,立即存档\n群攻:2只以上才施放\n高阶书:精英/Boss掉落");
+                      s_app.skill_hint[0] ? s_app.skill_hint
+                      : "OK 切换开关,立即存档\n"
+                        "群攻:2只以上才施放\n"
+                        "高阶书:精英/Boss掉落");
 }
 
 static void refresh_backpack(void) {
@@ -955,7 +968,10 @@ static void enter_page(page_t page) {
         refresh_settings();
         break;
     case PAGE_STATUS: refresh_status(); break;
-    case PAGE_SKILLS: refresh_skills(); break;
+    case PAGE_SKILLS:
+        s_app.skill_hint[0] = '\0';   /* reasons never survive page exit */
+        refresh_skills();
+        break;
     }
 }
 
@@ -1104,14 +1120,17 @@ static void process_event(const input_event_t *ev) {
     case PAGE_SKILLS:
         if (long_ok) { enter_page(PAGE_MAIN); break; }
         if (!click) break;
-        if (ev->btn == BSP_BTN_UP)
+        if (ev->btn == BSP_BTN_UP) {
             s_app.cur_skill = (s_app.cur_skill + MAFA_SKILLS_PER_CLASS - 1)
                               % MAFA_SKILLS_PER_CLASS;
-        else if (ev->btn == BSP_BTN_DOWN)
+            s_app.skill_hint[0] = '\0';
+        } else if (ev->btn == BSP_BTN_DOWN) {
             s_app.cur_skill = (s_app.cur_skill + 1) % MAFA_SKILLS_PER_CLASS;
-        else if (ev->btn == BSP_BTN_OK) {
-            /* Skill row: OK toggles it; passive/proc rows are fixed,
-             * unknown rows have nothing to toggle yet. */
+            s_app.skill_hint[0] = '\0';
+        } else if (ev->btn == BSP_BTN_OK) {
+            /* Skill row: OK toggles a learned active; fixed and unknown
+             * rows say why there is nothing to toggle in the detail panel
+             * instead of failing silently. */
             uint8_t idx = (uint8_t)s_app.cur_skill;
             const mafa_skill_t *sk = &MAFA_SKILLS[s_app.player.cls][idx];
             if (mafa_skill_known(&s_app.player, idx)
@@ -1119,6 +1138,20 @@ static void process_event(const input_event_t *ev) {
                 && sk->kind != MAFA_SK_PROC) {
                 s_app.player.skills_off ^= (uint8_t)(1u << idx);
                 save_now();
+                s_app.skill_hint[0] = '\0';
+            } else if (!mafa_skill_known(&s_app.player, idx)) {
+                if (s_app.player.level < sk->unlock)
+                    snprintf(s_app.skill_hint, sizeof s_app.skill_hint,
+                             "等级不足,需 Lv%u", (unsigned)sk->unlock);
+                else if (idx <= 3)
+                    snprintf(s_app.skill_hint, sizeof s_app.skill_hint,
+                             "书店购买后习得");
+                else
+                    snprintf(s_app.skill_hint, sizeof s_app.skill_hint,
+                             "精英/Boss掉落习得");
+            } else {
+                snprintf(s_app.skill_hint, sizeof s_app.skill_hint,
+                         "被动技能常驻生效,无开关");
             }
         }
         refresh_skills();
