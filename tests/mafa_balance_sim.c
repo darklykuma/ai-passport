@@ -1,6 +1,7 @@
 // tests/mafa_balance_sim.c — MAFA CHRONICLE balance simulator (PRD 4.2/M2,
-// skills-2.0 rebalance). Automated idle sessions per class × map, grinding
-// gold restocked into potions like a real player. Targets:
+// skills-2.0 rebalance; v1.3 floors). Automated idle sessions per
+// class × map × floor, grinding gold restocked into potions like a real
+// player. Targets, per floor:
 //   battle pace 4-15 s; suggested-level grind rarely deadly (≥5 min);
 //   boss win rate: no 0 %, at least one class in [45, 75 %].
 //   (An informational deep-push column shows the level gap effect; sustain
@@ -13,6 +14,7 @@
 #define SECONDS_PER_ROUND 1.5   /* 1x speed (PRD 8.3) */
 #define SESSION_BATTLES 400
 #define BOSS_TRIES 60
+#define MAX_FLOORS 7
 
 static mafa_battle_t scratch_battle;
 
@@ -37,12 +39,13 @@ static void restock(mafa_player_t *p) {
  * After a death the model respawns the player in the safe zone; the sim
  * walks them straight back to the grinding map (a menu action in the real
  * app, so it costs no simulated time). */
-static void session(mafa_player_t *p, uint8_t map, long *kills, long *deaths,
-                    long *battles, long *rounds) {
+static void session(mafa_player_t *p, uint8_t map, uint8_t floor,
+                    long *kills, long *deaths, long *battles, long *rounds) {
     *kills = *deaths = *battles = *rounds = 0;
     for (int i = 0; i < SESSION_BATTLES; ++i) {
         if (p->pending_drop != MAFA_DROP_NONE) mafa_drop_discard(p);
         if (p->map != map) p->map = map;
+        if (p->floor != floor) p->floor = floor;
         mafa_battle_t *b = &scratch_battle;
         if (!mafa_battle_start(p, b)) continue;
         int dead = run_battle(p, b);
@@ -78,8 +81,30 @@ static void gear_up(mafa_player_t *p, uint8_t map, uint8_t tier) {
             mafa_equip(p, (uint8_t)i);
 }
 
+/* Arrival kit: what a player realistically wears when they FIRST reach a
+ * floor — the previous floors' drops, never the whole map's mid gear.
+ * Last floors keep the tuned tier-2 wall cells of the skills-2.0 sim. */
+static void arrival_kit(uint8_t map, uint8_t floor, uint8_t *item_map,
+                        uint8_t *tier) {
+    static const uint8_t km[MAFA_MAP_COUNT][MAX_FLOORS] = {
+        {0, 0, 0, 0, 0, 0, 0},
+        {1, 1, 0, 0, 0, 0, 0},   /* 比奇: white, then green */
+        {1, 2, 2, 0, 0, 0, 0},   /* 废矿: 比奇-green entry, then its own */
+        {3, 3, 3, 3, 3, 3, 3},   /* 祖玛: its own blue from floor 1 */
+    };
+    static const uint8_t kt[MAFA_MAP_COUNT][MAX_FLOORS] = {
+        {0, 0, 0, 0, 0, 0, 0},
+        {1, 2, 0, 0, 0, 0, 0},
+        {2, 1, 2, 0, 0, 0, 0},
+        {1, 1, 1, 1, 1, 1, 2},
+    };
+    *item_map = km[map][floor - 1];
+    *tier = kt[map][floor - 1];
+}
+
 static double boss_win_rate(mafa_player_t *p, uint8_t level, uint8_t map,
-                            uint8_t gear_tier, int tries) {
+                            uint8_t floor, uint8_t item_map, uint8_t gear_tier,
+                            int tries) {
     int wins = 0;
     for (int i = 0; i < tries; ++i) {
         mafa_player_t t;
@@ -87,9 +112,10 @@ static double boss_win_rate(mafa_player_t *p, uint8_t level, uint8_t map,
         t.level = level;
         t.unlocked = 3;
         t.map = map;
+        t.floor = floor;
         t.pot_red = 8;                  /* honest mid-progression stock */
         t.pot_blue = 4;
-        gear_up(&t, map, gear_tier);
+        gear_up(&t, item_map, gear_tier);
         /* Books 1-3: the two store books plus the elite-dropped third.
          * Book 4 comes only from a boss kill, so the FIRST encounter runs
          * without the capstone skill. */
@@ -107,34 +133,44 @@ static double boss_win_rate(mafa_player_t *p, uint8_t level, uint8_t map,
 
 int main(int argc, char **argv) {
     /* Combat maps only (ids 1-3): MAFA_MAP_SAFE is the respawn town at
-     * id 0, never ground. */
-    static const uint8_t suggested[MAFA_MAP_COUNT] = {0, 4, 9, 14};
-    /* Per-map cell verdicts: [map][cls][0]=kill pace ok, [1]=grind not
-     * constantly deadly, [2]=boss win rate (0-100), [3]=deep push deadly. */
-    int cells[MAFA_MAP_COUNT][MAFA_CLS_COUNT][4] = {{{0}}};
-    double wins[MAFA_MAP_COUNT][MAFA_CLS_COUNT] = {{0}};
+     * id 0, never ground. Suggested level per floor = its boss level - 1,
+     * derived from the table so retunes keep the cells honest. */
+    /* Per-floor cell verdicts: [map][floor][cls][0]=kill pace ok,
+     * [1]=grind not constantly deadly, [2]=boss win rate (0-100). */
+    int cells[MAFA_MAP_COUNT][MAX_FLOORS + 1][MAFA_CLS_COUNT][4] = {{{{0}}}};
+    double wins[MAFA_MAP_COUNT][MAX_FLOORS + 1][MAFA_CLS_COUNT] = {{{0}}};
     int failures = 0;
 
     for (int map = 1; map < MAFA_MAP_COUNT; ++map) {
         if (argc == 3 && atoi(argv[1]) != map) continue;
+        for (int floor = 1; floor <= MAFA_MAP_FLOORS[map]; ++floor) {
+        const mafa_monster_t *floor_boss = mafa_map_boss((uint8_t)map,
+                                                         (uint8_t)floor);
+        int suggested = floor_boss->level - 1;
+        if (suggested < 1) suggested = 1;
         for (int cls = 0; cls < MAFA_CLS_COUNT; ++cls) {
             if (argc == 3 && atoi(argv[2]) != cls) continue;
             mafa_player_t p;
-            mafa_player_init(&p, (uint8_t)cls, (uint32_t)(4000 + map * 100 + cls * 10));
-            p.level = suggested[map];
+            mafa_player_init(&p, (uint8_t)cls,
+                             (uint32_t)(4000 + map * 100 + floor * 10 + cls));
+            p.level = (uint8_t)suggested;
             p.unlocked = 3;
             p.map = (uint8_t)map;
+            p.floor = (uint8_t)floor;
             p.pot_red = 30;
             p.pot_blue = 30;
             for (int s = 1; s <= 3; ++s)    /* store books + elite book 3 */
                 p.books |= (uint16_t)(1u << (cls * MAFA_SKILLS_PER_CLASS + s));
-            gear_up(&p, (uint8_t)map, 2);
+            uint8_t kit_map, kit_tier;
+            arrival_kit((uint8_t)map, (uint8_t)floor, &kit_map, &kit_tier);
+            gear_up(&p, kit_map, kit_tier);
 
             long kills, deaths, battles, rounds;
-            session(&p, (uint8_t)map, &kills, &deaths, &battles, &rounds);
+            session(&p, (uint8_t)map, (uint8_t)floor,
+                    &kills, &deaths, &battles, &rounds);
             if (battles == 0 || kills == 0) {
-                printf("SIM FAIL map %d cls %d: stalled (battles %ld)\n",
-                       map, cls, battles);
+                printf("SIM FAIL map %d-%d cls %d: stalled (battles %ld)\n",
+                       map, floor, cls, battles);
                 failures++;
                 continue;
             }
@@ -143,30 +179,32 @@ int main(int argc, char **argv) {
                 ? 9999.0
                 : SECONDS_PER_ROUND * (double)rounds / 60.0 / (double)deaths;
 
-            double bw = boss_win_rate(&p, suggested[map], (uint8_t)map, 2,
+            double bw = boss_win_rate(&p, (uint8_t)suggested, (uint8_t)map,
+                                      (uint8_t)floor, kit_map, kit_tier,
                                       BOSS_TRIES);
-            wins[map][cls] = bw;
-            cells[map][cls][0] = kill_s >= 4.0 && kill_s <= 15.0;
-            cells[map][cls][1] = death_min >= 5.0;
-            cells[map][cls][2] = bw > 0;
-            printf("map %d cls %d: battle %.1fs death-int %.1fmin boss %.0f%%"
-                   " (kills %ld deaths %ld)",
-                   map, cls, kill_s, death_min, bw, kills, deaths);
+            wins[map][floor][cls] = bw;
+            cells[map][floor][cls][0] = kill_s >= 4.0 && kill_s <= 15.0;
+            cells[map][floor][cls][1] = death_min >= 5.0;
+            cells[map][floor][cls][2] = bw > 0;
+            printf("map %d-%d cls %d: battle %.1fs death-int %.1fmin"
+                   " boss %.0f%% (kills %ld deaths %ld)",
+                   map, floor, cls, kill_s, death_min, bw, kills, deaths);
 
-            /* Deep push: two levels early on the same map must hurt. */
+            /* Deep push: two levels early on the same floor must hurt. */
             mafa_player_t q;
             mafa_player_init(&q, (uint8_t)cls,
-                             (uint32_t)(7000 + map * 100 + cls * 10));
-            q.level = suggested[map] >= 3 ? (uint8_t)(suggested[map] - 2) : 1;
+                             (uint32_t)(7000 + map * 100 + floor * 10 + cls));
+            q.level = suggested >= 3 ? (uint8_t)(suggested - 2) : 1;
             q.unlocked = 3;
             q.map = (uint8_t)map;
+            q.floor = (uint8_t)floor;
             q.pot_red = 8;
             q.pot_blue = 4;
             for (int s = 1; s <= 3; ++s)
                 q.books |= (uint16_t)(1u << (cls * MAFA_SKILLS_PER_CLASS + s));
-            gear_up(&q, (uint8_t)map, 2);
+            gear_up(&q, kit_map, kit_tier);
             long dk, dd, db, dr;
-            session(&q, (uint8_t)map, &dk, &dd, &db, &dr);
+            session(&q, (uint8_t)map, (uint8_t)floor, &dk, &dd, &db, &dr);
             double d_death = dd == 0
                 ? 9999.0
                 : SECONDS_PER_ROUND * (double)dr / 60.0 / (double)dd;
@@ -175,25 +213,42 @@ int main(int argc, char **argv) {
                               * is the real gate (cells[2]/wins). */
             printf(" deep(L%d) %.1fmin\n", q.level, d_death);
         }
+        }
     }
     for (int map = 1; map < MAFA_MAP_COUNT; ++map) {
-        int in_band = 0, locked = 0, meta_ok = 1;
-        for (int cls = 0; cls < MAFA_CLS_COUNT; ++cls) {
-            if (wins[map][cls] <= 0) locked = 1;
-            if (cells[map][cls][0] && cells[map][cls][1]
-                && wins[map][cls] >= 20 && wins[map][cls] <= 90)
-                in_band++;
-            if (wins[map][cls] >= 45 && wins[map][cls] <= 75) in_band++;
-            meta_ok = meta_ok && cells[map][cls][2];
+        for (int floor = 1; floor <= MAFA_MAP_FLOORS[map]; ++floor) {
+            /* The original's dungeon shape: the LAST floor of a map is the
+             * wall (strict 45-75 % band like the skills-2.0 map bosses);
+             * mid floors are grindable corridors — no free wins (some
+             * class must sit in [20, 90]) but no per-floor wall either.
+             * The XP wall and death economy carry mid-floor danger. */
+            bool wall = floor == MAFA_MAP_FLOORS[map];
+            int in_band = 0, loose = 0, locked = 0, meta_ok = 1;
+            for (int cls = 0; cls < MAFA_CLS_COUNT; ++cls) {
+                if (wins[map][floor][cls] <= 0) locked = 1;
+                if (cells[map][floor][cls][0] && cells[map][floor][cls][1]
+                    && wins[map][floor][cls] >= 20
+                    && wins[map][floor][cls] <= 90) {
+                    in_band++;
+                    loose++;
+                }
+                if (wins[map][floor][cls] >= 45 && wins[map][floor][cls] <= 75)
+                    in_band++;
+                meta_ok = meta_ok && cells[map][floor][cls][2];
+            }
+            /* Pass rule: no impossible matchups, every class's pace/grind
+             * cells hold; a wall floor needs a class in the boss band, a
+             * corridor floor only needs one class under 90 %. */
+            int ok = !locked && meta_ok && (wall ? in_band >= 1 : loose >= 1);
+            for (int cls = 0; cls < MAFA_CLS_COUNT; ++cls)
+                ok = ok && cells[map][floor][cls][0]
+                     && cells[map][floor][cls][1];
+            printf("map %d floor %d/%d%s: %s (%d in band%s)\n",
+                   map, floor, MAFA_MAP_FLOORS[map], wall ? " wall" : "",
+                   ok ? "OK" : "FAIL", in_band,
+                   wall ? "" : ", corridor rule");
+            if (!ok) failures++;
         }
-        /* Pass rule: no impossible matchups, every class's pace/grind
-         * cells hold, and at least one class sits in the boss band. */
-        int ok = !locked && meta_ok && in_band >= 1;
-        for (int cls = 0; cls < MAFA_CLS_COUNT; ++cls)
-            ok = ok && cells[map][cls][0] && cells[map][cls][1];
-        printf("map %d: %s (%d classes in band)\n",
-               map, ok ? "OK" : "FAIL", in_band);
-        if (!ok) failures++;
     }
     if (failures)
         printf("SIM: %d target violations\n", failures);

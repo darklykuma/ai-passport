@@ -122,6 +122,7 @@ static void test_multi_mob_pack_weights(void) {
         mafa_player_init(&p, MAFA_CLS_MAGE, (uint32_t)(500 + i));
         p.unlocked = 3;
         p.map = 3;                              /* deepest map: often 3 mobs */
+        p.floor = MAFA_MAP_FLOORS[3];           /* full cumulative trash pool */
         mafa_battle_t b;
         assert(mafa_battle_start(&p, &b));
         packs[b.mob_n]++;
@@ -147,26 +148,44 @@ static void test_boss_event_flow_and_book_guarantee(void) {
     assert(mafa_boss_start(&p, &b));
     assert(b.is_boss && b.mob_n == 1);
 
-    /* Fighting the map-1 boss and winning must unlock map 2 (PRD 8.7) and
-     * guarantee the next missing late book (skill 3 first, then 4). */
+    /* Fighting the floor-1 boss (森林雪人) and winning must open floor 2 of
+     * the same map (v1.3) and guarantee the next missing late book (skill 3
+     * first, then 4). */
     int guard = 0;
     mafa_events_t ev;
-    while (!b.over && guard < 100000) { mafa_battle_round(&p, &b, &ev); guard++; }
+    bool saw_floor_ev = false;
+    while (!b.over && guard < 100000) {
+        mafa_battle_round(&p, &b, &ev);
+        guard++;
+        for (int i = 0; i < ev.n; ++i)
+            if (ev.e[i].kind == MAFA_EV_FLOOR && ev.e[i].id == 2)
+                saw_floor_ev = true;
+    }
     assert(b.over && guard < 100000);
     if (!b.player_dead) {
-        assert(p.unlocked >= 1);
+        assert(p.unlocked == 1);            /* floor boss ≠ map unlock */
+        assert(p.floor_unlocked[0] == 2 && p.floor == 2 && saw_floor_ev);
         assert(p.kills == 0);
         uint16_t b3 = (uint16_t)(1u << (MAFA_CLS_WARRIOR * MAFA_SKILLS_PER_CLASS + 3));
         assert(p.books & b3);               /* boss first-kill grants book 3 */
-        /* Second boss kill must hand out book 4. */
+        /* Second boss kill (森林巨猿, floor 2 = the last floor) must hand
+         * out book 4 and unlock map 2. */
         p.kills = MAFA_KILLS_PER_BOSS;
         mafa_battle_t b2;
         assert(mafa_boss_start(&p, &b2));
         guard = 0;
-        while (!b2.over && guard < 100000) { mafa_battle_round(&p, &b2, &ev); guard++; }
+        bool saw_map_ev = false;
+        while (!b2.over && guard < 100000) {
+            mafa_battle_round(&p, &b2, &ev);
+            guard++;
+            for (int i = 0; i < ev.n; ++i)
+                if (ev.e[i].kind == MAFA_EV_MAP_UNLOCK) saw_map_ev = true;
+        }
         if (!b2.player_dead) {
             uint16_t b4 = (uint16_t)(2u << (MAFA_CLS_WARRIOR * MAFA_SKILLS_PER_CLASS + 3));
             assert((p.books & b4) == (b4 & 0x3FF));   /* book 4 bit set */
+            assert(p.unlocked == 2 && saw_map_ev);    /* 废矿洞 opens */
+            assert(p.floor == 2);                     /* stays on the top floor */
         }
     } else {
         assert(p.kills == 0);           /* death also resets the counter */
@@ -312,15 +331,21 @@ static void test_switch_map_requires_unlock(void) {
     mafa_player_init(&p, MAFA_CLS_MAGE, 11);
     assert(p.map == 1);                 /* new games idle at once: Beech */
     assert(p.unlocked == 1);
-    mafa_switch_map(&p, 2);             /* locked: ignored */
+    assert(p.floor == 1);               /* the ladder starts at floor 1 */
+    mafa_switch_map(&p, 2, 1);          /* locked: ignored */
     assert(p.map == 1);
+    mafa_switch_map(&p, 1, 2);          /* floor not unlocked yet: ignored */
+    assert(p.map == 1 && p.floor == 1);
     p.unlocked = 3;
-    mafa_switch_map(&p, 3);
-    assert(p.map == 3);
-    mafa_switch_map(&p, MAFA_MAP_SAFE); /* the town is always open */
-    assert(p.map == MAFA_MAP_SAFE);
-    mafa_switch_map(&p, 1);             /* walk back out */
-    assert(p.map == 1);
+    p.floor_unlocked[2] = MAFA_MAP_FLOORS[3];
+    mafa_switch_map(&p, 3, 7);
+    assert(p.map == 3 && p.floor == 7);
+    mafa_switch_map(&p, 3, 8);          /* beyond the ladder: ignored */
+    assert(p.map == 3 && p.floor == 7);
+    mafa_switch_map(&p, MAFA_MAP_SAFE, 0);      /* the town is always open */
+    assert(p.map == MAFA_MAP_SAFE && p.floor == 0);
+    mafa_switch_map(&p, 1, 1);          /* walk back out */
+    assert(p.map == 1 && p.floor == 1);
 }
 
 static void test_inventory_equip_and_compare(void) {
@@ -394,6 +419,7 @@ static void test_death_penalty_drops_and_gold(void) {
     mafa_player_init(&p, MAFA_CLS_WARRIOR, 4242);
     p.unlocked = 3;
     p.map = 3;                          /* deep map, deadly at level 1 */
+    p.floor = MAFA_MAP_FLOORS[3];
     p.gold = 1000;
     for (int i = 0; i < MAFA_BACKPACK; ++i) assert(mafa_inv_add(&p, (uint8_t)(i + 9)));
     p.auto_potion = false;              /* no saves */
@@ -414,6 +440,7 @@ static void test_death_penalty_drops_and_gold(void) {
     mafa_stats(&p, &st);
     assert(p.hp == st.max_hp);          /* PRD 8.9: full restoration on death */
     assert(p.map == MAFA_MAP_SAFE);     /* respawn in town, pick the map */
+    assert(p.floor == 0);               /* floors survive death, town has none */
     assert(guard < 100000);
     assert(p.kills == 0);               /* boss counter reset */
 
@@ -428,7 +455,7 @@ static void test_death_penalty_drops_and_gold(void) {
     assert(p.gold <= 900 && p.gold >= 790);
 }
 
-static void test_save_roundtrip_v4(void) {
+static void test_save_roundtrip_v5(void) {
     mafa_player_t p;
     mafa_player_init(&p, MAFA_CLS_TAOIST, 77);
     p.level = 9;
@@ -438,6 +465,8 @@ static void test_save_roundtrip_v4(void) {
     p.pot_blue = 4;
     p.unlocked = 1;
     p.map = MAFA_MAP_SAFE;              /* v0.9: town survives the roundtrip */
+    p.floor = 0;
+    p.floor_unlocked[0] = 2;            /* 比奇森林 fully climbed */
     p.kills = 17;
     p.auto_potion = false;
     p.auto_boss = true;
@@ -455,8 +484,8 @@ static void test_save_roundtrip_v4(void) {
 
     uint8_t buf[64];
     size_t n = mafa_save_serialize(&p, buf, sizeof buf);
-    assert(n == 4 + MAFA_SAVE_BODY_V4 + 1);
-    assert(buf[3] == MAFA_SAVE_VERSION && buf[3] == 4);
+    assert(n == 4 + MAFA_SAVE_BODY_V5 + 1);
+    assert(buf[3] == MAFA_SAVE_VERSION && buf[3] == 5);
 
     mafa_player_t q;
     mafa_player_init(&q, MAFA_CLS_WARRIOR, 1);
@@ -465,6 +494,8 @@ static void test_save_roundtrip_v4(void) {
     assert(q.gold == p.gold && q.pot_red == 3 && q.pot_blue == 4);
     assert(q.books == p.books);
     assert(q.unlocked == 1 && q.map == MAFA_MAP_SAFE && q.kills == 17);
+    assert(q.floor == 0 && q.floor_unlocked[0] == 2
+           && q.floor_unlocked[1] == 1 && q.floor_unlocked[2] == 1);
     assert(q.auto_potion == false && q.auto_boss == true);
     assert(q.pot_hp_pct == 70 && q.pot_mp_pct == 40);
     assert(q.skills_off == (1u << 2) && q.auto_sell == 0x05);
@@ -483,6 +514,12 @@ static void test_save_roundtrip_v4(void) {
     p.pot_hp_pct = 90;
     assert(mafa_save_serialize(&p, buf, sizeof buf));
     assert(!mafa_save_deserialize(&q, buf, n));
+
+    /* A forged floor beyond the ladder is rejected too. */
+    assert(mafa_save_serialize(&p, buf, sizeof buf));
+    p.floor_unlocked[2] = 8;            /* 祖玛 tops out at 7 */
+    assert(mafa_save_serialize(&p, buf, sizeof buf));
+    assert(!mafa_save_deserialize(&q, buf, n));
 }
 
 static void test_init_defaults_v4(void) {
@@ -491,6 +528,9 @@ static void test_init_defaults_v4(void) {
     assert(p.auto_sell == 0x01);        /* white only (the old behavior) */
     assert(p.pot_hp_pct == 50 && p.pot_mp_pct == 30);
     assert(p.skills_off == 0);          /* every skill starts switched on */
+    assert(p.floor == 1);
+    for (int i = 0; i < MAFA_MAP_COUNT - 1; ++i)
+        assert(p.floor_unlocked[i] == 1);
 }
 
 static void test_v3_save_migration_to_v4(void) {
@@ -510,6 +550,7 @@ static void test_v3_save_migration_to_v4(void) {
     assert(q.pot_mp_pct == MAFA_POT_MP_PCT_DEFAULT);
     assert(q.skills_off == 0);
     assert(q.auto_sell == 0x00);        /* v4 flags carry no sell bit */
+    assert(q.floor_unlocked[0] == 1 && q.floor == 1);   /* fresh v1.3 ladder */
 
     /* An old save with 自动卖白 on (flags 0x20) maps to white-only. */
     assert(mafa_save_serialize(&p, buf, sizeof buf));
@@ -545,8 +586,11 @@ static void test_v1_save_migration(void) {
     assert(mafa_save_deserialize(&p, buf, (size_t)(w - buf) + 1));
     assert(p.cls == MAFA_CLS_MAGE && p.level == 10 && p.xp == 123);
     /* v1 map/unlocked migrate into the v3 numbering: old map 1 (Mine)
-     * becomes 2, old unlocked 2 becomes 3. */
+     * becomes 2, old unlocked 2 becomes 3. Left-behind maps count as fully
+     * climbed; the top map (祖玛) re-climbs from floor 1. */
     assert(p.gold == 456 && p.kills == 17 && p.map == 2 && p.unlocked == 3);
+    assert(p.floor_unlocked[0] == 2 && p.floor_unlocked[1] == 3
+           && p.floor_unlocked[2] == 1 && p.floor == 3);
     /* Migration granted every book whose unlock level is reached. */
     assert(mafa_skill_known(&p, 0));
     assert(mafa_skill_known(&p, 1));    /* 雷电术 L3 */
@@ -587,8 +631,13 @@ static void test_v2_save_map_migration(void) {
         assert(q.auto_sell == (c == 0 ? 0x01 : 0x00));
         if (c == 0) {
             assert(q.map == 3 && q.unlocked == 2);
+            /* 废矿 left behind = fully climbed; 祖玛 (now the top map)
+             * re-climbs from floor 1. */
+            assert(q.floor_unlocked[0] == 2 && q.floor_unlocked[1] == 1);
+            assert(q.floor == 1);
         } else {
             assert(q.map == MAFA_MAP_SAFE && q.unlocked == 1);
+            assert(q.floor == 0);
         }
     }
 }
@@ -658,6 +707,7 @@ static void test_skill_toggle_respected(void) {
             p.skills_off = round == 0 ? (uint8_t)(1u << 3) : 0;
             p.unlocked = 3;
             p.map = 3;
+            p.floor = MAFA_MAP_FLOORS[3];   /* deep multi-mob pool */
             mafa_battle_t b;
             if (!mafa_battle_start(&p, &b) || b.mob_n < 2) continue;
             mafa_events_t ev;
@@ -688,6 +738,7 @@ static void test_auto_sell_quality_mask(void) {
         p.auto_sell = 0x0F;
         p.unlocked = 3;
         p.map = 3;
+        p.floor = MAFA_MAP_FLOORS[3];
         mafa_battle_t b;
         if (!mafa_battle_start(&p, &b)) continue;
         mafa_events_t ev;
@@ -719,6 +770,7 @@ static void test_auto_sell_quality_mask(void) {
         p.auto_sell = 0;
         p.unlocked = 3;
         p.map = 3;
+        p.floor = MAFA_MAP_FLOORS[3];
         mafa_battle_t b;
         if (!mafa_battle_start(&p, &b)) continue;
         mafa_events_t ev;
@@ -746,6 +798,7 @@ static void test_auto_sell_quality_mask(void) {
         p.auto_sell = 0x0F;
         p.unlocked = 3;
         p.map = 3;
+        p.floor = MAFA_MAP_FLOORS[3];   /* the 教主's own floor */
         p.pot_red = 30;
         p.pot_blue = 30;
         p.kills = MAFA_KILLS_PER_BOSS;
@@ -773,34 +826,39 @@ static void test_auto_sell_quality_mask(void) {
 
 static void test_battle_terminates_over_many_maps(void) {
     for (int map = 1; map < MAFA_MAP_COUNT; ++map) {
-        for (int cls = 0; cls < MAFA_CLS_COUNT; ++cls) {
-            mafa_player_t p;
-            mafa_player_init(&p, (uint8_t)cls, 1000 + map * 7 + cls);
-            p.unlocked = 3;
-            p.map = (uint8_t)map;
-            p.level = 15;               /* strongest case must still terminate */
-            grant_books(&p, MAFA_SKILLS_PER_CLASS - 1);
-            mafa_battle_t b;
-            assert(mafa_battle_start(&p, &b));
-            int rounds = 0;
-            while (!b.over) {
-                mafa_battle_round(&p, &b, &(mafa_events_t){0});
-                assert(++rounds < 100000);
-                assert(p.hp >= 0);
-                if (p.hp == 0) break;   /* death is a valid ending */
-            }
-            /* A death respawns the player in the safe zone; walk back
-             * before facing the boss. */
-            p.map = (uint8_t)map;
-            /* Bosses must also terminate (taoist pet + full kit). */
-            p.kills = MAFA_KILLS_PER_BOSS;
-            mafa_battle_t boss;
-            assert(mafa_boss_start(&p, &boss));
-            rounds = 0;
-            while (!boss.over) {
-                mafa_battle_round(&p, &boss, &(mafa_events_t){0});
-                assert(++rounds < 100000);
-                if (p.hp == 0) break;
+        for (int floor = 1; floor <= MAFA_MAP_FLOORS[map]; ++floor) {
+            for (int cls = 0; cls < MAFA_CLS_COUNT; ++cls) {
+                mafa_player_t p;
+                mafa_player_init(&p, (uint8_t)cls,
+                                 1000 + map * 7 + floor * 3 + cls);
+                p.unlocked = 3;
+                p.map = (uint8_t)map;
+                p.floor = (uint8_t)floor;
+                p.level = 15;           /* strongest case must still terminate */
+                grant_books(&p, MAFA_SKILLS_PER_CLASS - 1);
+                mafa_battle_t b;
+                assert(mafa_battle_start(&p, &b));
+                int rounds = 0;
+                while (!b.over) {
+                    mafa_battle_round(&p, &b, &(mafa_events_t){0});
+                    assert(++rounds < 100000);
+                    assert(p.hp >= 0);
+                    if (p.hp == 0) break;   /* death is a valid ending */
+                }
+                /* A death respawns the player in the safe zone; walk back
+                 * before facing the boss. */
+                p.map = (uint8_t)map;
+                p.floor = (uint8_t)floor;
+                /* Bosses must also terminate (taoist pet + full kit). */
+                p.kills = MAFA_KILLS_PER_BOSS;
+                mafa_battle_t boss;
+                assert(mafa_boss_start(&p, &boss));
+                rounds = 0;
+                while (!boss.over) {
+                    mafa_battle_round(&p, &boss, &(mafa_events_t){0});
+                    assert(++rounds < 100000);
+                    if (p.hp == 0) break;
+                }
             }
         }
     }
@@ -810,19 +868,74 @@ static void test_safe_zone_no_combat_and_open_door(void) {
     mafa_player_t p;
     mafa_player_init(&p, MAFA_CLS_MAGE, 99);
     assert(p.unlocked == 1);
-    mafa_switch_map(&p, MAFA_MAP_SAFE);     /* the town is open from day 1 */
+    mafa_switch_map(&p, MAFA_MAP_SAFE, 0);  /* the town is open from day 1 */
     assert(p.map == MAFA_MAP_SAFE && p.kills == 0);
     mafa_battle_t b;
     assert(!mafa_battle_start(&p, &b));     /* no spawns in town */
     p.kills = MAFA_KILLS_PER_BOSS;
     assert(!mafa_boss_start(&p, &b));       /* no boss in town */
-    assert(mafa_map_boss(MAFA_MAP_SAFE) == NULL);
-    mafa_switch_map(&p, 2);                 /* locked map: ignored */
+    assert(mafa_map_boss(MAFA_MAP_SAFE, 0) == NULL);
+    mafa_switch_map(&p, 2, 1);              /* locked map: ignored */
     assert(p.map == MAFA_MAP_SAFE);
-    mafa_switch_map(&p, 1);                 /* walk back out */
+    mafa_switch_map(&p, 1, 1);              /* walk back out */
     assert(p.map == 1);
     assert(mafa_battle_start(&p, &b));
-    assert(mafa_map_boss(1) == &MAFA_MONSTERS[5]);   /* 森林巨猿 */
+    assert(mafa_map_boss(1, 1) == &MAFA_MONSTERS[6]);   /* 森林雪人 */
+    assert(mafa_map_boss(1, 2) == &MAFA_MONSTERS[7]);   /* 森林巨猿 */
+    assert(mafa_map_boss(1, 3) == NULL);    /* no such floor */
+}
+
+/* The whole v1.3 ladder: every (map, floor) boss opens the next step, and
+ * each map's last-floor boss opens the next map. Trash pools grow with
+ * depth (cumulative floors). */
+static void test_floor_ladder_walk(void) {
+    mafa_player_t p;
+    mafa_player_init(&p, MAFA_CLS_WARRIOR, 2026);
+    int total_bosses = 0;
+    for (int map = 1; map < MAFA_MAP_COUNT; ++map) {
+        for (int floor = 1; floor <= MAFA_MAP_FLOORS[map]; ++floor) {
+            assert(p.map == map && p.floor == floor);
+            /* Cumulative pool: this floor's trash spawned somewhere. */
+            mafa_battle_t b;
+            assert(mafa_battle_start(&p, &b));
+            for (int k = 0; k < b.mob_n; ++k)
+                assert(b.mob[k].base->floor <= floor);
+            /* Force the boss fight and win it (retry: a L15 full-kit
+             * warrior only rarely loses, but never let the test flake). */
+            p.level = 15;
+            grant_books(&p, MAFA_SKILLS_PER_CLASS - 1);
+            bool won = false;
+            for (int attempt = 0; attempt < 20 && !won; ++attempt) {
+                p.map = (uint8_t)map;           /* a death sent us to town */
+                p.floor = (uint8_t)floor;
+                p.hp = 32000;
+                p.pot_red = 30;
+                p.pot_blue = 30;
+                p.kills = MAFA_KILLS_PER_BOSS;
+                mafa_battle_t boss;
+                assert(mafa_boss_start(&p, &boss));
+                assert(boss.mob[0].base->floor == floor);
+                int guard = 0;
+                while (!boss.over && guard++ < 100000) {
+                    mafa_battle_round(&p, &boss, &(mafa_events_t){0});
+                    if (p.pending_drop != MAFA_DROP_NONE) mafa_drop_discard(&p);
+                }
+                assert(guard < 100000);
+                won = !boss.player_dead;
+            }
+            assert(won);
+            total_bosses++;
+            bool last = floor == MAFA_MAP_FLOORS[map];
+            if (!last) {
+                assert(p.floor == floor + 1);
+                assert(p.floor_unlocked[map - 1] == floor + 1);
+            } else if (map + 1 < MAFA_MAP_COUNT) {
+                assert(p.unlocked == map + 1);
+                mafa_switch_map(&p, (uint8_t)(map + 1), 1);  /* walk onward */
+            }
+        }
+    }
+    assert(total_bosses == 12);         /* 2 + 3 + 7 checkpoints */
 }
 
 int main(void) {
@@ -845,10 +958,11 @@ int main(void) {
     test_death_penalty_drops_and_gold();
     test_safe_zone_no_combat_and_open_door();
     test_init_defaults_v4();
-    test_save_roundtrip_v4();
+    test_save_roundtrip_v5();
     test_v3_save_migration_to_v4();
     test_v1_save_migration();
     test_v2_save_map_migration();
+    test_floor_ladder_walk();
     test_battle_terminates_over_many_maps();
     printf("test_mafa_model: all assertions passed\n");
     return 0;

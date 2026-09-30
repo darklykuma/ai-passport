@@ -145,15 +145,15 @@ save(img, "02-class")
 # ---- 3. main idle ----------------------------------------------------------
 img, d = new_page()
 main_chrome(d)
-header(d, "比奇森林", 8, 87, 1234, 187, 210, 46, 60)
-enemy(d, "挂机中 17/25", DIM)
+header(d, "比奇森林 1层", 8, 87, 1234, 187, 210, 46, 60)
+enemy(d, "挂机中 17/40", DIM)
 loglines(d, [
-    ("遭遇 骸骨兵 等 3 只!", MAIN),
+    ("遭遇 稻草人 等 2 只!", MAIN),
     ("你造成 14 点伤害", MAIN),
     ("【攻杀剑术】造成 28 伤害!", MAIN),
-    ("骸骨兵 反击,你受 9 伤害", RED),
-    ("骸骨兵 倒下!经验+18", GOLD),
-    ("遭遇 暗鼠!", MAIN),
+    ("稻草人 反击,你受 9 伤害", RED),
+    ("稻草人 倒下!经验+18", GOLD),
+    ("遭遇 多钩猫!", MAIN),
 ])
 action_bar(d, 0)
 save(img, "03-main-idle")
@@ -161,15 +161,15 @@ save(img, "03-main-idle")
 # ---- 4. main battle: multi-mob ---------------------------------------------
 img, d = new_page()
 main_chrome(d)
-header(d, "废矿洞", 10, 73, 2380, 195, 230, 40, 70)
-enemy(d, "▶骸骨兵×3", MAIN, 0.42)
+header(d, "废矿洞 2层", 10, 73, 2380, 195, 230, 40, 70)
+enemy(d, "▶矿鼠×3", MAIN, 0.42)
 loglines(d, [
     ("你造成 14 点伤害", MAIN),
     ("【半月弯刀】造成 13 伤害!", MAIN),
-    ("骸骨兵【重击】你受 15 伤害!", RED),
+    ("矿鼠【连击】你受 15 伤害!", RED),
     ("红药 +50", GREEN),
-    ("暗鼠 受 5 持续伤害", RED),
-    ("骷髅 攻击骸骨兵,造成 8 伤害", DIM),
+    ("骷髅战士 受 5 持续伤害", RED),
+    ("骷髅 攻击矿鼠,造成 8 伤害", DIM),
 ])
 action_bar(d, 4)
 save(img, "04-main-battle")
@@ -177,14 +177,14 @@ save(img, "04-main-battle")
 # ---- 5. main boss (taoist + pet) -------------------------------------------
 img, d = new_page()
 main_chrome(d)
-header(d, "祖玛寺庙", 13, 64, 876, 233, 260, 58, 90)
-enemy(d, "▶尸王!", GOLD, 0.71)
+header(d, "祖玛寺庙 7层", 13, 64, 876, 233, 260, 58, 90)
+enemy(d, "▶祖玛教主!", GOLD, 0.71)
 loglines(d, [
-    ("【Boss】尸王 出现了!", GOLD),
+    ("【Boss】祖玛教主 出现了!", GOLD),
     ("神兽 出现!", GREEN),
     ("【灵魂火符】造成 45 伤害!", MAIN),
     ("神兽 替你挡下 12 伤害", DIM),
-    ("尸王 反击,你受 18 伤害", RED),
+    ("祖玛教主 反击,你受 18 伤害", RED),
     ("治愈 +78", GREEN),
 ])
 action_bar(d, 5)
@@ -193,14 +193,14 @@ save(img, "05-main-boss")
 # ---- 6. modal (boss prompt) ------------------------------------------------
 img, d = new_page()
 main_chrome(d)
-header(d, "祖玛寺庙", 13, 64, 876, 233, 260, 58, 90)
-enemy(d, "挂机中 24/25", DIM)
+header(d, "祖玛寺庙 7层", 13, 64, 876, 233, 260, 58, 90)
+enemy(d, "挂机中 24/40", DIM)
 action_bar(d, 0)
 ov = Image.new("RGB", (W, H), (0, 0, 0))
 img = Image.blend(img, ov, 0.45)
 d = ImageDraw.Draw(img)
 panel(d, 8, 85, 224, 150, (0x10, 0x18, 0x20), GOLD_EDGE, radius=6)
-text_c(d, 120, 100, "【Boss】尸王 出现了!", F16, GOLD)
+text_c(d, 120, 100, "【Boss】祖玛教主 出现了!", F16, GOLD)
 text(d, (60, 140), "＞迎战", F16, GOLD)
 text(d, (60, 170), "  回避", F16, MAIN)
 save(img, "06-modal-boss")
@@ -284,7 +284,7 @@ for s, c in store:
     y += LH16 + 6
 save(img, "09-store")
 
-# ---- 10. maps (0 = safe-zone hub first, combat maps 1-3) -------------------
+# ---- 10. maps (0 = safe-zone hub first, combat maps 1-3; v1.3 floors) ------
 img, d = new_page()
 title_band(d, "地图")
 panel(d, 6, 42, 228, 150, PANEL_BG, PANEL_EDGE)
@@ -293,10 +293,27 @@ maps = [("  0.安全区", MAIN), ("＞1.比奇森林", MAIN),
 for i, (s, c) in enumerate(maps):
     text(d, (18, 52 + i * (LH16 + 6)), s, F16, c)
 panel(d, 6, 200, 228, 112, PANEL_BG, PANEL_EDGE)
-text(d, (18, 210), "当前:比奇森林", F16, DIM)
-text(d, (18, 235), "击杀 40 触发 Boss", F16, DIM)
+text(d, (18, 210), "当前:比奇森林 1层", F16, DIM)
+text(d, (18, 235), "击杀 40 触发层Boss", F16, DIM)
 text(d, (18, 260), "安全区:无怪,休息回血", F16, DIM)
 save(img, "10-maps")
+
+# ---- 16. floor list (v1.3): OK on a combat map opens its ladder -------------
+# One row per open floor with that floor's boss; a back row last; the cursor
+# rests on the deepest floor. Long-OK backs out to the map list. Detail shows
+# the map's full depth, the per-floor trigger, and the back hint.
+img, d = new_page()
+title_band(d, "地图")
+panel(d, 6, 42, 228, 150, PANEL_BG, PANEL_EDGE)
+floors = [("  1层 Boss:僵尸", MAIN), ("  2层 Boss:骷髅精灵", MAIN),
+          ("＞3层 Boss:尸王", GOLD), ("  返回", MAIN)]
+for i, (s, c) in enumerate(floors):
+    text(d, (18, 52 + i * (LH16 + 6)), s, F16, c)
+panel(d, 6, 200, 228, 112, PANEL_BG, PANEL_EDGE)
+text(d, (18, 210), "废矿洞 共3层", F16, DIM)
+text(d, (18, 235), "击杀 40 触发层Boss", F16, DIM)
+text(d, (18, 260), "长按OK返回地图", F16, DIM)
+save(img, "16-maps-floors")
 
 # ---- 10b. main page while resting in the safe zone --------------------------
 img, d = new_page()

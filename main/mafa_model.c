@@ -73,25 +73,49 @@ const mafa_skill_t MAFA_SKILLS[MAFA_CLS_COUNT][MAFA_SKILLS_PER_CLASS] = {
     },
 };
 
+/* Floor ladder (PRD 8.7, v1.3): mirrors the original's 沃玛 3 层 / 祖玛
+ * 7 层 dungeon shape — one boss checkpoint per floor, the next map opens
+ * through the last floor's boss. */
+const uint8_t MAFA_MAP_FLOORS[MAFA_MAP_COUNT] = {0, 2, 3, 7};
+
+/* Names verified against the original's mob lists (2026-09-29 web research:
+ * 比奇省 trash incl. 半兽人/钉耙猫 — 17173 白金典藏练级攻略; 废矿区 尸王 =
+ * 僵尸首领 — 百度百科; 祖玛 教主之下三强 = 雕像/弓箭手/卫士, 卫士分血量
+ * 档次 — 17173 大锤怪专文; 骷髅精灵 = 兽人古墓系 boss). 恶灵僵尸 rejected:
+ * it belongs to 苍月岛尸魔洞, not the mine. */
 const mafa_monster_t MAFA_MONSTERS[] = {
-    {"鸡",       1,  1,   50,  7,  0,   12, MAFA_MSK_NONE,    false},
-    {"鹿",       1,  1,   65,  8,  1,   15, MAFA_MSK_NONE,    false},
-    {"稻草人",   1,  2,   95, 10,  1,   18, MAFA_MSK_FIRE,    false},
-    {"多钩猫",   1,  3,  130, 12,  2,   22, MAFA_MSK_FLURRY,  false},
-    {"森林雪人", 1,  4,  170, 13,  3,   26, MAFA_MSK_HEAVY,   false},
-    {"森林巨猿", 1,  5,  380, 20,  4,  150, MAFA_MSK_ROAR,    true},
-    {"骷髅",     2,  5,   90, 11,  4,   34, MAFA_MSK_NONE,    false},
-    {"矿鼠",     2,  6,   80, 12,  2,   38, MAFA_MSK_FLURRY,  false},
-    {"骷髅战士", 2,  7,  130, 14,  6,   44, MAFA_MSK_HEAVY,   false},
-    {"掷斧骷髅", 2,  8,  120, 15,  5,   50, MAFA_MSK_FIRE,    false},
-    {"洞蝎",     2,  9,  150, 16,  7,   58, MAFA_MSK_STING,   false},
-    {"尸王",     2, 10,  830, 27,  8,  300, MAFA_MSK_ROAR,    true},
-    {"祖玛卫士", 3, 10,  170, 15,  9,   72, MAFA_MSK_HEAVY,   false},
-    {"大老鼠",   3, 11,  150, 16,  6,   80, MAFA_MSK_FLURRY,  false},
-    {"黑色恶蛆", 3, 12,  200, 18, 10,   92, MAFA_MSK_STING,   false},
-    {"契蛾",     3, 13,  190, 20,  8,  104, MAFA_MSK_FIRE,    false},
-    {"祖玛雕像", 3, 14,  260, 22, 12,  118, MAFA_MSK_HEAVY,   false},
-    {"祖玛教主", 3, 15, 1600, 31, 14,  800, MAFA_MSK_HELLFIRE, true},
+    /* -- map 1 比奇森林, 2 floors ---------------------------------------- */
+    {"鸡",       1, 1,  1,   50,  7,  0,   12, MAFA_MSK_NONE,    false},
+    {"鹿",       1, 1,  1,   65,  8,  1,   15, MAFA_MSK_NONE,    false},
+    {"稻草人",   1, 1,  2,   95, 10,  1,   18, MAFA_MSK_FIRE,    false},
+    {"多钩猫",   1, 1,  3,  130, 12,  2,   22, MAFA_MSK_FLURRY,  false},
+    {"钉耙猫",   1, 2,  3,  140, 13,  2,   26, MAFA_MSK_FLURRY,  false},
+    {"半兽人",   1, 2,  4,  200, 15,  3,   30, MAFA_MSK_HEAVY,   false},
+    {"森林雪人", 1, 1,  4,  340, 16,  3,  120, MAFA_MSK_HEAVY,   true},
+    {"森林巨猿", 1, 2,  5,  380, 20,  4,  150, MAFA_MSK_ROAR,    true},
+    /* -- map 2 废矿洞, 3 floors ------------------------------------------ */
+    {"骷髅",     2, 1,  5,   90, 11,  4,   34, MAFA_MSK_NONE,    false},
+    {"矿鼠",     2, 1,  6,   80, 12,  2,   38, MAFA_MSK_FLURRY,  false},
+    {"骷髅战士", 2, 2,  7,  130, 14,  6,   44, MAFA_MSK_HEAVY,   false},
+    {"掷斧骷髅", 2, 2,  8,  120, 15,  5,   50, MAFA_MSK_FIRE,    false},
+    {"洞蝎",     2, 3,  9,  150, 16,  7,   58, MAFA_MSK_STING,   false},
+    {"僵尸",     2, 1,  6,  440, 22,  5,  180, MAFA_MSK_NONE,    true},
+    {"骷髅精灵", 2, 2,  8,  700, 26,  6,  240, MAFA_MSK_FLURRY,  true},
+    {"尸王",     2, 3, 10,  830, 27,  8,  300, MAFA_MSK_ROAR,    true},
+    /* -- map 3 祖玛寺庙, 7 floors ---------------------------------------- */
+    {"祖玛卫士",  3, 1, 10,  175, 15,  9,   72, MAFA_MSK_HEAVY,   false},
+    {"大老鼠",    3, 2, 11,  180, 16,  6,   80, MAFA_MSK_FLURRY,  false},
+    {"黑色恶蛆",  3, 3, 12,  230, 18, 10,   92, MAFA_MSK_STING,   false},
+    {"契蛾",      3, 4, 13,  220, 20,  8,  104, MAFA_MSK_FIRE,    false},
+    {"祖玛弓箭手",3, 4, 12,  190, 19,  7,  100, MAFA_MSK_STING,   false},
+    {"祖玛雕像",  3, 5, 14,  300, 22, 12,  118, MAFA_MSK_HEAVY,   false},
+    {"祖玛卫士",  3, 1, 10, 1250, 27,  7,  280, MAFA_MSK_HEAVY,   true},
+    {"祖玛弓箭手",3, 2, 11, 1150, 28,  8,  330, MAFA_MSK_STING,   true},
+    {"祖玛卫士",  3, 3, 12, 1400, 28, 10,  390, MAFA_MSK_HEAVY,   true},
+    {"祖玛雕像",  3, 4, 12, 1450, 29, 11,  430, MAFA_MSK_HEAVY,   true},
+    {"祖玛卫士",  3, 5, 13, 1500, 30, 11,  460, MAFA_MSK_ROAR,    true},
+    {"祖玛雕像",  3, 6, 14, 1550, 31, 13,  530, MAFA_MSK_HEAVY,   true},
+    {"祖玛教主",  3, 7, 15, 1600, 31, 14,  800, MAFA_MSK_HELLFIRE, true},
 };
 const int MAFA_MONSTER_COUNT = (int)(sizeof MAFA_MONSTERS / sizeof MAFA_MONSTERS[0]);
 
@@ -99,9 +123,10 @@ const char *const MAFA_MAP_NAMES[MAFA_MAP_COUNT] = {
     "安全区", "比奇森林", "废矿洞", "祖玛寺庙",
 };
 
-const mafa_monster_t *mafa_map_boss(uint8_t map) {
+const mafa_monster_t *mafa_map_boss(uint8_t map, uint8_t floor) {
     for (int i = 0; i < MAFA_MONSTER_COUNT; ++i)
-        if (MAFA_MONSTERS[i].map == map && MAFA_MONSTERS[i].boss)
+        if (MAFA_MONSTERS[i].map == map && MAFA_MONSTERS[i].floor == floor
+            && MAFA_MONSTERS[i].boss)
             return &MAFA_MONSTERS[i];
     return NULL;
 }
@@ -159,7 +184,9 @@ void mafa_player_init(mafa_player_t *p, uint8_t cls, uint32_t seed) {
     p->level = 1;
     p->gold = 0;
     p->map = MAFA_MAP_SAFE + 1;         /* new games idle at once: Beech */
+    p->floor = 1;
     p->unlocked = MAFA_MAP_SAFE + 1;
+    for (int i = 0; i < MAFA_MAP_COUNT - 1; ++i) p->floor_unlocked[i] = 1;
     p->auto_potion = true;
     p->auto_sell = 0x01;                /* white only (PRD 8.3, v1.2) */
     p->pot_hp_pct = MAFA_POT_HP_PCT_DEFAULT;
@@ -360,12 +387,19 @@ bool mafa_buy_book(mafa_player_t *p, uint8_t skill_idx) {
     return true;
 }
 
-void mafa_switch_map(mafa_player_t *p, uint8_t map) {
-    bool open = map == MAFA_MAP_SAFE || map <= p->unlocked;
-    if (map < MAFA_MAP_COUNT && open) {
-        p->map = map;
+void mafa_switch_map(mafa_player_t *p, uint8_t map, uint8_t floor) {
+    if (map >= MAFA_MAP_COUNT) return;
+    if (map != MAFA_MAP_SAFE && map > p->unlocked) return;
+    if (map == MAFA_MAP_SAFE) {
+        p->map = MAFA_MAP_SAFE;
+        p->floor = 0;
         p->kills = 0;
+        return;
     }
+    if (floor < 1 || floor > p->floor_unlocked[map - 1]) return;
+    p->map = map;
+    p->floor = floor;
+    p->kills = 0;
 }
 
 /* --- Monster spawn ---------------------------------------------------------- */
@@ -404,16 +438,20 @@ bool mafa_battle_start(mafa_player_t *p, mafa_battle_t *b) {
     if (p->pending_drop != MAFA_DROP_NONE) return false;
     memset(b, 0, sizeof *b);
     int pool[MAFA_MONSTER_COUNT], n = 0;
-    /* Spawn from the player's level band first (the newbie forest holds
-     * chickens, not multi-hook cats); fall back to the whole map when the
-     * band is empty (over-leveled player). */
+    /* Cumulative floor pool (v1.3): a floor spawns its own trash plus every
+     * shallower row — deeper floors get busier, very much the original's
+     * dungeon feel. The level band keeps newbie maps from spawning for a
+     * max-level player; fall back to the whole (floor-filtered) map when
+     * the band is empty (over-leveled player). */
     for (int i = 0; i < MAFA_MONSTER_COUNT; ++i)
         if (MAFA_MONSTERS[i].map == p->map && !MAFA_MONSTERS[i].boss
+            && MAFA_MONSTERS[i].floor <= p->floor
             && MAFA_MONSTERS[i].level <= p->level + 2)
             pool[n++] = i;
     if (n == 0)
         for (int i = 0; i < MAFA_MONSTER_COUNT; ++i)
-            if (MAFA_MONSTERS[i].map == p->map && !MAFA_MONSTERS[i].boss)
+            if (MAFA_MONSTERS[i].map == p->map && !MAFA_MONSTERS[i].boss
+                && MAFA_MONSTERS[i].floor <= p->floor)
                 pool[n++] = i;
     if (n == 0) return false;
     bool elite = rng_next(p) % 10 == 0;         /* ~1/10 battles (PRD 8.6) */
@@ -433,7 +471,7 @@ bool mafa_boss_ready(const mafa_player_t *p) {
 
 bool mafa_boss_start(mafa_player_t *p, mafa_battle_t *b) {
     if (!mafa_boss_ready(p) || p->pending_drop != MAFA_DROP_NONE) return false;
-    const mafa_monster_t *boss = mafa_map_boss(p->map);
+    const mafa_monster_t *boss = mafa_map_boss(p->map, p->floor);
     if (!boss) return false;
     memset(b, 0, sizeof *b);
     spawn_mob(p, boss, false, &b->mob[0]);
@@ -546,10 +584,20 @@ static void settle_kill(mafa_player_t *p, mafa_battle_t *b, uint8_t mob_idx,
 
     if (b->is_boss) {
         p->kills = 0;
-        /* Unlock the next COMBAT map; the safe zone (id 0) is open from
-         * the start and is not a progression step. */
-        if (p->map + 1 < MAFA_MAP_COUNT && p->unlocked < p->map + 1)
+        uint8_t last_floor = MAFA_MAP_FLOORS[p->map];
+        if (p->floor < last_floor) {
+            /* The floor boss falls: the next floor opens and the idle flow
+             * walks straight into it (v1.3). */
+            if (p->floor_unlocked[p->map - 1] < p->floor + 1)
+                p->floor_unlocked[p->map - 1] = (uint8_t)(p->floor + 1);
+            p->floor++;
+            mafa_ev_push(ev, MAFA_EV_FLOOR, p->floor, 0, 0);
+        } else if (p->map + 1 < MAFA_MAP_COUNT && p->unlocked < p->map + 1) {
+            /* Last floor: unlock the next COMBAT map; the safe zone (id 0)
+             * is open from the start and is not a progression step. */
             p->unlocked = (uint8_t)(p->map + 1);
+            mafa_ev_push(ev, MAFA_EV_MAP_UNLOCK, p->unlocked, 0, 0);
+        }
     } else {
         p->kills++;
     }
@@ -937,6 +985,7 @@ static void settle_player_death(mafa_player_t *p, mafa_events_t *ev) {
     }
     p->kills = 0;
     p->map = MAFA_MAP_SAFE;             /* respawn in town (v0.9) */
+    p->floor = 0;                       /* floors survive death (v1.3) */
     mafa_stats_t st;
     mafa_stats(p, &st);
     p->hp = st.max_hp;
@@ -1045,6 +1094,9 @@ static uint8_t crc8(const uint8_t *d, size_t n) {
     return c;
 }
 
+/* v5 payload (v1.3): v4 body + 3 per-map floor_unlocked bytes = 46. The old
+ * v4 spare byte comes back as the first floor byte. */
+#define MAFA_SAVE_BODY_V5 46
 /* v4 payload (v1.2): v2 body + skills_off + pot_hp_pct + pot_mp_pct +
  * auto_sell = 44 bytes (even, the old spare byte put to work). */
 #define MAFA_SAVE_BODY_V4 44
@@ -1056,7 +1108,7 @@ static uint8_t crc8(const uint8_t *d, size_t n) {
 #define MAFA_SAVE_BODY_V1 36
 
 size_t mafa_save_serialize(const mafa_player_t *p, uint8_t *buf, size_t cap) {
-    const size_t total = 4 + MAFA_SAVE_BODY_V4 + 1;
+    const size_t total = 4 + MAFA_SAVE_BODY_V5 + 1;
     if (cap < total) return 0;
     buf[0] = 'M'; buf[1] = 'F'; buf[2] = 'C'; buf[3] = MAFA_SAVE_VERSION;
     uint8_t *w = buf + 4;
@@ -1080,16 +1132,17 @@ size_t mafa_save_serialize(const mafa_player_t *p, uint8_t *buf, size_t cap) {
     *w++ = p->pot_hp_pct;
     *w++ = p->pot_mp_pct;
     *w++ = p->auto_sell & 0x0F;
-    *w++ = 0;   /* spare keeps the payload even and leaves room to grow */
+    for (int i = 0; i < MAFA_MAP_COUNT - 1; ++i) *w++ = p->floor_unlocked[i];
     size_t body = (size_t)(w - (buf + 4));
-    if (body != MAFA_SAVE_BODY_V4) return 0;
+    if (body != MAFA_SAVE_BODY_V5) return 0;
     buf[4 + body] = crc8(buf + 4, body);
     return total;
 }
 
 /* Version-aware payload reader: v1 (36 B) has xp16 and no books; v2/v3
  * (40 B) have xp32 + books; v4 (44 B) adds the skills_off / threshold /
- * auto-sell tail. Everything after mp shifts accordingly. */
+ * auto-sell tail; v5 (46 B) replaces v4's spare byte with the three
+ * per-map floor_unlocked bytes. Everything after mp shifts accordingly. */
 static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
                          uint8_t version) {
     t->cls = r[0];
@@ -1152,7 +1205,7 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
             && (t->inv_id[i] >= MAFA_ITEM_COUNT || t->inv_n[i] == 0)) return false;
         if (t->inv_id[i] == MAFA_INV_EMPTY) t->inv_n[i] = 0;
     }
-    if (body == MAFA_SAVE_BODY_V4) {
+    if (body >= MAFA_SAVE_BODY_V4) {
         t->skills_off = (uint8_t)(*r++ & 0x1F);
         t->pot_hp_pct = *r++;
         t->pot_mp_pct = *r++;
@@ -1160,7 +1213,20 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
             return false;
         if (t->pot_mp_pct < MAFA_POT_PCT_MIN || t->pot_mp_pct > MAFA_POT_PCT_MAX)
             return false;
-        t->auto_sell = (uint8_t)(*r & 0x0F);
+        t->auto_sell = (uint8_t)(*r++ & 0x0F);
+    }
+    if (body == MAFA_SAVE_BODY_V5) {
+        for (int i = 0; i < MAFA_MAP_COUNT - 1; ++i) {
+            t->floor_unlocked[i] = *r++;
+            if (t->floor_unlocked[i] < 1
+                || t->floor_unlocked[i] > MAFA_MAP_FLOORS[i + 1]) return false;
+        }
+        /* A deeper map opens only through the previous map's last floor. */
+        for (int i = 1; i < MAFA_MAP_COUNT - 1; ++i)
+            if (t->unlocked >= i + 1
+                && t->floor_unlocked[i - 1] != MAFA_MAP_FLOORS[i]) return false;
+        t->floor = t->map == MAFA_MAP_SAFE
+                       ? 0 : t->floor_unlocked[t->map - 1];
     }
     return true;
 }
@@ -1169,7 +1235,8 @@ bool mafa_save_deserialize(mafa_player_t *p, const uint8_t *buf, size_t len) {
     if (len < 4 + MAFA_SAVE_BODY_V1 + 1) return false;
     if (buf[0] != 'M' || buf[1] != 'F' || buf[2] != 'C') return false;
     size_t body;
-    if (buf[3] == MAFA_SAVE_VERSION) body = MAFA_SAVE_BODY_V4;
+    if (buf[3] == MAFA_SAVE_VERSION) body = MAFA_SAVE_BODY_V5;
+    else if (buf[3] == 4) body = MAFA_SAVE_BODY_V4;
     else if (buf[3] == 3 || buf[3] == 2) body = MAFA_SAVE_BODY_V2;
     else if (buf[3] == 1) body = MAFA_SAVE_BODY_V1;
     else return false;
@@ -1184,6 +1251,15 @@ bool mafa_save_deserialize(mafa_player_t *p, const uint8_t *buf, size_t len) {
         /* v1 → v3 migration: every skill whose unlock level is reached is
          * granted its book, so old saves never lose learned skills. */
         grant_level_books(&t);
+    }
+    if (buf[3] < 5) {
+        /* v1-v4 → v5 floor migration: maps the player has left behind count
+         * as fully cleared; the top map's floor ladder re-climbs from
+         * floor 1 — that ladder is the v1.3 content. */
+        for (int i = 0; i < MAFA_MAP_COUNT - 1; ++i)
+            t.floor_unlocked[i] = t.unlocked >= i + 2
+                                      ? MAFA_MAP_FLOORS[i + 1] : 1;
+        t.floor = t.map == MAFA_MAP_SAFE ? 0 : t.floor_unlocked[t.map - 1];
     }
     *p = t;
     return true;

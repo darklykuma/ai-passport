@@ -83,6 +83,8 @@ static struct {
     int cur_packsub;        // 0 equip, 1 sell
     int cur_store;
     int cur_maps;
+    int floor_mode;         /* maps page: 0 map list, else map id → floor list */
+    int cur_floor;          /* floor-list cursor, 0-based; last row = 返回 */
     int cur_set;
     int cur_modal;          // boss / drop prompt cursor
     bool boss_pending;
@@ -329,6 +331,14 @@ static void handle_events(const mafa_events_t *ev) {
         case MAFA_EV_LEVELUP:
             log_line("#F0C04A 升级!Lv.%d#", id);
             break;
+        case MAFA_EV_FLOOR:
+            log_line("#F0C04A 已通往 第%d层!#", id);
+            settled = true;
+            break;
+        case MAFA_EV_MAP_UNLOCK:
+            log_line("#F0C04A 解锁【%s】!#", MAFA_MAP_NAMES[id]);
+            settled = true;
+            break;
         case MAFA_EV_DROP: {
             const mafa_item_t *it = &MAFA_ITEMS[id];
             if (a == 1)
@@ -378,8 +388,8 @@ static void modal_close(void) {
     s_app.prev_modal[0] = '\0';
 }
 
-static const char *map_boss_name(uint8_t map) {
-    const mafa_monster_t *boss = mafa_map_boss(map);
+static const char *map_boss_name(uint8_t map, uint8_t floor) {
+    const mafa_monster_t *boss = mafa_map_boss(map, floor);
     return boss ? boss->name : "?";
 }
 
@@ -387,7 +397,7 @@ static void boss_modal_refresh(void) {
     /* Design 06: gold title, gold highlighted action, plain other row. */
     char buf[160];
     snprintf(buf, sizeof buf, "#F0C04A 【Boss】%s 出现了!#\n%s\n%s",
-             map_boss_name(s_app.player.map),
+             map_boss_name(s_app.player.map, s_app.player.floor),
              s_app.cur_modal == 0 ? "#F0C04A ＞迎战#" : "  迎战",
              s_app.cur_modal == 1 ? "#F0C04A ＞回避#" : "  回避");
     modal_show(buf);
@@ -418,8 +428,12 @@ static void drop_modal_refresh(void) {
  * strip, where the enemy bar is hidden and cannot collide with it. */
 static void refresh_main(void) {
     char buf[160];
-    snprintf(buf, sizeof buf, "#F0C04A %s#",
-             MAFA_MAP_NAMES[s_app.player.map]);
+    if (s_app.player.map == MAFA_MAP_SAFE)
+        snprintf(buf, sizeof buf, "#F0C04A %s#",
+                 MAFA_MAP_NAMES[s_app.player.map]);
+    else
+        snprintf(buf, sizeof buf, "#F0C04A %s %d层#",
+                 MAFA_MAP_NAMES[s_app.player.map], s_app.player.floor);
     label_set(s_app.view.map_label, buf, s_app.prev_map, sizeof s_app.prev_map);
     /* Header percent = XP progress toward the next level (design 03: "Lv.8
      * 87%"); the battery readout lives on the settings page instead. At the
@@ -512,7 +526,7 @@ static void tick_battle(void) {
             s_app.boss_pending = true;
             s_app.cur_modal = 0;
             log_line("#F0C04A 【Boss】%s 出现了!#",
-                     map_boss_name(s_app.player.map));
+                     map_boss_name(s_app.player.map, s_app.player.floor));
         }
     }
     if (!s_app.in_battle) {
@@ -537,7 +551,7 @@ static void tick_battle(void) {
             s_app.boss_pending = true;
             s_app.cur_modal = 0;
             log_line("#F0C04A 【Boss】%s 出现了!#",
-                     map_boss_name(s_app.player.map));
+                     map_boss_name(s_app.player.map, s_app.player.floor));
         }
     }
 }
@@ -732,8 +746,31 @@ static void refresh_store(void) {
 }
 
 static void refresh_maps(void) {
-    char buf[160];
+    char buf[224];
     buf[0] = '\0';
+    if (s_app.floor_mode) {
+        /* Floor list of one unlocked combat map (v1.3): every open floor
+         * plus a back row; the deepest floor is the default cursor. */
+        uint8_t map = (uint8_t)s_app.floor_mode;
+        int deepest = s_app.player.floor_unlocked[map - 1];
+        char row[64];
+        for (int f = 0; f < deepest; ++f) {
+            snprintf(row, sizeof row, "%s%d层 Boss:%s",
+                     s_app.cur_floor == f ? "＞" : "  ", f + 1,
+                     map_boss_name(map, (uint8_t)(f + 1)));
+            strncat(buf, row, sizeof buf - strlen(buf) - 1);
+            strncat(buf, "\n", sizeof buf - strlen(buf) - 1);
+        }
+        snprintf(row, sizeof row, "%s返回", s_app.cur_floor == deepest ? "＞" : "  ");
+        strncat(buf, row, sizeof buf - strlen(buf) - 1);
+        lv_label_set_text(s_app.view.items_label, buf);
+        char det[96];
+        snprintf(det, sizeof det, "%s 共%d层\n击杀 %d 触发层Boss\n长按OK返回地图",
+                 MAFA_MAP_NAMES[map], MAFA_MAP_FLOORS[map],
+                 MAFA_KILLS_PER_BOSS);
+        lv_label_set_text(s_app.view.detail_label, det);
+        return;
+    }
     for (int i = 0; i < MAFA_MAP_COUNT; ++i) {
         bool unlocked = i == MAFA_MAP_SAFE || i <= s_app.player.unlocked;
         char row[56];
@@ -750,9 +787,13 @@ static void refresh_maps(void) {
     }
     lv_label_set_text(s_app.view.items_label, buf);
     char det[96];
-    snprintf(det, sizeof det,
-             "当前:%s\n击杀 %d 触发 Boss\n安全区:无怪,休息回血",
-             MAFA_MAP_NAMES[s_app.player.map], MAFA_KILLS_PER_BOSS);
+    if (s_app.player.map == MAFA_MAP_SAFE)
+        snprintf(det, sizeof det, "当前:%s\n击杀 %d 触发层Boss\n安全区:无怪,休息回血",
+                 MAFA_MAP_NAMES[s_app.player.map], MAFA_KILLS_PER_BOSS);
+    else
+        snprintf(det, sizeof det, "当前:%s %d层\n击杀 %d 触发层Boss\n安全区:无怪,休息回血",
+                 MAFA_MAP_NAMES[s_app.player.map], s_app.player.floor,
+                 MAFA_KILLS_PER_BOSS);
     lv_label_set_text(s_app.view.detail_label, det);
 }
 
@@ -966,6 +1007,7 @@ static void input_main(bsp_btn_t btn, bool click) {
         case 2: enter_page(PAGE_STORE); return;
         case 3:
             s_app.cur_maps = s_app.player.map;
+            s_app.floor_mode = 0;
             enter_page(PAGE_MAPS);
             return;
         case 4: enter_page(PAGE_SETTINGS); return;
@@ -1110,8 +1152,42 @@ static void process_event(const input_event_t *ev) {
         refresh_store();
         break;
     case PAGE_MAPS:
-        if (long_ok) { enter_page(PAGE_MAIN); break; }
+        if (long_ok) {
+            /* Long-OK backs out one level inside the floor list; from the
+             * map list it still returns to the main page. */
+            if (s_app.floor_mode != 0) {
+                s_app.floor_mode = 0;
+                refresh_maps();
+            } else {
+                enter_page(PAGE_MAIN);
+            }
+            break;
+        }
         if (!click) break;
+        if (s_app.floor_mode != 0) {
+            /* Floor list: rows 0..deepest-1 are floors, deepest is 返回. */
+            int rows = s_app.player.floor_unlocked[s_app.floor_mode - 1] + 1;
+            if (ev->btn == BSP_BTN_UP || ev->btn == BSP_BTN_DOWN)
+                s_app.cur_floor = (s_app.cur_floor + (ev->btn == BSP_BTN_UP
+                                       ? rows - 1 : 1)) % rows;
+            else if (ev->btn == BSP_BTN_OK) {
+                if (s_app.cur_floor == rows - 1) {
+                    s_app.floor_mode = 0;
+                    refresh_maps();
+                    break;
+                }
+                mafa_switch_map(&s_app.player, (uint8_t)s_app.floor_mode,
+                                (uint8_t)(s_app.cur_floor + 1));
+                save_now();
+                enter_page(PAGE_MAIN);
+                log_clear("【%s %d层】开始挂机", MAFA_MAP_NAMES[s_app.player.map],
+                          s_app.player.floor);
+                refresh_main();
+                break;
+            }
+            refresh_maps();
+            break;
+        }
         if (ev->btn == BSP_BTN_UP || ev->btn == BSP_BTN_DOWN) {
             /* The cursor only rests on rows the player may enter: the
              * safe zone plus unlocked combat maps. */
@@ -1122,15 +1198,18 @@ static void process_event(const input_event_t *ev) {
             } while (s_app.cur_maps != MAFA_MAP_SAFE
                      && s_app.cur_maps > s_app.player.unlocked);
         } else if (ev->btn == BSP_BTN_OK) {
-            mafa_switch_map(&s_app.player, (uint8_t)s_app.cur_maps);
-            save_now();
-            enter_page(PAGE_MAIN);
-            if (s_app.player.map == MAFA_MAP_SAFE)
+            if (s_app.cur_maps == MAFA_MAP_SAFE) {
+                mafa_switch_map(&s_app.player, MAFA_MAP_SAFE, 0);
+                save_now();
+                enter_page(PAGE_MAIN);
                 log_clear("【%s】休息中", MAFA_MAP_NAMES[s_app.player.map]);
-            else
-                log_clear("【%s】开始挂机",
-                          MAFA_MAP_NAMES[s_app.player.map]);
-            refresh_main();
+                refresh_main();
+                break;
+            }
+            /* v1.3: OK opens the floor picker, cursor at the deepest floor. */
+            s_app.floor_mode = s_app.cur_maps;
+            s_app.cur_floor = s_app.player.floor_unlocked[s_app.cur_maps - 1] - 1;
+            refresh_maps();
             break;
         }
         refresh_maps();

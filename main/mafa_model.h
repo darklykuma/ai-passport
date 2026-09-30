@@ -22,7 +22,7 @@
 #define MAFA_GOLD_CAP 9999
 #define MAFA_INV_EMPTY 0xFF
 #define MAFA_DROP_NONE 0xFF
-#define MAFA_SAVE_VERSION 4
+#define MAFA_SAVE_VERSION 5
 /* Auto-potion trigger lines are settable in steps of 10 (PRD 10, v1.2). */
 #define MAFA_POT_PCT_MIN 20
 #define MAFA_POT_PCT_MAX 80
@@ -106,21 +106,25 @@ typedef enum {
 
 typedef struct {
     const char *name;
-    uint8_t map;
-    uint8_t level;
+    uint8_t map;     /* home map id 1..3 (0 never spawns) */
+    uint8_t floor;   /* 1-based floor inside the map; a boss row guards its
+                        floor, trash rows spawn on their floor and every
+                        deeper one (PRD 8.7, v1.3) */
+    uint8_t level;   /* base level; also the spawn-band and drop-tier key */
     uint16_t hp;
     uint8_t atk, def;
     uint32_t xp;
-    uint8_t skill;      /* mafa_mob_skill_t */
-    bool boss;
+    uint8_t skill;   /* mafa_mob_skill_t */
+    bool boss;       /* exactly one row per (map, floor) */
 } mafa_monster_t;
 
 extern const mafa_monster_t MAFA_MONSTERS[];
 extern const int MAFA_MONSTER_COUNT;
 extern const char *const MAFA_MAP_NAMES[MAFA_MAP_COUNT];
+extern const uint8_t MAFA_MAP_FLOORS[MAFA_MAP_COUNT];
 
-/* The map's boss row, or NULL for the safe zone / an unknown id. */
-const mafa_monster_t *mafa_map_boss(uint8_t map);
+/* The (map, floor) boss row, or NULL for the safe zone / an unknown pair. */
+const mafa_monster_t *mafa_map_boss(uint8_t map, uint8_t floor);
 
 /* --- Player -------------------------------------------------------------- */
 
@@ -136,7 +140,12 @@ typedef struct {
     uint8_t inv_n[MAFA_BACKPACK];
     uint8_t equipped[MAFA_EQ_SLOTS];    /* item id or MAFA_INV_EMPTY */
     uint8_t map;            /* current idle map (MAFA_MAP_SAFE = town) */
+    uint8_t floor;          /* current floor, 1-based; 0 in the safe zone */
     uint8_t unlocked;       /* highest unlocked combat map index */
+    uint8_t floor_unlocked[MAFA_MAP_COUNT - 1];
+                            /* deepest open floor per combat map (index 0 =
+                               map 1); the next map opens only through the
+                               previous map's last floor */
     uint16_t kills;         /* mobs killed on the current map, toward boss */
     uint8_t pending_drop;   /* item id awaiting the full-backpack prompt */
     bool auto_potion;       /* settings toggle, default on */
@@ -225,6 +234,8 @@ typedef enum {
     MAFA_EV_DEATH_DROP,         /* id = item, a = stacks lost on death */
     MAFA_EV_GOLD_LOST,          /* a = gold lost on death */
     MAFA_EV_PLAYER_DEATH,
+    MAFA_EV_FLOOR,              /* id = the floor just entered (boss win) */
+    MAFA_EV_MAP_UNLOCK,         /* id = the combat map just unlocked */
 } mafa_ev_kind_t;
 
 #define MAFA_EV_MAX 12
@@ -280,17 +291,19 @@ uint32_t mafa_sell(mafa_player_t *p, uint8_t inv_idx);  /* gold gained */
 uint32_t mafa_sell_all_white(mafa_player_t *p);         /* gold gained */
 bool mafa_buy_potion(mafa_player_t *p, bool red);       /* 50 / 40 gold */
 bool mafa_buy_book(mafa_player_t *p, uint8_t skill_idx);
-void mafa_switch_map(mafa_player_t *p, uint8_t map);    /* combat maps must
-                                                            be unlocked; the
-                                                            safe zone always
-                                                            is */
+/* Enter a map: the safe zone ignores the floor; combat maps must be
+ * unlocked and the floor within 1..floor_unlocked (v1.3 选层). Resets the
+ * boss kill counter. */
+void mafa_switch_map(mafa_player_t *p, uint8_t map, uint8_t floor);
 
 /* NVS-ready serialization (PRD 8.10): magic + version + payload + CRC8.
  * Returns the written size, or 0 when the buffer is too small / data bad.
- * Older saves load and migrate (PRD 8.10, v1.2): v1 grants books for every
- * skill whose unlock level is reached; v1/v2 map ids shift into the v3
+ * Older saves load and migrate (PRD 8.10, v1.2/v1.3): v1 grants books for
+ * every skill whose unlock level is reached; v1/v2 map ids shift into the v3
  * numbering (safe zone 3 → 0, combat maps 0-2 → 1-3); v1-v3 read as v4 with
  * default thresholds/switches and the old auto-sell-white flag mapped onto
- * the quality mask's white bit. */
+ * the quality mask's white bit; v4 reads as v5 with every map the player has
+ * left behind fully cleared (the current top map's floors re-climb from
+ * floor 1 — that ladder is the v1.3 content). */
 size_t mafa_save_serialize(const mafa_player_t *p, uint8_t *buf, size_t cap);
 bool mafa_save_deserialize(mafa_player_t *p, const uint8_t *buf, size_t len);

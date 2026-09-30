@@ -194,7 +194,7 @@ Three classes, chosen at game start, immutable. Stats: HP / MP / attack / defens
 - **Death**: HP ≤ 0 → log "You were killed by…" → respawn in the safe zone at full HP/MP, the player picks the next map themselves; death penalties per 8.9.
 - **Combat log**: the latest 6 lines scrolling; kills/drops/level-ups/boss events use accent colors. Monster packs show as "▶multi-hook-cat×3" with a pooled HP bar; the pet announces itself through log lines.
 - Monster AI (P0): normal attack; below 30% HP, a 50% chance to use its monster skill (see table 9.2).
-- **Auto-sell (v1.2, replaces auto-sell-white)**: a **selectable set of qualities** converts its drops to gold at sell price immediately, never occupying the backpack; everything else goes to the backpack for the player to judge. Pickable: white / green / blue / purple — one bit each, default **white only** (the old behavior). **Gold is never auto-sold**: legendary drops always reach the player. The settings row summarizes the set ("自动卖:白"); OK opens an in-place picker listing the four colors in their quality colors plus a done row (mockup 15).
+- **Auto-sell (v1.2, replaces auto-sell-white)**: a **selectable set of qualities** converts its drops to gold at sell price immediately, never occupying the backpack; everything else goes to the backpack for the player to judge. Pickable: white / green / blue / purple — one bit each, default **white only** (the old behavior). **Gold is never auto-sold**: legendary drops always reach the player. The settings row summarizes the set in Chinese on device ("auto-sell: white"); OK opens an in-place picker listing the four colors in their quality colors plus a done row (mockup 15).
 
 ### 8.4 Skills
 
@@ -244,7 +244,7 @@ Burn/poison and similar effects attach to a per-monster effect list, resolved ea
 - **Backpack 8 slots**; identical stackable items merge; **when full**, a new drop opens a three-key prompt (replace / discard / pass) and idling pauses during the prompt.
 - **Equipment comparison**: selecting a backpack item shows the equipped piece vs the new one side by side (attack/defense/HP deltas); OK equips, long-press returns.
 - No level requirements in P0; equip/unequip applies immediately and triggers autosave.
-- **Consumables**: red and blue potions (stackable). Counts are visible on the **gear page** (v1.2, "红药x3 蓝药x2" line) and ride the store rows (v1.2), so a purchase is confirmed at a glance.
+- **Consumables**: red and blue potions (stackable). Counts are visible on the **gear page** (v1.2, a "red potion ×3, blue potion ×2" line) and ride the store rows (v1.2), so a purchase is confirmed at a glance.
 - **Skill books (v0.8)**: not backpack items — a bitmask in the save. Books 1–2 per class are sold in the store (the main gold sink); books 3–4 come only from elite drops (≈20%) and a **boss first-kill guarantee** (skill 3, then skill 4). Books may be banked before their unlock level; the skill casts only from that level on, and the gear page shows the waiting state (8.4).
 
 ### 8.6 Drops
@@ -258,22 +258,24 @@ One settlement roll per killed monster (see 9.3):
 
 ### 8.7 Maps and unlocking
 
-Three idle maps in P0, unlocked linearly (boss-event victory unlocks the next). Map ids are 1–3 (v1.0); id 0 is the safe zone (8.9), listed first on the map page:
+Three idle maps in P0, unlocked linearly; id 0 is the safe zone (8.9), listed first on the map page. Since **v1.3 each combat map is a floor ladder** shaped after the original's dungeons (Woma Temple 3 floors, Zuma Temple 7 floors): **one boss checkpoint per floor**, and the next map opens only through the previous map's last-floor boss.
 
-| Map | Suggested level | Monster theme | Boss |
-| --- | --- | --- | --- |
-| Beech Forest | L1–5 | chicken / deer / scarecrow / hook-cat / forest yeti | Forest Ape |
-| Abandoned Mine | L5–10 | skeleton / skeleton warrior / mine rat / axe skeleton / cave scorpion | Corpse King |
-| Zuma Temple | L10–15 | zuma guard / zuma statue / black maggot / contract moth / giant rat | Zuma Overlord |
+| Map | Floors | Suggested level | Monster theme (first appearance) | Floor bosses (floor 1 → last) |
+| --- | --- | --- | --- | --- |
+| Beech Forest | 2 | L1–5 | chicken / deer / scarecrow / hook-cat / rake-cat / half-orc | Forest Yeti → Forest Ape |
+| Abandoned Mine | 3 | L5–10 | skeleton / mine rat / skeleton warrior / axe skeleton / cave scorpion | Zombie → Skeleton Spirit → Corpse King |
+| Zuma Temple | 7 | L10–15 | zuma guard / giant rat / black maggot / contract moth / zuma archer / zuma statue | guard → archer → guard → statue → guard → statue → Zuma Overlord |
 
-- On the current map monsters spawn randomly (level band per 8.3), fought one after another automatically.
-- Boss event: triggers after every **40 kills** on the map (a 3-mob battle counts 3); repeatable (8.6 boss drop roll is independent each time).
+- Floor progression: **40 kills** trigger the current floor's boss (a 3-mob battle counts 3). Victory opens **and enters** the next floor of the same map (gold log line); the last floor's boss unlocks the next map (gold log line). On the top floor the boss event stays repeatable (8.6 boss drop roll runs each time).
+- Floor selection (v1.3): OK on an unlocked combat map opens a **floor list** — one row per open floor (with that floor's boss name) plus a back row, cursor resting on the deepest floor (mockup 16). The player may enter any reached floor — e.g. idling overnight on a low-risk shallow floor. Long-press backs out of the floor list to the map list; the safe zone still enters directly.
+- Re-entering a map (from the menu or after death) always lands on its **deepest open floor**; death never demotes floors (8.9).
+- Spawns use a **cumulative floor pool** (v1.3): a floor fights its own trash plus every shallower floor's rows — deeper floors get busier, dungeon style — still filtered by the level band (8.3).
 - Monsters scale slightly with player level (area base + 5% per level difference, never down).
 
 ### 8.8 Store
 
 - No separate town screen in P0: the main screen is the camp, and the store is one action-menu entry. HP/MP regenerate slowly while not in combat (+10/s).
-- Store: red potion **50** gold (+30+2/level HP), blue potion **40** gold (+15+1/level MP), and the two store skill books of the player's class (300 / 800 gold); gold cap 9999. Rows show the potion stack already held ("红药 50金 x3") and a "Lv X" hint on a book whose unlock level is above the player's (v1.2) — buying early is allowed, the skill simply waits.
+- Store: red potion **50** gold (+30+2/level HP), blue potion **40** gold (+15+1/level MP), and the two store skill books of the player's class (300 / 800 gold); gold cap 9999. Rows show the potion stack already held (a "red potion 50 gold ×3" row) and a "Lv X" hint on a book whose unlock level is above the player's (v1.2) — buying early is allowed, the skill simply waits.
 - Potion economy (v0.8): a mid-map kill funds roughly one potion — supply is a decision, not a given.
 
 ### 8.9 Death
@@ -284,14 +286,15 @@ HP ≤ 0: log "You were killed by…" → the player respawns in the **safe zone
 - **Gold**: 10–20% of carried gold is lost;
 - **Equipped gear is safe** (too harsh for a single-player idle game; potions are safe too).
 
-The safe zone (v0.9) is map id 0 and heads the map page (v1.0): always open, no monsters, no boss; switching to it is a voluntary rest option, and combat maps stay locked until their boss falls (8.7).
+The safe zone (v0.9) is map id 0 and heads the map page (v1.0): always open, no monsters, no boss; switching to it is a voluntary rest option, and combat maps stay locked until the previous map's last-floor boss falls (8.7, v1.3 floors).
 
 ### 8.10 Save
 
 - NVS, namespace `mafa`, binary struct + magic + version + CRC8; incompatible data is treated as corrupt and only a new game may proceed.
 - **Version 2 (v0.8)**: class / level / XP (32-bit) / gold / books bitmask / potion counts / backpack (8 × {item id, count}) / 3 equipped items / unlocked area / settings toggles (auto-potion, auto-sell-white, auto-boss).
 - **Version 3 (v1.0)**: same payload as v2; only the map fields are renumbered (safe zone 3 → 0, combat maps 0–2 → 1–3).
-- **Version 4 (v1.2)**: extends the payload with the per-class **skill switches** (bitmask, one bit per skill of the player's class), the two **auto-potion thresholds** (red/blue %, defaults 50/30, clamped 20–80), and the **auto-sell quality set** (4-bit mask white/green/blue/purple, default white-only — the old flags byte's white bit maps onto it during migration). Defaults for everyone else: **v1/v2/v3 saves load and migrate** — v1 grants every skill whose unlock level is already reached its book; v1/v2 map ids shift into the v3 numbering; the old auto-sell-white flag becomes the white bit on or off. Old saves never lose progress.
+- **Version 4 (v1.2)**: extends the payload with the per-class **skill switches** (bitmask, one bit per skill of the player's class), the two **auto-potion thresholds** (red/blue %, defaults 50/30, clamped 20–80), and the **auto-sell quality set** (4-bit mask white/green/blue/purple, default white-only — the old flags byte's white bit maps onto it during migration).
+- **Version 5 (v1.3)**: extends the payload with the **per-map deepest-open-floor** bytes (one per combat map, 1-based, range-checked against the floor table of 8.7; a deeper map may only be open when the previous map is fully climbed). Defaults for everyone else: **v1–v4 saves load and migrate** — v1 grants every skill whose unlock level is already reached its book; v1/v2 map ids shift into the v3 numbering; the old auto-sell-white flag becomes the white bit on or off; every map the player has **left behind** counts as fully climbed, while the current top map's floor ladder re-climbs from floor 1 (that ladder is the v1.3 content). Old saves never lose progress.
 - **Autosave points**: after every battle settlement, after store purchases, after equip/unequip. No manual save.
 - Overwriting an existing save with a new game requires confirmation.
 
@@ -303,28 +306,42 @@ See 8.2. Level cap in P0 = 15 (graduation of area 3).
 
 ### 9.2 Monster table
 
-| Monster | Area | Level | HP | Attack | Defense | XP | Skill (below 30% HP) |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Chicken | 1 | 1 | 50 | 7 | 0 | 12 | — |
-| Deer | 1 | 1 | 65 | 8 | 1 | 15 | — |
-| Scarecrow | 1 | 2 | 95 | 10 | 1 | 18 | Fire (1.5× attack) |
-| Hook-cat | 1 | 3 | 130 | 12 | 2 | 22 | Flurry (2 hits of 0.7× attack) |
-| Forest yeti | 1 | 4 | 170 | 13 | 3 | 26 | Heavy blow (1.6× attack) |
-| Forest Ape (boss) | 1 | 5 | 380 | 20 | 4 | 150 | Roar (1.5× attack) |
-| Skeleton | 2 | 5 | 90 | 11 | 4 | 34 | — |
-| Mine rat | 2 | 6 | 80 | 12 | 2 | 38 | Flurry |
-| Skeleton warrior | 2 | 7 | 130 | 14 | 6 | 44 | Heavy blow |
-| Axe skeleton | 2 | 8 | 120 | 15 | 5 | 50 | Fire |
-| Cave scorpion | 2 | 9 | 150 | 16 | 7 | 58 | Sting (1.2× attack, then −3 HP for 2 rounds) |
-| Corpse King (boss) | 2 | 10 | 830 | 27 | 8 | 300 | Rot (1.5× attack) |
-| Zuma guard | 3 | 10 | 170 | 15 | 9 | 72 | Heavy blow |
-| Giant rat | 3 | 11 | 150 | 16 | 6 | 80 | Flurry |
-| Black maggot | 3 | 12 | 200 | 18 | 10 | 92 | Sting |
-| Contract moth | 3 | 13 | 190 | 20 | 8 | 104 | Fire |
-| Zuma statue | 3 | 14 | 260 | 22 | 12 | 118 | Heavy blow |
-| Zuma Overlord (boss) | 3 | 15 | 1600 | 31 | 14 | 800 | Hellfire (2.0× attack) |
+| Monster | Area | Floor | Level | HP | Attack | Defense | XP | Skill (below 30% HP) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Chicken | 1 | 1 | 1 | 50 | 7 | 0 | 12 | — |
+| Deer | 1 | 1 | 1 | 65 | 8 | 1 | 15 | — |
+| Scarecrow | 1 | 1 | 2 | 95 | 10 | 1 | 18 | Fire (1.5× attack) |
+| Hook-cat | 1 | 1 | 3 | 130 | 12 | 2 | 22 | Flurry (2 hits of 0.7× attack) |
+| Rake-cat | 1 | 2 | 3 | 140 | 13 | 2 | 26 | Flurry |
+| Half-orc | 1 | 2 | 4 | 200 | 15 | 3 | 30 | Heavy blow (1.6× attack) |
+| Forest Yeti (boss) | 1 | 1 | 4 | 340 | 16 | 3 | 120 | Heavy blow |
+| Forest Ape (boss) | 1 | 2 | 5 | 380 | 20 | 4 | 150 | Roar (1.5× attack) |
+| Skeleton | 2 | 1 | 5 | 90 | 11 | 4 | 34 | — |
+| Mine rat | 2 | 1 | 6 | 80 | 12 | 2 | 38 | Flurry |
+| Skeleton warrior | 2 | 2 | 7 | 130 | 14 | 6 | 44 | Heavy blow |
+| Axe skeleton | 2 | 2 | 8 | 120 | 15 | 5 | 50 | Fire |
+| Cave scorpion | 2 | 3 | 9 | 150 | 16 | 7 | 58 | Sting (1.2× attack, then −3 HP for 2 rounds) |
+| Zombie (boss) | 2 | 1 | 6 | 440 | 22 | 5 | 180 | — (an HP wall) |
+| Skeleton Spirit (boss) | 2 | 2 | 8 | 700 | 26 | 6 | 240 | Flurry |
+| Corpse King (boss) | 2 | 3 | 10 | 830 | 27 | 8 | 300 | Rot (1.5× attack) |
+| Zuma guard | 3 | 1 | 10 | 175 | 15 | 9 | 72 | Heavy blow |
+| Giant rat | 3 | 2 | 11 | 180 | 16 | 6 | 80 | Flurry |
+| Black maggot | 3 | 3 | 12 | 230 | 18 | 10 | 92 | Sting |
+| Contract moth | 3 | 4 | 13 | 220 | 20 | 8 | 104 | Fire |
+| Zuma archer | 3 | 4 | 12 | 190 | 19 | 7 | 100 | Sting |
+| Zuma statue | 3 | 5 | 14 | 300 | 22 | 12 | 118 | Heavy blow |
+| Zuma guard (boss I) | 3 | 1 | 10 | 1250 | 27 | 7 | 280 | Heavy blow |
+| Zuma archer (boss) | 3 | 2 | 11 | 1150 | 28 | 8 | 330 | Sting |
+| Zuma guard (boss II) | 3 | 3 | 12 | 1400 | 28 | 10 | 390 | Heavy blow |
+| Zuma statue (boss I) | 3 | 4 | 12 | 1450 | 29 | 11 | 430 | Heavy blow |
+| Zuma guard (boss III) | 3 | 5 | 13 | 1500 | 30 | 11 | 460 | Roar |
+| Zuma statue (boss II) | 3 | 6 | 14 | 1550 | 31 | 13 | 530 | Heavy blow |
+| Zuma Overlord (boss) | 3 | 7 | 15 | 1600 | 31 | 14 | 800 | Hellfire (2.0× attack) |
 
-Elite monsters = same-table monster ×1.5 HP ×1.2 attack, XP ×1.5. Boss numbers are calibrated by the balance simulator (PRD 4.2, v0.8 gates): a player at the suggested level with the map's T2 gear, store books + elite book 3, and 8 red / 4 blue potions should find at least one class whose win rate lands in 45–75% (no 0% matchups); battle pace 4–15 s and suggested-level grinding with a working potion economy is rarely deadly (≥5 min death interval).
+Trash rows spawn on their floor **and every deeper one** (cumulative pool, 8.7). Elite monsters = same-table monster ×1.5 HP ×1.2 attack, XP ×1.5. Numbers are calibrated by the balance simulator (PRD 4.2) per **map × floor** cell, with per-floor arrival kits (what a player realistically wears when first reaching that floor):
+
+- **Wall floors** (the last floor of each map — Forest Ape, Corpse King, Zuma Overlord) keep the skills-2.0 strict band: a player at the suggested level with the arrival kit, store books + elite book 3, and 8 red / 4 blue potions should find at least one class whose win rate lands in 45–75% (no 0% matchups).
+- **Corridor floors** follow the original's dungeon shape — grindable corridors, one wall per map: the same gates on battle pace (4–15 s) and suggested-level death interval (≥5 min) apply, plus "no free wins" (at least one class ≤ 90%). Mid-floor danger is carried by the XP wall and the death economy, not by per-floor boss walls.
 
 ### 9.3 Drops and equipment tables
 
@@ -353,8 +370,9 @@ Global: UP/DOWN move the cursor, OK confirms, long-press returns to the main scr
 | Main screen — speed | — | cycles 1x → 2x → 4x | — |
 | Backpack | move | select (equip/sell submenu, with comparison) | back to main screen |
 | Store | move | buy | back to main screen |
-| Map list | move | go to that map | back to main screen |
-| Settings | move | toggle; on a threshold row OK enters edit — value turns gold in `<50%>` brackets, other rows dim, UP/DOWN step 10% within 20–80, OK saves; on the auto-sell row OK opens the quality picker — UP/DOWN moves over 白/绿/蓝/紫 plus 完成, OK toggles a color / saves (v1.2) | back to main screen (also leaves edit, saving) |
+| Map list | move (locked rows skipped) | safe zone: rest at once; combat map: open its floor list | back to main screen |
+| Floor list (v1.3) | move over open floors + a back row, cursor on the deepest | enter that map at that floor | back to the map list |
+| Settings | move | toggle; on a threshold row OK enters edit — value turns gold in `<50%>` brackets, other rows dim, UP/DOWN step 10% within 20–80, OK saves; on the auto-sell row OK opens the quality picker — UP/DOWN moves over the four colors plus a done row, OK toggles a color / saves (v1.2) | back to main screen (also leaves edit, saving) |
 | Boss event prompt | move | fight / pass | — |
 | Backpack-full drop prompt | move | replace / discard | pass the drop |
 
@@ -392,6 +410,7 @@ Global: UP/DOWN move the cursor, OK confirms, long-press returns to the main scr
 - Elite/boss affixes, daily dungeons, idle/offline gains.
 - Expanded sound pack (loot/level-up/boss short melodies), more monster portraits.
 - Multiple save slots, simple achievements (first purple, first boss kill).
+- Content depth round 2 (v1.3 follow-ups): a Woma Temple map to restore the original's Woma→Zuma ladder order, and raising the level cap past 15 with the Chiyue / Bull-Monster content above Zuma (the 2026-09-30 comparison found the classic 1.76 ladder continues well past our cap).
 
 ## 15. Revision history
 
@@ -403,6 +422,7 @@ Global: UP/DOWN move the cursor, OK confirms, long-press returns to the main scr
 - v0.9 (2026-09-29): on-device playtest found the death loop (respawn kept 0 HP, dying endlessly). Death now respawns the player in a new **safe zone** (4th map id, always open, no monsters/boss, also a voluntary rest spot) at full HP/MP; idling stays stopped until the player picks the next map themselves — the town kick becomes part of the death cost. Penalties unchanged; map-page cursor only rests on enterable rows.
 - v1.0 (2026-09-29): the safe zone becomes **map id 0** and heads the map page (row "0" + safe-zone name; combat maps renumbered 1–3, making the 8.3 pack-weight table literal). New games start idling in Beech Forest at once instead of resting in town. Save bumps to **v3**: byte layout identical to v2, only the map fields migrate (town 3 → 0, combat 0–2 → 1–3); v1/v2 saves load and migrate automatically. Code replaces the `map*6+5` boss lookup with `mafa_map_boss()`; balance-sim gates unchanged and still met.
 - v1.1 (2026-09-29): the header percent now shows **XP progress toward the next level** ("Lv.8 87%") instead of the battery — playtest feedback was that level-up timing was invisible, decisive on the 14→15 wall (≈45 % of total grind). At the cap the line shrinks to bare "Lv.15". The battery readout moved to the settings page as a non-navigable info row. Design mockups 03/11 re-rendered to match; font subsets regenerated for the new battery label.
+- v1.3 (2026-09-30): **floor ladders (per-map dungeon floors)**, closing the content-depth gap against the original (map count and the boss ladder both ran out at Zuma, roughly two thirds of classic 1.76 content). Each combat map becomes a dungeon in the original's shape — Beech Forest 2 floors, Abandoned Mine 3, Zuma Temple 7 (12 boss checkpoints instead of 3; the mine regains its canonical Zombie line, the temple walks the guard/archer/statue ladder with tiered variants, mirroring the original's per-floor HP tiers of the same mobs; all names verified against the original's mob lists). Floor bosses open the next floor; the last floor's boss opens the next map, with gold log lines for both. OK on a map opens a floor list so the player can farm any reached floor (overnight-safe shallow floors); re-entry lands on the deepest floor; death never demotes floors. Spawns use cumulative floor pools (deeper = busier). Save **v5** carries the three per-map deepest floors; v1–v4 saves migrate (left-behind maps count as fully climbed, the current top map's ladder re-climbs). Balance sim extended to 12 map × floor cells with per-floor arrival kits; the strict 45–75% boss band now applies to each map's wall floor, corridors require pace/grind gates plus "no free wins" — all 12 cells pass. The main-screen header shows "map, floor N" and the header XP-percent behavior is unchanged. Design mockups re-rendered: main screens carry the floor suffix, the 40-kill counter, and current monster names (03-06); the map page detail shows the floor (10); a new mockup 16 documents the floor list.
 - v1.2 (2026-09-29): playtest feedback round — four visibility/control gaps closed. (1) **Potion counts became visible**: a potions line on the gear page and holdings on the store rows (they previously existed only as invisible counters). (2) **Auto-potion thresholds became adjustable**: the fixed 50% HP / 30% MP triggers turned into settings rows (red line / blue line), editable in place, 20–80% in steps of 10; save v4 carries the thresholds and per-class skill switches, v1–v3 saves load with defaults. (3) **"Learned but never cast" explained**: a host probe showed the cast logic has no bug — Half-Moon Sweep fires in 100 % of multi-mob battles at L9 with the book, but books can be banked before the unlock level (0 casts at L8 despite 118 multi-mob battles) and map 1 spawns lone monsters ≈70 % of the time while AoE is crowd-only by design. The fix is visibility, not numbers: the gear page now lists all five skills with live state (always-on / on-off toggle / store price / "Lv12 boss"-style lock reason, plus an AoE tag on crowd-only skills). (4) **Skills became toggleable** (OK on a skill row; passive/proc fixed). (5) **Auto-sell became a selectable color set** (white/green/blue/purple bits, default white-only, gold never auto-sold): the settings row shows the enabled colors and OK opens an in-place quality picker; save v4 carries the 4-bit set and older saves map the old white-only flag onto it. Mockup 07 became the final gear-page design (absorbing the old 12-skills-proposal, now removed), 09/11 re-rendered, 14 added for the threshold edit state, 15 for the auto-sell picker.
 - v0.6 (2026-09-28): on-device feedback added an "auto-boss" settings toggle (boss events are fought automatically instead of prompting); save contents and the settings page updated.
 - v0.5 (2026-09-28): on-device feedback added a gear-overview page (action menu item 2: the three equipped slots plus a stat summary); the action menu grew to six entries.
