@@ -660,6 +660,8 @@ static void refresh_skills(void) {
         const char *mark = s_app.cur_skill == i ? "＞" : "　";
         char state[40];
         size_t m = 0;
+        state[0] = '\0';      /* toggleable non-AoE and passive rows print
+                                 state as-is: never leak stale stack bytes */
         if (!mafa_skill_known(&s_app.player, (uint8_t)i)) {
             /* Lock rows carry no 群攻 tag: tag + gate + source measures
              * 236px at the worst against the 216px list panel and wraps
