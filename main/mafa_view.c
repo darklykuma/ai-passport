@@ -137,14 +137,18 @@ lv_obj_t *mafa_view_page_main(mafa_view_t *v) {
     lv_obj_set_width(v->mp_text, 66);
     lv_obj_set_style_text_align(v->mp_text, LV_TEXT_ALIGN_RIGHT, 0);
 
-    /* Enemy strip: ▶mob name (gold when boss) + monster HP bar. */
+    /* Enemy strip: ▶mob name (+ ×N pack count; gold when boss) + monster
+     * HP bar. The label is created first and never width-clamped, so the
+     * later-created opaque bar draws over anything past its x: the worst
+     * strip text "▶祖玛弓箭手×3" is ▶16 + 5×16 + ×16 + digit 9 = 121px,
+     * ending at x=131 — the bar starts at 134 to stay clear of it. */
     lv_obj_t *strip = panel(v->screen, 0, 62, 240, 36, MAFA_STRIP_BG,
                             MAFA_PANEL_EDGE);
     lv_obj_set_style_radius(strip, 0, 0);
     lv_obj_set_style_border_side(strip, LV_BORDER_SIDE_BOTTOM, 0);
     v->enemy_label = new_label(strip, 10, 9, false);
     lv_label_set_recolor(v->enemy_label, true);
-    v->enemy_bar = bar(strip, 104, 13, 128, 9, MAFA_ENEMY_RED);
+    v->enemy_bar = bar(strip, 134, 13, 98, 9, MAFA_ENEMY_RED);
 
     /* Framed combat log; the gold caption rides the top border like a
      * fieldset legend (opaque bg punches out the border line). */
