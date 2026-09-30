@@ -691,18 +691,6 @@ static void refresh_skills(void) {
                           (s_app.player.skills_off >> i) & 1 ? "关" : "开");
         }
     }
-    /* TEMP PROBE (skill-page scramble): dump the exact bytes handed to the
-     * label plus LVGL heap state, so a serial capture can split "corrupt
-     * string built here" from "corruption inside LVGL". Remove once read. */
-    lv_mem_monitor_t mon;
-    lv_mem_monitor(&mon);
-    ESP_LOGI(TAG, "skills cls=%u lv=%u buf=%d lv_heap.free=%u/%u used=%u%% "
-                  "frag=%u%%",
-             (unsigned)s_app.player.cls, (unsigned)s_app.player.level,
-             (int)strlen(buf), (unsigned)mon.free_size,
-             (unsigned)mon.total_size, (unsigned)mon.used_pct,
-             (unsigned)mon.frag_pct);
-    ESP_LOG_BUFFER_HEXDUMP(TAG, buf, strlen(buf) + 1, ESP_LOG_INFO);
     lv_label_set_text(s_app.view.items_label, buf);
     lv_label_set_text(s_app.view.detail_label,
                       s_app.skill_hint[0] ? s_app.skill_hint
