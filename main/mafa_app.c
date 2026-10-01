@@ -439,7 +439,7 @@ static void handle_events(const mafa_events_t *ev) {
             settled = true;
             break;
         case MAFA_EV_BOOK:
-            log_line("#F0C04A 习得【%s】!#", skill_of(id)->name);
+            log_line("#F0C04A 【技能书】习得【%s】!#", skill_of(id)->name);
             settled = true;
             break;
         case MAFA_EV_DEATH_DROP:

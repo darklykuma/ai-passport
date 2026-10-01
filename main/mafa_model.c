@@ -897,19 +897,24 @@ static void grant_levelups(mafa_player_t *p, mafa_events_t *ev) {
     }
 }
 
-/* Book drops (1.76 plan): elites sometimes drop a missing late book; a boss
- * kill guarantees the next missing one (skill 4 first, then 5, then 6). */
+/* Book drops (v1.7): a book only starts dropping once its skill's unlock
+ * level is reached — no banking ahead of the gate. The next missing
+ * eligible book rolls once per kill: bosses 30/15/8 % by book index,
+ * elites a flat 5 %, so the capstone (逐日/冰咆哮/神兽) stays a chase of
+ * roughly half a dozen boss checkpoints while books 4-5 land early. */
 static void roll_book_drop(mafa_player_t *p, bool boss, bool elite,
                            mafa_events_t *ev) {
+    static const uint8_t BOSS_BOOK_PCT[3] = {30, 15, 8};  /* books 4-6 */
     if (!boss && !elite) return;
-    if (!boss && rng_next(p) % 100 >= 20) return;
+    if (!boss && rng_next(p) % 100 >= 5) return;
     for (int i = 4; i < MAFA_SKILLS_PER_CLASS; ++i) {
+        if (p->level < MAFA_SKILLS[p->cls][i].unlock) continue;
         uint32_t bit = 1u << (p->cls * MAFA_SKILLS_PER_CLASS + i);
-        if (!(p->books & bit)) {
-            p->books |= bit;
-            mafa_ev_push(ev, MAFA_EV_BOOK, (uint8_t)i, 1, 0);
-            return;
-        }
+        if (p->books & bit) continue;
+        if (rng_next(p) % 100 >= (boss ? BOSS_BOOK_PCT[i - 4] : 5)) return;
+        p->books |= bit;
+        mafa_ev_push(ev, MAFA_EV_BOOK, (uint8_t)i, 1, 0);
+        return;
     }
 }
 

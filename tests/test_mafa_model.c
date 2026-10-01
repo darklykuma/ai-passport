@@ -235,7 +235,7 @@ static void test_starter_onramp_pool(void) {
     assert(saw_above);
 }
 
-static void test_boss_event_flow_and_book_guarantee(void) {
+static void test_boss_event_flow_and_floor_ladder(void) {
     mafa_player_t p;
     mafa_player_init(&p, MAFA_CLS_WARRIOR, 5);
     assert(!mafa_boss_ready(&p));
@@ -247,15 +247,19 @@ static void test_boss_event_flow_and_book_guarantee(void) {
     assert(b.is_boss && b.mob_n == 1);
 
     /* Fighting the floor-1 boss (稻草人, the newbie pen's gatekeeper) and
-     * winning must open floor 2 of the same map (v1.3) and guarantee the
-     * next missing late book (skill 4 first, then 5, then 6). A stocked L12
-     * warrior beats the L3 boss. */
+     * winning must open floor 2 of the same map (v1.3). A stocked L12
+     * warrior beats the L3 boss — and the v1.7 book gate keeps every late
+     * book (unlock L30+) away from an under-level player, boss kills
+     * included. */
     p.level = 12;
     grant_books(&p, 3);
     mafa_stats_t bst;
     mafa_stats(&p, &bst);
     p.hp = (int16_t)bst.max_hp;
     p.pot_red = 30;
+    uint32_t late_mask = 0;
+    for (int i = 4; i < MAFA_SKILLS_PER_CLASS; ++i)
+        late_mask |= (1u << (MAFA_CLS_WARRIOR * MAFA_SKILLS_PER_CLASS + i));
     int guard = 0;
     mafa_events_t ev;
     bool saw_floor_ev = false;
@@ -271,10 +275,9 @@ static void test_boss_event_flow_and_book_guarantee(void) {
         assert(p.unlocked == 1);            /* floor boss ≠ map unlock */
         assert(p.floor_unlocked[0] == 2 && p.floor == 2 && saw_floor_ev);
         assert(p.kills == 0);
-        uint32_t b4 = (1u << (MAFA_CLS_WARRIOR * MAFA_SKILLS_PER_CLASS + 4));
-        assert(p.books & b4);               /* boss first-kill grants book 4 */
-        /* Second boss kill (半兽勇士, floor 2) opens floor 3 and hands out
-         * book 5. */
+        assert(!(p.books & late_mask));     /* L12 < L30: no book drops */
+        /* Second boss kill (半兽勇士, floor 2) opens floor 3; still no
+         * late book below the gate. */
         p.kills = MAFA_KILLS_PER_BOSS;
         mafa_battle_t b2;
         assert(mafa_boss_start(&p, &b2));
@@ -289,13 +292,12 @@ static void test_boss_event_flow_and_book_guarantee(void) {
                     saw_floor3_ev = true;
         }
         if (!b2.player_dead) {
-            uint32_t b5 = (1u << (MAFA_CLS_WARRIOR * MAFA_SKILLS_PER_CLASS + 5));
-            assert(p.books & b5);                   /* book 5 bit set */
+            assert(!(p.books & late_mask));         /* gate still holds */
             assert(p.floor_unlocked[0] == 3 && p.floor == 3 && saw_floor3_ev);
             assert(p.unlocked == 1);                /* still no map unlock */
         }
-        /* Third boss kill (半兽统领, floor 3 = the last floor) hands out
-         * book 6 and unlocks map 2. */
+        /* Third boss kill (半兽统领, floor 3 = the last floor) unlocks
+         * map 2 — and the whole L12 ladder ran book-free. */
         p.kills = MAFA_KILLS_PER_BOSS;
         mafa_battle_t b3;
         assert(mafa_boss_start(&p, &b3));
@@ -309,8 +311,7 @@ static void test_boss_event_flow_and_book_guarantee(void) {
                 if (ev.e[i].kind == MAFA_EV_MAP_UNLOCK) saw_map_ev = true;
         }
         if (!b3.player_dead) {
-            uint32_t b6 = (1u << (MAFA_CLS_WARRIOR * MAFA_SKILLS_PER_CLASS + 6));
-            assert(p.books & b6);                   /* book 6 bit set */
+            assert(!(p.books & late_mask));         /* no banked books */
             assert(p.unlocked == 2 && saw_map_ev);  /* 兽人古墓 opens */
             assert(p.floor == 3);                   /* stays on the top floor */
         }
@@ -319,6 +320,64 @@ static void test_boss_event_flow_and_book_guarantee(void) {
     }
     mafa_boss_pass(&p);
     assert(p.kills == 0);
+}
+
+static void test_book_drop_gate_and_odds(void) {
+    /* v1.7: the boss first-kill guarantee became a 30/15/8 % roll (elites
+     * 5 %), and a book only rolls once its unlock level is reached. The
+     * L12 ladder test above proves the gate; here a max-level warrior
+     * farms the floor-1 boss and books 4, 5, 6 must land in order within
+     * a few dozen kills (8 % capstone: ~12.5 boss kills on average). */
+    mafa_player_t p;
+    mafa_player_init(&p, MAFA_CLS_WARRIOR, 4242);
+    p.level = MAFA_MAX_LEVEL;
+    grant_books(&p, 3);
+    p.unlocked = 7;
+    p.map = 1;
+    p.floor = 1;
+    p.auto_sell = 0;
+    /* Orc-Tomb tier-1 kit: spawn scaling (+5 %/level) turns even the
+     * scarecrow lethal for a naked max-level character. */
+    for (int i = 0; i < MAFA_ITEM_COUNT; ++i) {
+        if (MAFA_ITEMS[i].map != 2 || MAFA_ITEMS[i].tier != 1) continue;
+        if (MAFA_ITEMS[i].line != MAFA_LINE_NEUTRAL
+            && MAFA_ITEMS[i].line != p.cls) continue;
+        assert(mafa_inv_add(&p, (uint8_t)i));
+        if (MAFA_ITEMS[i].slot == MAFA_ST_BRACELET
+            || MAFA_ITEMS[i].slot == MAFA_ST_RING)
+            assert(mafa_inv_add(&p, (uint8_t)i));
+    }
+    for (int i = 0; i < MAFA_BACKPACK; ++i)
+        if (p.inv_id[i] != MAFA_INV_EMPTY) mafa_equip(&p, (uint8_t)i);
+    mafa_stats_t st;
+    mafa_stats(&p, &st);
+    p.pot_red = MAFA_POT_CAP;
+    p.pot_blue = MAFA_POT_CAP;
+    mafa_events_t ev;
+    uint8_t want = 4;
+    int kills = 0;
+    while (want <= 6 && kills < 400) {
+        p.kills = MAFA_KILLS_PER_BOSS;
+        p.floor = 1;                    /* farm the weakest boss on purpose */
+        p.hp = (int16_t)st.max_hp;
+        p.mp = st.max_mp;
+        mafa_battle_t b;
+        assert(mafa_boss_start(&p, &b));
+        int guard = 0;
+        while (!b.over && guard < 100000) {
+            mafa_battle_round(&p, &b, &ev);
+            guard++;
+            for (int i = 0; i < ev.n; ++i)
+                if (ev.e[i].kind == MAFA_EV_BOOK && ev.e[i].a == 1) {
+                    assert(ev.e[i].id == want);     /* strict 4 → 5 → 6 */
+                    want++;
+                }
+        }
+        assert(b.over && !b.player_dead && guard < 100000);
+        if (p.pending_drop != MAFA_DROP_NONE) mafa_drop_discard(&p);
+        kills++;
+    }
+    assert(want == 7 && kills < 100);   /* three books, no drought */
 }
 
 static void test_taoist_pet_tanks(void) {
@@ -1583,7 +1642,8 @@ int main(void) {
     test_battle_kills_and_settlement();
     test_multi_mob_pack_weights();
     test_starter_onramp_pool();
-    test_boss_event_flow_and_book_guarantee();
+    test_boss_event_flow_and_floor_ladder();
+    test_book_drop_gate_and_odds();
     test_taoist_pet_tanks();
     test_warrior_charge_and_proc();
     test_warrior_stun_skips_turns();
