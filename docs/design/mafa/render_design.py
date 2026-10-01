@@ -2,8 +2,9 @@
 """Render pixel-accurate MAFA CHRONICLE page mockups (240x320, x2 upscale).
 
 Geometry and colors mirror main/mafa_view.c exactly; content reflects the
-1.76-alignment plan (2026-09-30): level cap 40, 7 skills per class at real
-1.76 learn levels, 7 combat maps with 27 floor bosses, the 8-slot paper-doll
+1.76-alignment plan plus the v1.8 endgame (2026-10-01): level cap 45, 7
+skills per class at real 1.76 learn levels, 9 combat maps with 36 floor
+bosses (the 8-row map list scrolls, cursor-anchored), the 8-slot paper-doll
 gear page, a dedicated skill page, and level-gated store books. Fonts
 approximate the device's Source Han Sans subsets with Microsoft YaHei at
 16/20px."""
@@ -328,19 +329,23 @@ for s, c in store:
     y += LH16 + 6
 save(img, "09-store")
 
-# ---- 10. maps: safe zone + the 7 combat maps of the 1.76 route ---------------
+# ---- 10. maps: safe zone + the 9 combat maps (v1.8 endgame) ------------------
+# Ten entries no longer fit the 8-row list: the device renders an 8-row
+# window anchored on the cursor. Sample: a late-game player standing on
+# Sealed Demon Valley (map 8, unlocked) — the window shows rows 1-8 and
+# Azure Moon Island (map 9) waits locked just past the edge.
 img, d = new_page()
 title_band(d, "地图")
 panel(d, 6, 42, 228, 208, PANEL_BG, PANEL_EDGE)
-maps = [("　0.安全区", MAIN), ("　1.比奇省", MAIN), ("　2.兽人古墓", MAIN),
-        ("　3.石墓", MAIN), ("　4.沃玛寺庙", MAIN), ("＞5.死亡山谷", GOLD),
-        ("　6.祖玛寺庙 锁定", DIM), ("　7.赤月峡谷 锁定", DIM)]
+maps = [("　1.比奇省", MAIN), ("　2.兽人古墓", MAIN), ("　3.石墓", MAIN),
+        ("　4.沃玛寺庙", MAIN), ("　5.死亡山谷", MAIN), ("　6.祖玛寺庙", MAIN),
+        ("　7.赤月峡谷", MAIN), ("＞8.封魔谷", GOLD)]
 y = 50
 for s, c in maps:
     text(d, (18, y), s, F16, c)
     y += LH16 + 4
 panel(d, 6, 256, 228, 56, PANEL_BG, PANEL_EDGE)
-text(d, (18, 264), "当前:死亡山谷 2层", F16, DIM)
+text(d, (18, 264), "当前:封魔谷 1层", F16, DIM)
 text(d, (18, 288), "击杀40出Boss,末层开下图", F16, DIM)
 save(img, "10-maps")
 

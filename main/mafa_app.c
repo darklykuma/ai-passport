@@ -872,7 +872,9 @@ static void refresh_store(void) {
 }
 
 static void refresh_maps(void) {
-    char buf[224];
+    /* 8 shown rows: a locked endgame row carries the color markup plus the
+     * lock suffix, so the window can hold ~280 bytes at worst. */
+    char buf[320];
     buf[0] = '\0';
     if (s_app.floor_mode) {
         /* Floor list of one unlocked combat map (v1.3): every open floor
@@ -896,7 +898,11 @@ static void refresh_maps(void) {
         lv_label_set_text(s_app.view.detail_label, det);
         return;
     }
-    for (int i = 0; i < MAFA_MAP_COUNT; ++i) {
+    /* Ten entries (v1.8) no longer fit the 8-row list (design 10): render
+     * an 8-row window anchored so the cursor row always stays visible. */
+    int first = 0;
+    if (s_app.cur_maps > 7) first = (int)s_app.cur_maps - 7;
+    for (int i = first; i < MAFA_MAP_COUNT; ++i) {
         bool unlocked = i == MAFA_MAP_SAFE || i <= s_app.player.unlocked;
         char row[56];
         /* Design 10: locked rows are dim. */
@@ -907,8 +913,8 @@ static void refresh_maps(void) {
             snprintf(row, sizeof row, "#9AA3A8 %s%d.%s 锁定#",
                      s_app.cur_maps == i ? "＞" : "　", i, MAFA_MAP_NAMES[i]);
         strncat(buf, row, sizeof buf - strlen(buf) - 1);
-        if (i < MAFA_MAP_COUNT - 1)
-            strncat(buf, "\n", sizeof buf - strlen(buf) - 1);
+        bool last_shown = i == MAFA_MAP_COUNT - 1 || i == first + 7;
+        if (!last_shown) strncat(buf, "\n", sizeof buf - strlen(buf) - 1);
     }
     lv_label_set_text(s_app.view.items_label, buf);
     char det[96];

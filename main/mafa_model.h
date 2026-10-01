@@ -1,7 +1,6 @@
 // main/mafa_model.h — MAFA CHRONICLE pure game model (PRD_MAFA_CHRONICLE,
-// v1.5 stats 2.0: 攻击/魔法/道术 lines, class-affine gear, warrior mana,
-// potion drops; save v7). No LVGL / ESP-IDF headers: this layer builds
-// and tests on the host.
+// v1.8 endgame: 封魔谷/苍月岛 above 赤月峡谷, level cap 45; save v9). No
+// LVGL / ESP-IDF headers: this layer builds and tests on the host.
 // Combat is automatic: the model runs one round per call and reports what
 // happened through a bounded event list; the view renders log lines from it.
 // Battles pit the player against 1-3 monsters (bosses stay 1v1); the taoist
@@ -12,8 +11,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define MAFA_MAX_LEVEL 40
-#define MAFA_MAP_COUNT 8         /* 0 = safe zone (town), 1-7 combat maps */
+#define MAFA_MAX_LEVEL 45
+#define MAFA_MAP_COUNT 10        /* 0 = safe zone (town), 1-9 combat maps */
 #define MAFA_MAP_SAFE 0          /* always open, no monsters, no boss */
 #define MAFA_BACKPACK 8
 /* 1.76 paper doll minus candle and amulet: 8 positions over 6 slot types
@@ -28,9 +27,12 @@
 #define MAFA_GOLD_CAP 99999999u
 #define MAFA_INV_EMPTY 0xFF
 #define MAFA_DROP_NONE 0xFF
-#define MAFA_SAVE_VERSION 8
-/* v8 (v1.6 UX round) widens gold to 4 bytes: v7 saves load unchanged (the
- * 2-byte gold is read straight into the wider field, nothing else moves). */
+#define MAFA_SAVE_VERSION 9
+/* v9 (v1.8 endgame) grows the world to 9 combat maps: the map/unlock fields
+ * widen to 4 bits each (one byte), the auto-potion/auto-boss flags move to
+ * a second flags byte, and the floor array grows to 9 bytes. v1-v8 saves
+ * load and migrate; v8 only re-packs the flags and appends the two new
+ * maps' floor bytes. */
 /* v1.5 stats 2.0: ~15 % of kills also drop a potion (金创药/魔法药). */
 #define MAFA_POTION_DROP_PCT 15
 /* Potion stacks are single uint8 save bytes, so 255 is the natural ceiling
@@ -142,7 +144,7 @@ typedef enum {
 
 typedef struct {
     const char *name;
-    uint8_t map;     /* home map id 1..7 (0 never spawns) */
+    uint8_t map;     /* home map id 1..9 (0 never spawns) */
     uint8_t floor;   /* 1-based floor inside the map; a boss row guards its
                         floor, trash rows spawn on their floor and every
                         deeper one (PRD 8.7, v1.3) */
@@ -366,6 +368,9 @@ void mafa_switch_map(mafa_player_t *p, uint8_t map, uint8_t floor);
  * books re-grant by the NEW unlock levels, carried xp clamps to the new
  * curve, and the old 3-slot equipment is replaced by a band-appropriate
  * starter kit (the item table changed wholesale). v7 reads as v8 with
- * nothing to migrate: the payload only widens gold to 4 bytes. */
+ * nothing to migrate: the payload only widens gold to 4 bytes. v8 reads as
+ * v9 with a pure re-pack: the flags byte splits (map/unlocked 3→4 bits,
+ * the toggles move to their own byte) and the 封魔谷/苍月岛 floor bytes
+ * append — both maps open through 赤月恶魔's next fall, nothing is lost. */
 size_t mafa_save_serialize(const mafa_player_t *p, uint8_t *buf, size_t cap);
 bool mafa_save_deserialize(mafa_player_t *p, const uint8_t *buf, size_t len);

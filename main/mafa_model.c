@@ -1,11 +1,9 @@
 // main/mafa_model.c — MAFA CHRONICLE pure game model. Host-testable;
 // no LVGL/ESP-IDF. All rolls draw from one splitmix32 stream (PRD 8.1 rule
 // carried over from FOG MARCH: a single source of randomness).
-// v1.5 stats 2.0 (2026-09-30): the original's 攻击/魔法/道术 lines — each
-// class's skills scale its own stat (warrior 攻 / mage 魔 / taoist 道),
-// gear carries class-affine stat lines (圣战=攻 法神=魔 天尊=道), warriors
-// gain a small mana pool (烈火/半月/野蛮 cost MP), taoist pet/poison/heal
-// scale with 道术, trash also drops potions, and save v7 migrates v6 ids.
+// v1.8 endgame (2026-10-01): 封魔谷 (1.70) and 苍月岛 (1.75) above 赤月,
+// level cap 45, save v9 (map/unlocked 4 bits + second flags byte); the new
+// maps' gear drops draw from the map-7 pool (item ids stay one byte wide).
 #include "mafa_model.h"
 
 #include <string.h>
@@ -342,11 +340,11 @@ const mafa_skill_t MAFA_SKILLS[MAFA_CLS_COUNT][MAFA_SKILLS_PER_CLASS] = {
     },
 };
 
-/* Floor ladder (PRD 8.7, 1.76 plan): 比奇 3 (floor 1 = the chicken/deer
- * newbie pen) / 兽人古墓 3 / 石墓 4 / 沃玛 3 / 死亡山谷 4 / 祖玛 7 / 赤月 3
- * — one boss checkpoint per floor, the next map opens through the last
- * floor's boss. */
-const uint8_t MAFA_MAP_FLOORS[MAFA_MAP_COUNT] = {0, 3, 3, 4, 3, 4, 7, 3};
+/* Floor ladder (PRD 8.7, 1.76 plan + v1.8 endgame): 比奇 3 (floor 1 = the
+ * chicken/deer newbie pen) / 兽人古墓 3 / 石墓 4 / 沃玛 3 / 死亡山谷 4 /
+ * 祖玛 7 / 赤月 3 / 封魔谷 4 / 苍月岛 5 — one boss checkpoint per floor,
+ * the next map opens through the last floor's boss. */
+const uint8_t MAFA_MAP_FLOORS[MAFA_MAP_COUNT] = {0, 3, 3, 4, 3, 4, 7, 3, 4, 5};
 
 /* Names verified against the original's mob lists (2026-09-29/30 research:
  * 比奇省 trash incl. 半兽人/钉耙猫 — 17173 白金典藏练级攻略; 半兽勇士/半兽
@@ -423,12 +421,53 @@ const mafa_monster_t MAFA_MONSTERS[] = {
     {"天狼蜘蛛", 7, 1, 39, 1750, 116, 32, 9000, MAFA_MSK_FLURRY,  true},
     {"双头金刚", 7, 2, 40, 1900, 108, 34, 10000, MAFA_MSK_HEAVY,  true},
     {"赤月恶魔", 7, 3, 40, 2200, 115, 36, 14000, MAFA_MSK_HELLFIRE, true},
+    /* -- map 8 封魔谷, 4 floors (v1.8 endgame) ---------------------------
+     * Names verified 2026-10-01: 封魔殿 spawns the 祖玛 line plus 虹魔教主/
+     * 虹魔蝎卫/虹魔猪卫/邪恶毒蛇, and its deep halls recycle the 石墓 line
+     * (白野猪/蝎蛇/黑色恶蛆… — 百度知道刷怪点 + 知乎封魔谷整理); 虹魔蝎卫
+     * is the official 邪恶蝎蛇头领 (腾讯 mir.qq.com 怪物库). The dungeon
+     * route (矿区→烈焰殿→霸者大厅→封魔殿) becomes the floor ladder; the
+     * 虹魔 pair and 邪恶毒蛇 take corridor-boss seats (own-attribute
+     * mapping, same class as the 尸王 precedent). */
+    {"白野猪",   8, 1, 41,  560,  68, 33,  7600, MAFA_MSK_HEAVY,   false},
+    {"黑野猪",   8, 1, 41,  585,  69, 34,  7900, MAFA_MSK_HEAVY,   false},
+    {"虹魔猪卫", 8, 1, 41, 2350, 100, 36, 15500, MAFA_MSK_HEAVY,   true},
+    {"蝎蛇",     8, 2, 42,  600,  71, 35,  8200, MAFA_MSK_STING,   false},
+    {"楔蛾",     8, 2, 42,  575,  73, 33,  8500, MAFA_MSK_FIRE,    false},
+    {"虹魔蝎卫", 8, 2, 42, 2450, 104, 38, 16500, MAFA_MSK_STING,   true},
+    {"祖玛卫士", 8, 3, 43,  640,  71, 37,  8800, MAFA_MSK_HEAVY,   false},
+    {"祖玛弓箭手",8, 3, 43, 620,  73, 35,  9000, MAFA_MSK_STING,   false},
+    {"邪恶毒蛇", 8, 3, 43, 2550, 108, 40, 17500, MAFA_MSK_FIRE,    true},
+    {"祖玛雕像", 8, 4, 44,  620,  72, 39,  9200, MAFA_MSK_HEAVY,   false},
+    {"虹魔教主", 8, 4, 44, 2800, 112, 42, 19500, MAFA_MSK_HELLFIRE, true},
+    /* -- map 9 苍月岛, 5 floors (v1.8 endgame) ---------------------------
+     * Names verified 2026-10-01: 牛魔寺庙 fields 牛魔战士/牛头魔/牛魔祭司/
+     * 牛魔斗士 under 牛魔王 (七层牛魔大厅 — 攻略站一致口径); 尸魔洞 has
+     * exactly 恶灵僵尸+恶灵尸王 (腾讯 mir.qq.com: the 尸王 leads the
+     * zombies 黄泉教主 summoned) and is the classic idle floor; 骨魔洞's
+     * lord is 黄泉教主 (its trash has no reliable 1.76 roster, so that
+     * floor carries only its gatekeeper — the walk-through pool supplies
+     * the mobs; own-attribute mapping as above). 苍月岛 as a region map
+     * tours the three dungeons: 牛魔寺庙 F1-2 → 尸魔洞 F3 → 骨魔洞 F4 →
+     * 牛魔大厅 F5 (牛魔王, the wall). */
+    {"牛魔战士", 9, 1, 44,  620,  72, 40,  9800, MAFA_MSK_HEAVY,   false},
+    {"牛头魔",   9, 1, 44,  640,  74, 41, 10000, MAFA_MSK_FLURRY,  false},
+    {"牛头魔",   9, 1, 44, 2200, 102, 43, 18500, MAFA_MSK_HEAVY,  true},
+    {"牛魔祭司", 9, 2, 44,  620,  73, 40, 10400, MAFA_MSK_FIRE,    false},
+    {"牛魔战士", 9, 2, 44,  650,  74, 42, 10600, MAFA_MSK_HEAVY,   false},
+    {"牛魔祭司", 9, 2, 44, 2250, 104, 44, 19500, MAFA_MSK_FIRE,    true},
+    {"恶灵僵尸", 9, 3, 44,  660,  76, 42, 10800, MAFA_MSK_NONE,    false},
+    {"恶灵尸王", 9, 3, 44, 2300, 104, 45, 20500, MAFA_MSK_ROAR,    true},
+    {"牛魔斗士", 9, 4, 45,  680,  78, 44, 11500, MAFA_MSK_HEAVY,   false},
+    {"黄泉教主", 9, 4, 45, 2400, 106, 46, 21500, MAFA_MSK_HELLFIRE, true},
+    {"牛魔王",   9, 5, 45, 2650, 118, 48, 30000, MAFA_MSK_HELLFIRE, true},
 };
 const int MAFA_MONSTER_COUNT = (int)(sizeof MAFA_MONSTERS / sizeof MAFA_MONSTERS[0]);
 
 const char *const MAFA_MAP_NAMES[MAFA_MAP_COUNT] = {
     "安全区", "比奇省", "兽人古墓", "石墓",
     "沃玛寺庙", "死亡山谷", "祖玛寺庙", "赤月峡谷",
+    "封魔谷", "苍月岛",
 };
 
 const mafa_monster_t *mafa_map_boss(uint8_t map, uint8_t floor) {
@@ -441,10 +480,13 @@ const mafa_monster_t *mafa_map_boss(uint8_t map, uint8_t floor) {
 
 static const uint32_t MAFA_SELL_PRICE[MAFA_Q_COUNT] = {10, 30, 80, 200, 500};
 
-/* Front-fast, back-wall curve (1.76 plan): the early game keeps the
- * original's quick newbie pace (L1-7 near-linear), costs compound ~×1.3
- * through the mid-game, and the 39→40 wall alone is ~46 % of total
- * time-to-max (12,000,000 of ~26,300,000 XP) — the famous 经验墙. */
+/* Front-fast, back-wall curve (1.76 plan + v1.8 endgame): the early game
+ * keeps the original's quick newbie pace (L1-7 near-linear), costs compound
+ * ~×1.3 through the mid-game, and the 39→40 wall alone is ~46 % of total
+ * time-to-40 (12,000,000 of ~26,300,000 XP) — the famous 经验墙. The
+ * post-40 tail (v1.8) keeps the wall's size for 40→41 and compounds ~×1.3
+ * per level after: reaching 45 costs ~4× the entire 1-40 journey, the
+ * 原版 endgame feel where every level past the wall outweighs all before. */
 static const uint32_t MAFA_XP_NEXT[MAFA_MAX_LEVEL - 1] = {
     100, 180, 320, 520, 800, 1200, 1800,
     2700, 3900, 5500, 7800, 10800, 15000, 20000, 27000, 35000, 45000,
@@ -453,6 +495,7 @@ static const uint32_t MAFA_XP_NEXT[MAFA_MAX_LEVEL - 1] = {
     520000, 610000,
     730000, 860000, 1010000, 1180000, 1380000, 1600000, 1850000, 2130000,
     12000000,
+    12000000, 15500000, 20000000, 26000000, 34000000,
 };
 
 /* Store books (skills 1-3 per class, three price steps); books 4-6 drop. */
@@ -923,7 +966,11 @@ static void roll_book_drop(mafa_player_t *p, bool boss, bool elite,
  * non-gold tier so 屠龙 stays a chase. Maps 5-7 carry gold rows; trash on
  * those maps caps at tier 2. Class-line rows (weapon triads, the 沃玛/
  * 祖玛/赤月 jewelry triads): the player's own line wins ~60 % of rolls so
- * farming your class's gear stays the norm, off-line pieces still drop. */
+ * farming your class's gear stays the norm, off-line pieces still drop.
+ * The endgame maps (v1.8 封魔谷/苍月岛) have no item rows of their own —
+ * item ids are bytes and the 252-row table is nearly full — so their
+ * drops draw from the map-7 (赤月) pool: the top-tier chase continues
+ * above 赤月 without growing the table. */
 static void roll_gear_drop(mafa_player_t *p, const mafa_battle_t *b,
                            const mafa_mob_t *m, mafa_events_t *ev) {
     uint32_t drop_roll = rng_next(p) % 100;
@@ -938,10 +985,11 @@ static void roll_gear_drop(mafa_player_t *p, const mafa_battle_t *b,
             else tier = m->base->map >= 5 ? 2 : 3;    /* trash never drops gold */
         }
     uint8_t stype = (uint8_t)(rng_next(p) % MAFA_SLOT_TYPES);
+    uint8_t home = m->base->map <= 7 ? m->base->map : 7;
     uint8_t matches[3];
     int nm = 0;
     for (int i = 0; i < MAFA_ITEM_COUNT && nm < 3; ++i)
-        if (MAFA_ITEMS[i].map == m->base->map && MAFA_ITEMS[i].tier == tier
+        if (MAFA_ITEMS[i].map == home && MAFA_ITEMS[i].tier == tier
             && MAFA_ITEMS[i].slot == stype)
             matches[nm++] = (uint8_t)i;
     if (nm == 0) return;
@@ -1558,6 +1606,12 @@ static uint8_t crc8(const uint8_t *d, size_t n) {
     return c;
 }
 
+/* v9 payload (v1.8 endgame): v8 body + 1 byte + 2 bytes = 62. The flags
+ * byte splits: map and unlocked widen to 4 bits each (9 combat maps no
+ * longer fit 3), and auto_potion/auto_boss move to a second flags byte;
+ * the floor array grows from 7 to 9 entries (封魔谷/苍月岛). v8 saves
+ * re-pack the old 3/3/2 flags byte and default the two new ladders. */
+#define MAFA_SAVE_BODY_V9 62
 /* v8 payload (v1.6 UX round): v7 layout with gold widened to 2→4 bytes
  * (59 bytes) — the k/M caps need the range. v7 saves read through the
  * 2-byte gold branch below and need no other migration. */
@@ -1582,7 +1636,7 @@ static uint8_t crc8(const uint8_t *d, size_t n) {
 #define MAFA_SAVE_BODY_V1 36
 
 size_t mafa_save_serialize(const mafa_player_t *p, uint8_t *buf, size_t cap) {
-    const size_t total = 4 + MAFA_SAVE_BODY_V8 + 1;
+    const size_t total = 4 + MAFA_SAVE_BODY_V9 + 1;
     if (cap < total) return 0;
     buf[0] = 'M'; buf[1] = 'F'; buf[2] = 'C'; buf[3] = MAFA_SAVE_VERSION;
     uint8_t *w = buf + 4;
@@ -1598,9 +1652,10 @@ size_t mafa_save_serialize(const mafa_player_t *p, uint8_t *buf, size_t cap) {
     *w++ = (uint8_t)((p->books >> 16) & 0xFF); *w++ = (uint8_t)(p->books >> 24);
     *w++ = p->pot_red; *w++ = p->pot_blue;
     *w++ = p->kills & 0xFF; *w++ = p->kills >> 8;
-    *w++ = (uint8_t)(p->map | (p->unlocked << 3)
-                     | (p->auto_potion ? 0x40 : 0)
-                     | (p->auto_boss ? 0x80 : 0));
+    /* v9 flags: map/unlocked at 4 bits each; the toggles moved to their
+     * own byte (bit 0 potion, bit 1 boss) with six bits in reserve. */
+    *w++ = (uint8_t)((p->map & 0x0F) | ((p->unlocked & 0x0F) << 4));
+    *w++ = (uint8_t)((p->auto_potion ? 0x01 : 0) | (p->auto_boss ? 0x02 : 0));
     *w++ = p->pending_drop;
     for (int i = 0; i < MAFA_EQ_SLOTS; ++i) *w++ = p->equipped[i];
     for (int i = 0; i < MAFA_BACKPACK; ++i) { *w++ = p->inv_id[i]; *w++ = p->inv_n[i]; }
@@ -1610,7 +1665,7 @@ size_t mafa_save_serialize(const mafa_player_t *p, uint8_t *buf, size_t cap) {
     *w++ = p->auto_sell & 0x0F;
     for (int i = 0; i < MAFA_MAP_COUNT - 1; ++i) *w++ = p->floor_unlocked[i];
     size_t body = (size_t)(w - (buf + 4));
-    if (body != MAFA_SAVE_BODY_V8) return 0;
+    if (body != MAFA_SAVE_BODY_V9) return 0;
     buf[4 + body] = crc8(buf + 4, body);
     return total;
 }
@@ -1689,7 +1744,13 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
     t->pot_red = *r++; t->pot_blue = *r++;
     t->kills = (uint16_t)(r[0] | (r[1] << 8)); r += 2;
     uint8_t flags = *r++;
-    if (body >= MAFA_SAVE_BODY_V6) {
+    uint8_t flags2 = 0;
+    if (body >= MAFA_SAVE_BODY_V9) flags2 = *r++;
+    if (body >= MAFA_SAVE_BODY_V9) {
+        t->map = flags & 0x0F;
+        t->unlocked = (flags >> 4) & 0x0F;
+        if (t->unlocked >= MAFA_MAP_COUNT) return false;
+    } else if (body >= MAFA_SAVE_BODY_V6) {
         t->map = flags & 7;
         t->unlocked = (flags >> 3) & 7;
     } else {
@@ -1709,8 +1770,10 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
         t->unlocked = (uint8_t)(t->unlocked + 1);
     }
     if (body >= MAFA_SAVE_BODY_V6) {
-        t->auto_potion = (flags & 0x40) != 0;
-        t->auto_boss = (flags & 0x80) != 0;
+        t->auto_potion = body >= MAFA_SAVE_BODY_V9 ? (flags2 & 0x01) != 0
+                                                   : (flags & 0x40) != 0;
+        t->auto_boss = body >= MAFA_SAVE_BODY_V9 ? (flags2 & 0x02) != 0
+                                                 : (flags & 0x80) != 0;
     } else {
         t->auto_potion = (flags & 0x10) != 0;
         t->auto_boss = (flags & 0x40) != 0;
@@ -1763,10 +1826,19 @@ static bool load_payload(mafa_player_t *t, const uint8_t *r, size_t body,
         t->auto_sell = (uint8_t)(*r++ & 0x0F);
     }
     if (body >= MAFA_SAVE_BODY_V6) {
+        /* v1-v8 bodies carry seven floor bytes (v5: three, clamped below);
+         * v9 grew the array with the two endgame maps — the rest default
+         * to their first floor. */
+        int nfloors = body >= MAFA_SAVE_BODY_V9 ? MAFA_MAP_COUNT - 1 : 7;
         for (int i = 0; i < MAFA_MAP_COUNT - 1; ++i) {
-            t->floor_unlocked[i] = *r++;
-            if (t->floor_unlocked[i] < 1
-                || t->floor_unlocked[i] > MAFA_MAP_FLOORS[i + 1]) return false;
+            if (i < nfloors) {
+                t->floor_unlocked[i] = *r++;
+                if (t->floor_unlocked[i] < 1
+                    || t->floor_unlocked[i] > MAFA_MAP_FLOORS[i + 1])
+                    return false;
+            } else {
+                t->floor_unlocked[i] = 1;
+            }
         }
         /* A deeper map opens only through the previous map's last floor. */
         for (int i = 1; i < MAFA_MAP_COUNT - 1; ++i)
@@ -1792,7 +1864,8 @@ bool mafa_save_deserialize(mafa_player_t *p, const uint8_t *buf, size_t len) {
     if (len < 4 + MAFA_SAVE_BODY_V1 + 1) return false;
     if (buf[0] != 'M' || buf[1] != 'F' || buf[2] != 'C') return false;
     size_t body;
-    if (buf[3] == MAFA_SAVE_VERSION) body = MAFA_SAVE_BODY_V8;
+    if (buf[3] == MAFA_SAVE_VERSION) body = MAFA_SAVE_BODY_V9;
+    else if (buf[3] == 8) body = MAFA_SAVE_BODY_V8;
     else if (buf[3] == 7) body = MAFA_SAVE_BODY_V7;
     else if (buf[3] == 6) body = MAFA_SAVE_BODY_V6;
     else if (buf[3] == 5) body = MAFA_SAVE_BODY_V5;

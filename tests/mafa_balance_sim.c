@@ -125,6 +125,10 @@ static void arrival_kit(uint8_t map, uint8_t floor, uint8_t *item_map,
         {4, 5, 5, 5, 0, 0, 0},   /* 死亡山谷: 沃玛 entry, then own */
         {5, 6, 6, 6, 6, 6, 6},   /* 祖玛: 山谷 entry, then own */
         {6, 7, 7, 0, 0, 0, 0},   /* 赤月: 祖玛 entry, then own */
+        {7, 7, 7, 7, 0, 0, 0},   /* 封魔谷: 赤月 entry, then the 赤月 pool —
+                                     the endgame maps carry no item rows
+                                     (byte ids), drops fall back to map 7 */
+        {7, 7, 7, 7, 7, 0, 0},   /* 苍月岛: the graduation kit throughout */
     };
     static const uint8_t kt[MAFA_MAP_COUNT][MAX_FLOORS] = {
         {0, 0, 0, 0, 0, 0, 0},
@@ -135,6 +139,9 @@ static void arrival_kit(uint8_t map, uint8_t floor, uint8_t *item_map,
         {2, 1, 2, 2, 0, 0, 0},
         {2, 1, 1, 1, 2, 2, 2},
         {2, 1, 2, 0, 0, 0, 0},
+        {3, 3, 3, 3, 0, 0, 0},   /* gold throughout: beating 赤月恶魔 is a
+                                    gold-set feat, the arrival state */
+        {3, 3, 3, 3, 3, 0, 0},   /* gold throughout */
     };
     *item_map = km[map][floor - 1];
     *tier = kt[map][floor - 1];
@@ -148,7 +155,7 @@ static double boss_win_rate(mafa_player_t *p, uint8_t level, uint8_t map,
         mafa_player_t t;
         mafa_player_init(&t, p->cls, (uint32_t)(91000 + i * 17));
         t.level = level;
-        t.unlocked = 7;
+        t.unlocked = MAFA_MAP_COUNT - 1;
         t.map = map;
         t.floor = floor;
         t.pot_red = 8;                  /* honest mid-progression stock */
@@ -199,7 +206,7 @@ int main(int argc, char **argv) {
             mafa_player_init(&p, (uint8_t)cls,
                              (uint32_t)(4000 + map * 100 + floor * 10 + cls));
             p.level = (uint8_t)suggested;
-            p.unlocked = 7;
+            p.unlocked = MAFA_MAP_COUNT - 1;
             p.map = (uint8_t)map;
             p.floor = (uint8_t)floor;
             p.pot_red = 30;
@@ -250,7 +257,7 @@ int main(int argc, char **argv) {
             mafa_player_init(&q, (uint8_t)cls,
                              (uint32_t)(7000 + map * 100 + floor * 10 + cls));
             q.level = suggested >= 3 ? (uint8_t)(suggested - 2) : 1;
-            q.unlocked = 7;
+            q.unlocked = MAFA_MAP_COUNT - 1;
             q.map = (uint8_t)map;
             q.floor = (uint8_t)floor;
             q.pot_red = 8;

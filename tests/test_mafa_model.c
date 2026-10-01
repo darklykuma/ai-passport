@@ -66,17 +66,28 @@ static void test_xp_curve_front_fast_back_wall(void) {
     assert(mafa_xp_to_next(2) == 180);
     assert(mafa_xp_to_next(8) == 2700);
     assert(mafa_xp_to_next(38) == 2130000);
+    assert(mafa_xp_to_next(39) == 12000000);
+    /* v1.8: the post-wall tail starts wall-sized and compounds to 34M. */
+    assert(mafa_xp_to_next(40) == 12000000);
+    assert(mafa_xp_to_next(44) == 34000000);
     assert(mafa_xp_to_next(MAFA_MAX_LEVEL) == 0);
-    /* The 39→40 wall is ~46 % of the total grind (rebalance target). */
+    /* The 39→40 wall is ~46 % of the 1-40 grind (rebalance target). */
     uint32_t total = 0;
-    for (int lv = 1; lv < MAFA_MAX_LEVEL; ++lv) total += mafa_xp_to_next((uint8_t)lv);
+    for (int lv = 1; lv <= 39; ++lv) total += mafa_xp_to_next((uint8_t)lv);
     uint32_t wall = mafa_xp_to_next(39);
     uint32_t early = mafa_xp_to_next(1) + mafa_xp_to_next(2) + mafa_xp_to_next(3);
     assert(wall * 100 / total >= 40 && wall * 100 / total <= 50);
     /* Early game stays fast: the first three levels are under 6 % together. */
     assert(early * 100 / total < 6);
-    printf("xp curve: total %lu, wall share %lu%%, early share %lu%%\n",
-           (unsigned long)total, (unsigned long)(wall * 100 / total),
+    /* The 40-45 tail is the long chase: over 3x the entire 1-40 journey,
+     * the 原版 endgame feel where every level outweighs all before it. */
+    uint32_t tail = 0;
+    for (int lv = 40; lv < MAFA_MAX_LEVEL; ++lv)
+        tail += mafa_xp_to_next((uint8_t)lv);
+    assert(tail > total * 3);
+    printf("xp curve: to40 %lu, tail %lu (%lux), wall share %lu%%, early %lu%%\n",
+           (unsigned long)total, (unsigned long)tail,
+           (unsigned long)(tail / total), (unsigned long)(wall * 100 / total),
            (unsigned long)(early * 100 / total));
 }
 
@@ -332,7 +343,7 @@ static void test_book_drop_gate_and_odds(void) {
     mafa_player_init(&p, MAFA_CLS_WARRIOR, 4242);
     p.level = MAFA_MAX_LEVEL;
     grant_books(&p, 3);
-    p.unlocked = 7;
+    p.unlocked = MAFA_MAP_COUNT - 1;
     p.map = 1;
     p.floor = 1;
     p.auto_sell = 0;
@@ -848,8 +859,8 @@ static void test_save_roundtrip_v6(void) {
 
     uint8_t buf[80];
     size_t n = mafa_save_serialize(&p, buf, sizeof buf);
-    assert(n == 4 + MAFA_SAVE_BODY_V8 + 1);
-    assert(buf[3] == MAFA_SAVE_VERSION && buf[3] == 8);
+    assert(n == 4 + MAFA_SAVE_BODY_V9 + 1);
+    assert(buf[3] == MAFA_SAVE_VERSION && buf[3] == 9);
 
     mafa_player_t q;
     mafa_player_init(&q, MAFA_CLS_WARRIOR, 1);
@@ -894,11 +905,139 @@ static void test_save_roundtrip_v6(void) {
     assert(!mafa_save_deserialize(&q, buf, n));
 }
 
+static void test_v8_save_migration_to_v9(void) {
+    /* v8 → v9 is a pure re-pack: the flags byte splits (map/unlocked 3→4
+     * bits, toggles to their own byte) and the two new floor bytes append.
+     * The v8 blob is spliced from a v9 serialization: the old-layout flags
+     * byte replaces the flag pair and the tail shifts down one byte. */
+    mafa_player_t p;
+    mafa_player_init(&p, MAFA_CLS_TAOIST, 77);
+    p.level = 40;
+    p.xp = 123456;
+    p.gold = 45678;
+    p.pot_red = 3;
+    p.pot_blue = 4;
+    /* A consistent v8 endgame save: unlocked tops at 7 (the old 3-bit
+     * field) and every cleared map sits at full depth — the deep-map rule
+     * the loader re-validates. */
+    p.unlocked = 7;
+    p.map = MAFA_MAP_SAFE;
+    p.floor = 0;
+    for (int i = 0; i < 7; ++i) p.floor_unlocked[i] = MAFA_MAP_FLOORS[i + 1];
+    p.auto_potion = false;
+    p.auto_boss = true;
+    uint8_t v9[80];
+    size_t n9 = mafa_save_serialize(&p, v9, sizeof v9);
+    assert(n9 == 4 + MAFA_SAVE_BODY_V9 + 1);
+
+    uint8_t v8[80];
+    memcpy(v8, v9, 4 + 22);             /* magic + body through kills */
+    v8[4 + 22] = (uint8_t)(0 | (7 << 3) | 0x80);   /* map 0, unlocked 7, boss */
+    memcpy(v8 + 4 + 23, v9 + 4 + 24, 30);   /* drop .. auto_sell + floor[0] */
+    memcpy(v8 + 4 + 53, v9 + 4 + 54, 6);    /* floors[1-6] */
+    v8[3] = 8;
+    v8[4 + MAFA_SAVE_BODY_V8] = crc8(v8 + 4, MAFA_SAVE_BODY_V8);
+
+    mafa_player_t q;
+    mafa_player_init(&q, MAFA_CLS_WARRIOR, 1);
+    assert(mafa_save_deserialize(&q, v8, 4 + MAFA_SAVE_BODY_V8 + 1));
+    assert(q.level == 40 && q.xp == 123456 && q.gold == 45678);
+    assert(q.pot_red == 3 && q.pot_blue == 4);
+    assert(q.map == MAFA_MAP_SAFE && q.unlocked == 7
+           && q.floor_unlocked[0] == MAFA_MAP_FLOORS[1]);
+    assert(q.auto_potion == false && q.auto_boss == true);
+    /* The old ladders keep their depth; the two endgame ladders default
+     * to floor 1, still locked. */
+    assert(q.floor_unlocked[6] == MAFA_MAP_FLOORS[7]
+           && q.floor_unlocked[7] == 1 && q.floor_unlocked[8] == 1);
+    /* A forged unlocked beyond the map list is rejected. */
+    assert(mafa_save_serialize(&p, v9, sizeof v9));
+    v9[4 + 22] = (uint8_t)((v9[4 + 22] & 0x0F) | (10 << 4));
+    v9[4 + MAFA_SAVE_BODY_V9] = crc8(v9 + 4, MAFA_SAVE_BODY_V9);
+    assert(!mafa_save_deserialize(&q, v9, n9));
+}
+
+static void test_endgame_maps_unlock_and_drop_fallback(void) {
+    /* v1.8: 赤月恶魔's fall opens 封魔谷, 虹魔教主 opens 苍月岛, and 牛魔王
+     * is the last wall — no map 10. Endgame trash drops draw from the
+     * map-7 pool: item ids are bytes and the 252-row table is nearly full. */
+    assert(mafa_map_boss(8, 1) != NULL && mafa_map_boss(8, 4) != NULL);
+    assert(mafa_map_boss(9, 1) != NULL && mafa_map_boss(9, 5) != NULL);
+    assert(mafa_map_boss(9, 6) == NULL);
+    mafa_player_t p;
+    mafa_player_init(&p, MAFA_CLS_WARRIOR, 4711);
+    p.level = MAFA_MAX_LEVEL;
+    grant_books(&p, MAFA_SKILLS_PER_CLASS - 1);
+    p.unlocked = 7;
+    mafa_events_t ev;
+
+    const uint8_t walls[3] = {7, 8, 9};  /* each wall opens the next map */
+    for (int step = 0; step < 3; ++step) {
+        uint8_t map = walls[step];
+        uint8_t want_map = (uint8_t)(map + 1);
+        p.map = map;
+        p.floor = MAFA_MAP_FLOORS[map];
+        p.hp = 32000;
+        p.pot_red = 60;
+        p.pot_blue = 60;
+        p.kills = MAFA_KILLS_PER_BOSS;
+        mafa_battle_t b;
+        assert(mafa_boss_start(&p, &b));
+        int guard = 0;
+        bool saw_unlock = false;
+        while (!b.over && guard++ < 100000) {
+            mafa_battle_round(&p, &b, &ev);
+            for (int k = 0; k < ev.n; ++k)
+                if (ev.e[k].kind == MAFA_EV_MAP_UNLOCK)
+                    saw_unlock = ev.e[k].id == want_map;
+            if (p.pending_drop != MAFA_DROP_NONE) mafa_drop_discard(&p);
+        }
+        assert(b.over && !b.player_dead && guard < 100000);
+        if (step < 2) {
+            assert(p.unlocked == want_map && saw_unlock);
+            assert(p.floor_unlocked[map] == 1);   /* fresh ladder opens at 1 */
+        } else {
+            assert(p.unlocked == 9 && !saw_unlock);  /* 苍月岛 is the end */
+        }
+    }
+
+    /* Trash on 封魔谷/苍月岛 loots the 赤月 pool: every gear drop comes
+     * from a map-7 row. */
+    int drops = 0;
+    for (int i = 0; i < 300 && drops < 5; ++i) {
+        mafa_player_t q;
+        mafa_player_init(&q, MAFA_CLS_MAGE, (uint32_t)(8800 + i));
+        q.level = 45;
+        grant_books(&q, MAFA_SKILLS_PER_CLASS - 1);
+        q.auto_sell = 0;                 /* nothing sells: every drop lands */
+        q.pot_red = 60;
+        q.unlocked = 9;
+        q.map = 8;
+        q.floor = 2;
+        q.hp = 32000;                    /* the drop path is the point, not
+                                            the wall balance */
+        mafa_battle_t b;
+        if (!mafa_battle_start(&q, &b)) continue;
+        int guard = 0;
+        while (!b.over && guard++ < 1000) {
+            mafa_battle_round(&q, &b, &ev);
+            for (int k = 0; k < ev.n; ++k)
+                if (ev.e[k].kind == MAFA_EV_DROP) {
+                    assert(MAFA_ITEMS[ev.e[k].id].map == 7);
+                    drops++;
+                }
+            if (q.pending_drop != MAFA_DROP_NONE) mafa_drop_discard(&q);
+        }
+    }
+    assert(drops >= 5);                  /* the fallback pool is live */
+}
+
 static void test_v7_save_migration_to_v8(void) {
-    /* v7 → v8: the payload only widens gold, so a v7 save must load with
-     * gold, layout and settings intact and need no other migration. The
-     * v7 blob is spliced from a v8 serialization: the 2-byte gold field
-     * replaces the 4-byte one and the tail shifts down two bytes. */
+    /* v7 → v8 (then on into v9): the payload only widens gold, so a v7
+     * save must load with gold, layout and settings intact and need no
+     * other migration. The v7 blob is spliced from a v8 serialization: the
+     * 2-byte gold field replaces the 4-byte one and the tail shifts down
+     * two bytes. */
     mafa_player_t p;
     mafa_player_init(&p, MAFA_CLS_TAOIST, 77);
     p.level = 18;
@@ -913,15 +1052,21 @@ static void test_v7_save_migration_to_v8(void) {
     p.pot_hp_pct = 70;
     p.pot_mp_pct = 40;
     p.auto_sell = 0x05;
-    uint8_t v8[80];
-    size_t n8 = mafa_save_serialize(&p, v8, sizeof v8);
-    assert(n8 == 4 + MAFA_SAVE_BODY_V8 + 1);
+    uint8_t v9[80];
+    size_t n9 = mafa_save_serialize(&p, v9, sizeof v9);
+    assert(n9 == 4 + MAFA_SAVE_BODY_V9 + 1);
 
+    /* v7 body (57) from the v9 body (62): gold 4→2 bytes, the flag pair
+     * collapses into one old-layout byte, floors 9→7. */
     uint8_t v7[80];
-    memcpy(v7, v8, 12);                 /* magic + cls/level/xp */
-    v7[10] = v8[10];                    /* gold kept low 16 bits */
-    v7[11] = v8[11];
-    memcpy(v7 + 12, v8 + 14, n8 - 14 - 1);  /* hp onward, sans CRC */
+    memcpy(v7, v9, 10);                 /* magic + cls/level/xp */
+    v7[10] = v9[10];                    /* gold kept low 16 bits */
+    v7[11] = v9[11];
+    memcpy(v7 + 12, v9 + 14, 12);       /* hp .. kills */
+    v7[4 + 20] = (uint8_t)(0 | (1 << 3) | 0x40);   /* map 0, unlocked 1, pot */
+    memcpy(v7 + 4 + 21, v9 + 4 + 24, 28);          /* drop .. mp_pct */
+    v7[4 + 49] = v9[4 + 52];            /* auto_sell */
+    memcpy(v7 + 4 + 50, v9 + 4 + 53, 7);           /* the seven old floors */
     v7[3] = 7;
     v7[4 + MAFA_SAVE_BODY_V7] = crc8(v7 + 4, MAFA_SAVE_BODY_V7);
 
@@ -1359,13 +1504,18 @@ static void test_floor_ladder_walk(void) {
         for (int floor = 1; floor <= MAFA_MAP_FLOORS[map]; ++floor) {
             assert(p.map == map && p.floor == floor);
             /* Cumulative pool: this floor's trash spawned somewhere. */
+            p.level = MAFA_MAX_LEVEL;      /* the walk tests the ladder, not
+                                              the wall: a tank pool swims
+                                              through every corridor */
+            p.hp = 32000;
+            p.pot_red = 60;
+            p.pot_blue = 60;
             mafa_battle_t b;
             assert(mafa_battle_start(&p, &b));
             for (int k = 0; k < b.mob_n; ++k)
                 assert(b.mob[k].base->floor <= floor);
-            /* Force the boss fight and win it (retry: a L40 full-kit
+            /* Force the boss fight and win it (retry: a L45 full-book
              * warrior only rarely loses, but never let the test flake). */
-            p.level = 40;
             grant_books(&p, MAFA_SKILLS_PER_CLASS - 1);
             bool won = false;
             for (int attempt = 0; attempt < 20 && !won; ++attempt) {
@@ -1398,7 +1548,7 @@ static void test_floor_ladder_walk(void) {
             }
         }
     }
-    assert(total_bosses == 27);          /* 3+3+4+3+4+7+3 checkpoints */
+    assert(total_bosses == 36);          /* 3+3+4+3+4+7+3+4+5 checkpoints */
 }
 
 static void test_battle_terminates_over_many_maps(void) {
@@ -1408,7 +1558,7 @@ static void test_battle_terminates_over_many_maps(void) {
                 mafa_player_t p;
                 mafa_player_init(&p, (uint8_t)cls,
                                  1000 + map * 7 + floor * 3 + cls);
-                p.unlocked = 7;
+                p.unlocked = MAFA_MAP_COUNT - 1;
                 p.map = (uint8_t)map;
                 p.floor = (uint8_t)floor;
                 p.level = 40;            /* strongest case must still terminate */
@@ -1665,6 +1815,8 @@ int main(void) {
     test_v1_save_migration();
     test_v2_save_map_migration();
     test_v5_save_migration();
+    test_v8_save_migration_to_v9();
+    test_endgame_maps_unlock_and_drop_fallback();
     test_floor_ladder_walk();
     test_battle_terminates_over_many_maps();
     test_ring_and_potion_drops();
