@@ -342,10 +342,11 @@ const mafa_skill_t MAFA_SKILLS[MAFA_CLS_COUNT][MAFA_SKILLS_PER_CLASS] = {
     },
 };
 
-/* Floor ladder (PRD 8.7, 1.76 plan): 比奇 2 / 兽人古墓 3 / 石墓 4 / 沃玛 3 /
- * 死亡山谷 4 / 祖玛 7 / 赤月 3 — one boss checkpoint per floor, the next
- * map opens through the last floor's boss. */
-const uint8_t MAFA_MAP_FLOORS[MAFA_MAP_COUNT] = {0, 2, 3, 4, 3, 4, 7, 3};
+/* Floor ladder (PRD 8.7, 1.76 plan): 比奇 3 (floor 1 = the chicken/deer
+ * newbie pen) / 兽人古墓 3 / 石墓 4 / 沃玛 3 / 死亡山谷 4 / 祖玛 7 / 赤月 3
+ * — one boss checkpoint per floor, the next map opens through the last
+ * floor's boss. */
+const uint8_t MAFA_MAP_FLOORS[MAFA_MAP_COUNT] = {0, 3, 3, 4, 3, 4, 7, 3};
 
 /* Names verified against the original's mob lists (2026-09-29/30 research:
  * 比奇省 trash incl. 半兽人/钉耙猫 — 17173 白金典藏练级攻略; 半兽勇士/半兽
@@ -356,15 +357,21 @@ const uint8_t MAFA_MAP_FLOORS[MAFA_MAP_COUNT] = {0, 2, 3, 4, 3, 4, 7, 3};
  * (蜈蚣洞); 祖玛 教主之下三强 = 雕像/弓箭手/卫士 — 17173 大锤怪专文;
  * 月魔蜘蛛/天狼蜘蛛/双头金刚/双头血魔/赤月恶魔 = 赤月峡谷). */
 const mafa_monster_t MAFA_MONSTERS[] = {
-    /* -- map 1 比奇省, 2 floors ------------------------------------------ */
+    /* -- map 1 比奇省, 3 floors ------------------------------------------
+     * Floor 1 is the newbie pen (v1.6 follow-up, user-requested): only
+     * chicken/deer trash in front of a boss-scale 稻草人 — a real 1.76
+     * newbie mob promoted to gatekeeper (name verified, boss role ours,
+     * same mapping class as 尸王→石墓). Floors 2-3 carry the rest of the
+     * classic Bichon roster; 半兽统领 still opens map 2. */
     {"鸡",       1, 1,  1,   50,  7,  0,   12, MAFA_MSK_NONE,    false},
     {"鹿",       1, 1,  1,   65,  8,  1,   15, MAFA_MSK_NONE,    false},
-    {"稻草人",   1, 1,  2,   95, 10,  1,   18, MAFA_MSK_FIRE,    false},
-    {"多钩猫",   1, 1,  3,  130, 12,  2,   22, MAFA_MSK_FLURRY,  false},
-    {"钉耙猫",   1, 2,  3,  140, 13,  2,   26, MAFA_MSK_FLURRY,  false},
-    {"半兽人",   1, 2,  4,  200, 15,  3,   30, MAFA_MSK_HEAVY,   false},
-    {"半兽勇士", 1, 1,  4,  450, 21,  3,  120, MAFA_MSK_HEAVY,   true},
-    {"半兽统领", 1, 2,  5,  520, 26,  4,  150, MAFA_MSK_ROAR,    true},
+    {"稻草人",   1, 1,  3,  420, 16,  3,   90, MAFA_MSK_FIRE,    true},
+    {"稻草人",   1, 2,  2,   95, 10,  1,   18, MAFA_MSK_FIRE,    false},
+    {"多钩猫",   1, 2,  3,  130, 12,  2,   22, MAFA_MSK_FLURRY,  false},
+    {"钉耙猫",   1, 2,  5,  140, 13,  2,   26, MAFA_MSK_FLURRY,  false},
+    {"半兽勇士", 1, 2,  4,  450, 21,  3,  120, MAFA_MSK_HEAVY,   true},
+    {"半兽人",   1, 3,  4,  200, 15,  3,   30, MAFA_MSK_HEAVY,   false},
+    {"半兽统领", 1, 3,  5,  520, 26,  4,  150, MAFA_MSK_ROAR,    true},
     /* -- map 2 兽人古墓, 3 floors ---------------------------------------- */
     {"骷髅",     2, 1,  7,  160, 16,  5,   85, MAFA_MSK_NONE,    false},
     {"洞蛆",     2, 1,  8,  155, 17,  4,   95, MAFA_MSK_STING,   false},
@@ -498,6 +505,9 @@ void mafa_player_init(mafa_player_t *p, uint8_t cls, uint32_t seed) {
     p->auto_sell = 0x01;                /* white only (PRD 8.3, v1.2) */
     p->pot_hp_pct = MAFA_POT_HP_PCT_DEFAULT;
     p->pot_mp_pct = MAFA_POT_MP_PCT_DEFAULT;
+    /* Starter pack: levels 1-6 swing only (火球术 is L7), so a fresh
+     * character needs the first potions to survive its own on-ramp. */
+    p->pot_red = 3;
     p->pending_drop = MAFA_DROP_NONE;
     for (int i = 0; i < MAFA_EQ_SLOTS; ++i) p->equipped[i] = MAFA_INV_EMPTY;
     for (int i = 0; i < MAFA_BACKPACK; ++i) p->inv_id[i] = MAFA_INV_EMPTY;
@@ -810,13 +820,17 @@ bool mafa_battle_start(mafa_player_t *p, mafa_battle_t *b) {
     int pool[MAFA_MONSTER_COUNT], n = 0;
     /* Cumulative floor pool (v1.3): a floor spawns its own trash plus every
      * shallower row — deeper floors get busier, very much the original's
-     * dungeon feel. The level band keeps newbie maps from spawning for a
-     * max-level player; fall back to the whole (floor-filtered) map when
-     * the band is empty (over-leveled player). */
+     * dungeon feel. The level cap is stepped: before a class's first form
+     * (火球术/基本剑术/治愈术, all L7) the character fights swings only, so
+     * the cap hugs the level and a fresh 比奇 run draws only the 鸡/鹿 tier;
+     * from L7 on the classic +2 band returns. When a whole floor sits above
+     * the cap (under-leveled entry), fall back to the full floor pool. */
+    int cap = p->level >= MAFA_SKILLS[p->cls][0].unlock ? p->level + 2
+                                                       : p->level;
     for (int i = 0; i < MAFA_MONSTER_COUNT; ++i)
         if (MAFA_MONSTERS[i].map == p->map && !MAFA_MONSTERS[i].boss
             && MAFA_MONSTERS[i].floor <= p->floor
-            && MAFA_MONSTERS[i].level <= p->level + 2)
+            && MAFA_MONSTERS[i].level <= cap)
             pool[n++] = i;
     if (n == 0)
         for (int i = 0; i < MAFA_MONSTER_COUNT; ++i)

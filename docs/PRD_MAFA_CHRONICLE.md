@@ -84,7 +84,7 @@ All interaction = UP / DOWN / OK (click) + OK long-press (back). Every screen mu
 
 1. A replayable growth loop: idle grinding → drops → equip/sell → idle on deeper maps.
 2. Three selectable classes, **7 auto-cast skills each at the original 1.76 learn levels** (v1.4, chapter 8.4).
-3. **Seven escalating maps along the original's leveling route** (v1.4, chapter 8.7) — Beech Province, Orc Tomb, Stone Tomb, Woma Temple, Death Valley, Zuma Temple, Red Moon Canyon; 26 floor-boss checkpoints; the level cap is 40.
+3. **Seven escalating maps along the original's leveling route** (v1.4, chapter 8.7) — Beech Province, Orc Tomb, Stone Tomb, Woma Temple, Death Valley, Zuma Temple, Red Moon Canyon; 27 floor-boss checkpoints; the level cap is 40.
 4. Equipment on the **1.76 paper doll minus candle and amulet — 8 positions over 6 slot types** (weapon / helmet / armor / necklace / bracelets / rings ×2), five quality tiers, with class-affine **attack / magic / taoism** stat lines (Holy-War favors attack, Archmage magic, Celestial taoism); drops and the store both supply gear; auto-sell-set and auto-potion on by default.
 5. NVS persistence across power cycles, with autosave points covering every state-changing action (counters the reference's worst review).
 
@@ -193,7 +193,7 @@ Three classes, chosen at game start, immutable. Stats: HP / MP / attack / magic 
 ### 8.3 Battle (automatic)
 
 - **Combat is fully automatic**: on a map the character attacks every 1.5 s per round (speed 1x/2x/4x), presented entirely as a scrolling log.
-- **Packs (v0.8)**: normal battles spawn **1–3 monsters** of the current map (weights shift to 3 mobs on deeper maps: map 1 ≈ 70/30/0, map 2 ≈ 40/40/20, maps 3+ ≈ 20/40/40). Spawn species are drawn from the player's level band (mob level ≤ player level + 2; full map pool as fallback). The player strikes the first living mob; AoE skills hit every living mob; **each living monster acts every round** (a stunned monster skips its turn, 8.4). Boss battles stay 1v1.
+- **Packs (v0.8)**: normal battles spawn **1–3 monsters** of the current map (weights shift to 3 mobs on deeper maps: map 1 ≈ 70/30/0, map 2 ≈ 40/40/20, maps 3+ ≈ 20/40/40). Spawn species are drawn from the player's level cap — before a class's first skill form (Fireball / Basic Swordsmanship / Healing, all learnable at L7) the cap hugs the level (levels 1–6 have no damage skill, so a fresh Bichon run draws only the chicken/deer tier), from L7 on the classic +2 band applies; full floor pool as fallback when a floor sits entirely above the cap. The player strikes the first living mob; AoE skills hit every living mob; **each living monster acts every round** (a stunned monster skips its turn, 8.4). Boss battles stay 1v1.
 - **Normal attack**: `damage = max(1, floor(attack × U(0.9, 1.1)) − defense)`; U is an integer random over 0.9–1.1.
 - **Critical**: 10% chance, attack ×1.5; the log marks it with a "CRIT" prefix.
 - **Skills auto-cast** by the priority policy in 8.4; log lines open with the skill name.
@@ -279,7 +279,7 @@ One settlement roll per killed monster (see 9.3):
 
 | Map | Floors | Suggested level | Monster theme | Last-floor boss |
 | --- | --- | --- | --- | --- |
-| 1 Beech Province | 2 | L1–6 | chicken / deer / scarecrow / hook-cat / rake-cat / half-orc | **Half-orc Chieftain** |
+| 1 Beech Province | 3 | L1–6 | chicken / deer / scarecrow / hook-cat / rake-cat / half-orc | **Half-orc Chieftain** |
 | 2 Orc Tomb | 3 | L7–13 | skeleton / cave maggot / skeleton warrior / axe skeleton | **Skeleton Spirit** |
 | 3 Stone Tomb | 4 | L14–21 | red boar / black boar / scorpion snake / wedge moth | **Corpse King** |
 | 4 Woma Temple | 3 | L22–27 | woma warrior / woma fighter / woma guard | **Woma Overlord** |
@@ -287,7 +287,7 @@ One settlement roll per killed monster (see 9.3):
 | 6 Zuma Temple | 7 | L34–38 | zuma guard / zuma archer / zuma statue | **Zuma Overlord** |
 | 7 Red Moon Canyon | 3 | L38–40 | moon spider / sky wolf spider / two-head titan / two-head blood fiend | **Red Moon Demon** (the graduation fight) |
 
-26 floor-boss checkpoints in total (2+3+4+3+4+7+3). Corridor bosses reuse roster names at boss scale (the original's same-mob tiered pattern); names are verified against the original's mob lists (see the Chinese edition for the full roster and sources).
+27 floor-boss checkpoints in total (3+3+4+3+4+7+3). Corridor bosses reuse roster names at boss scale (the original's same-mob tiered pattern); names are verified against the original's mob lists (see the Chinese edition for the full roster and sources). Beech Province floor 1 is the **newbie pen**: chicken/deer trash only, in front of a boss-scale Scarecrow — a verified 1.76 newbie mob in the gatekeeper role (invented placement, like the Corpse King mapping). A fully equipped character clearing it freely is by design — a safe tutorial win for fresh characters; the first real check is floor 2's Half-orc Warrior.
 
 - Floor progression: **40 kills** trigger the current floor's boss (a 3-mob battle counts 3). Victory opens **and enters** the next floor of the same map (gold log line); the last floor's boss unlocks the next map (gold log line). On the top floor the boss event stays repeatable (8.6 boss drop roll runs each time).
 - Floor selection (v1.3): OK on an unlocked combat map opens a **floor list** — one row per open floor (with that floor's boss name) plus a back row, cursor resting on the deepest floor (mockup 16). The player may enter any reached floor — e.g. idling overnight on a low-risk shallow floor. Long-press backs out of the floor list to the map list; the safe zone still enters directly.
@@ -336,12 +336,13 @@ See 8.2. Level cap = 40 (v1.4; the L39→40 wall is the graduation event).
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Chicken | 1 | 1 | 1 | 50 | 7 | 0 | 12 | — |
 | Deer | 1 | 1 | 1 | 65 | 8 | 1 | 15 | — |
-| Scarecrow | 1 | 1 | 2 | 95 | 10 | 1 | 18 | Fire (1.5× attack) |
-| Hook-cat | 1 | 1 | 3 | 130 | 12 | 2 | 22 | Flurry (2 hits of 0.7× attack) |
+| Scarecrow (boss) | 1 | 1 | 3 | 420 | 16 | 3 | 90 | Fire (1.5× attack) |
+| Scarecrow | 1 | 2 | 2 | 95 | 10 | 1 | 18 | Fire (1.5× attack) |
+| Hook-cat | 1 | 2 | 3 | 130 | 12 | 2 | 22 | Flurry (2 hits of 0.7× attack) |
 | Rake-cat | 1 | 2 | 3 | 140 | 13 | 2 | 26 | Flurry |
-| Half-orc | 1 | 2 | 4 | 200 | 15 | 3 | 30 | Heavy blow (1.6× attack) |
-| Half-orc Warrior (boss) | 1 | 1 | 4 | 450 | 21 | 3 | 120 | Heavy blow |
-| Half-orc Chieftain (boss) | 1 | 2 | 5 | 520 | 26 | 4 | 150 | Roar (1.5× attack) |
+| Half-orc | 1 | 3 | 4 | 200 | 15 | 3 | 30 | Heavy blow (1.6× attack) |
+| Half-orc Warrior (boss) | 1 | 2 | 4 | 450 | 21 | 3 | 120 | Heavy blow |
+| Half-orc Chieftain (boss) | 1 | 3 | 5 | 520 | 26 | 4 | 150 | Roar (1.5× attack) |
 | Skeleton | 2 | 1 | 7 | 160 | 16 | 5 | 85 | — |
 | Cave maggot | 2 | 1 | 8 | 155 | 17 | 4 | 95 | Sting (1.2× attack, then −3 HP for 2 rounds) |
 | Skeleton warrior | 2 | 2 | 9 | 190 | 19 | 6 | 110 | Heavy blow |
@@ -388,7 +389,7 @@ See 8.2. Level cap = 40 (v1.4; the L39→40 wall is the graduation event).
 | Two-head titan (boss) | 7 | 2 | 40 | 1900 | 108 | 34 | 10000 | Heavy blow |
 | Red Moon Demon (boss) | 7 | 3 | 40 | 2200 | 115 | 36 | 14000 | Hellfire |
 
-Trash rows spawn on their floor **and every deeper one** (cumulative pool, 8.7). Elite monsters = same-table monster ×1.5 HP ×1.2 attack, XP ×1.5. Numbers are calibrated by the balance simulator (PRD 4.2) per **map × floor** cell (26 cells, all green after the v1.5 recalibration), with per-floor arrival kits (what a player realistically wears when first reaching that floor):
+Trash rows spawn on their floor **and every deeper one** (cumulative pool, 8.7). Elite monsters = same-table monster ×1.5 HP ×1.2 attack, XP ×1.5. Numbers are calibrated by the balance simulator (PRD 4.2) per **map × floor** cell (27 cells, all green after the v1.5 recalibration; the newbie-pen cell is exempt from the no-free-wins rule), with per-floor arrival kits (what a player realistically wears when first reaching that floor):
 
 - **Wall floors** (each map's last floor — Half-orc Chieftain, Skeleton Spirit, Corpse King, Woma Overlord, Evil Pincer Worm, Zuma Overlord, Red Moon Demon) keep the strict band: a player at the suggested level with the arrival kit, store books 1–3, and 8 red / 4 blue potions should find at least one class whose win rate lands in 45–75% (no 0% matchups).
 - **Corridor floors** follow the original's dungeon shape — grindable corridors, one wall per map: the gates on battle pace (4–15 s) and suggested-level death interval (≥5 min) apply to every class, plus "no free wins" (at least one class ≤ 90%). Mid-floor danger is carried by the XP wall and the death economy, not by per-floor boss walls.

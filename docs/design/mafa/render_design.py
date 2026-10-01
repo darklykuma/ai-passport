@@ -3,7 +3,7 @@
 
 Geometry and colors mirror main/mafa_view.c exactly; content reflects the
 1.76-alignment plan (2026-09-30): level cap 40, 7 skills per class at real
-1.76 learn levels, 7 combat maps with 26 floor bosses, the 8-slot paper-doll
+1.76 learn levels, 7 combat maps with 27 floor bosses, the 8-slot paper-doll
 gear page, a dedicated skill page, and level-gated store books. Fonts
 approximate the device's Source Han Sans subsets with Microsoft YaHei at
 16/20px."""

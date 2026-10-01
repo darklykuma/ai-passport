@@ -1,5 +1,5 @@
 // tests/mafa_balance_sim.c — MAFA CHRONICLE balance simulator (PRD 4.2/M2,
-// skills-2.0 rebalance; v1.3 floors; 1.76 alignment: 7 maps / 26 floors).
+// skills-2.0 rebalance; v1.3 floors; 1.76 alignment: 7 maps / 27 floors).
 // Automated idle sessions per class × map × floor, grinding gold restocked
 // into potions like a real player. Targets, per floor:
 //   battle pace 4-15 s; suggested-level grind rarely deadly (≥5 min);
@@ -99,7 +99,7 @@ static void arrival_kit(uint8_t map, uint8_t floor, uint8_t *item_map,
                         uint8_t *tier) {
     static const uint8_t km[MAFA_MAP_COUNT][MAX_FLOORS] = {
         {0, 0, 0, 0, 0, 0, 0},
-        {1, 1, 0, 0, 0, 0, 0},   /* 比奇省: own set from floor 1 */
+        {1, 1, 1, 0, 0, 0, 0},   /* 比奇省: pen floor 1, own set from floor 2 */
         {1, 2, 2, 0, 0, 0, 0},   /* 兽人古墓: 比奇-green entry, then own */
         {2, 3, 3, 3, 0, 0, 0},   /* 石墓: 古墓 entry, then own */
         {3, 4, 4, 0, 0, 0, 0},   /* 沃玛: 石墓 entry, then own */
@@ -109,7 +109,7 @@ static void arrival_kit(uint8_t map, uint8_t floor, uint8_t *item_map,
     };
     static const uint8_t kt[MAFA_MAP_COUNT][MAX_FLOORS] = {
         {0, 0, 0, 0, 0, 0, 0},
-        {1, 2, 0, 0, 0, 0, 0},
+        {1, 1, 2, 0, 0, 0, 0},
         {2, 1, 2, 0, 0, 0, 0},
         {2, 1, 2, 2, 0, 0, 0},
         {2, 1, 2, 0, 0, 0, 0},
@@ -259,8 +259,12 @@ int main(int argc, char **argv) {
              * wall (strict 45-75 % band like the skills-2.0 map bosses);
              * mid floors are grindable corridors — no free wins (some
              * class must sit in [20, 90]) but no per-floor wall either.
-             * The XP wall and death economy carry mid-floor danger. */
+             * The XP wall and death economy carry mid-floor danger.
+             * Exception: 比奇's floor-1 newbie pen — a safe tutorial win
+             * against the scarecrow gate is its purpose, so the no-free-
+             * wins rule does not apply there (pace/grind/no-lock do). */
             bool wall = floor == MAFA_MAP_FLOORS[map];
+            bool pen = map == 1 && floor == 1;
             int in_band = 0, loose = 0, locked = 0, meta_ok = 1;
             for (int cls = 0; cls < MAFA_CLS_COUNT; ++cls) {
                 if (wins[map][floor][cls] <= 0) locked = 1;
@@ -277,14 +281,16 @@ int main(int argc, char **argv) {
             /* Pass rule: no impossible matchups, every class's pace/grind
              * cells hold; a wall floor needs a class in the boss band, a
              * corridor floor only needs one class under 90 %. */
-            int ok = !locked && meta_ok && (wall ? in_band >= 1 : loose >= 1);
+            int ok = !locked && meta_ok
+                     && (wall ? in_band >= 1 : (pen || loose >= 1));
             for (int cls = 0; cls < MAFA_CLS_COUNT; ++cls)
                 ok = ok && cells[map][floor][cls][0]
                      && cells[map][floor][cls][1];
             printf("map %d floor %d/%d%s: %s (%d in band%s)\n",
-                   map, floor, MAFA_MAP_FLOORS[map], wall ? " wall" : "",
+                   map, floor, MAFA_MAP_FLOORS[map],
+                   wall ? " wall" : (pen ? " pen" : ""),
                    ok ? "OK" : "FAIL", in_band,
-                   wall ? "" : ", corridor rule");
+                   wall ? "" : (pen ? ", pen rule" : ", corridor rule"));
             if (!ok) failures++;
         }
     }
