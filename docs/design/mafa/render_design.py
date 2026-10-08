@@ -76,8 +76,10 @@ def save(img, name):
 def main_chrome(d):
     panel(d, 0, 0, W, 62, HEADER_BG, GOLD_EDGE, radius=0, bottom_only=True)
     panel(d, 0, 62, W, 36, STRIP_BG, PANEL_EDGE, radius=0, bottom_only=True)
-    d.rectangle([14, 88, 50, 105], fill=BG)      # caption punches the border
     panel(d, 4, 98, 232, 140, PANEL_BG, PANEL_EDGE)
+    # Caption bg rides both borders like the device's opaque label (pad 4):
+    # drawn after the log panel, covering the strip/log border lines.
+    d.rectangle([12, 88, 52, 108], fill=BG)
     text_c(d, 32, 90, "战况", F16, GOLD)
     panel(d, 0, 238, W, 82, (0x0C, 0x0F, 0x13), GOLD_EDGE, radius=0, top_border=True, bw=2)
 
@@ -89,9 +91,9 @@ def header(d, mapname, level, xp_pct, gold, hp, hpmax, mp, mpmax):
     text_r(d, 234, 6, f"Lv.{level} {xp_pct}%", F16, DIM)
     text_r(d, 234, 25, f"金{gold}", F16, GOLD)
     bar(d, 10, 33, 130, 10, hp/hpmax, HP_GREEN)
-    text_r(d, 136, 28, str(hp), F16, MAIN)
+    text_r(d, 178, 28, str(hp), F16, MAIN)
     bar(d, 10, 48, 130, 7, mp/mpmax, MP_BLUE)
-    text_r(d, 136, 44, str(mp), F16, MAIN)
+    text_r(d, 178, 44, str(mp), F16, MAIN)
 
 def enemy(d, s, color, ratio=None):
     if s.startswith("▶"):   # YaHei lacks U+25B6; draw the triangle instead
@@ -102,7 +104,7 @@ def enemy(d, s, color, ratio=None):
         x = 10
     text(d, (x, 71), s, F16, color)
     if ratio is not None:
-        bar(d, 104, 75, 128, 9, ratio, ENEMY_RED)
+        bar(d, 134, 75, 98, 9, ratio, ENEMY_RED)
 
 def loglines(d, lines):
     y = 107                                      # log_label abs (14,107)
@@ -122,7 +124,7 @@ def action_bar(d, cur):
     gap = d.textlength(" ", font=F16)
     for row in (0, 1):
         x = 12.0
-        y = 251 if row == 0 else 283             # bar 238..320, F16 rows
+        y = 251 if row == 0 else 282             # bar 238..320, F16 rows
         for col in range(4):
             i = row * 4 + col
             if i >= len(cells):
@@ -149,7 +151,7 @@ for i, nm in enumerate(["战士  高血高防", "法师  高魔脆皮", "道士 
     text(d, (18, 52 + i * (LH16 + 6)), mark + nm, F16, GOLD if i == 0 else MAIN)
 panel(d, 6, 200, 228, 112, PANEL_BG, PANEL_EDGE)
 text(d, (18, 210), "攻杀/刺杀/半月/烈火", F16, DIM)
-text(d, (18, 235), "Lv7 起步,技能书解锁进阶", F16, DIM)
+text(d, (18, 230), "Lv7 起步,技能书解锁进阶", F16, DIM)
 save(img, "02-class")
 
 # ---- 3. main idle ----------------------------------------------------------
@@ -242,11 +244,11 @@ for s, q in gear:
     y += LH16 + 2
 panel(d, 6, 230, 228, 90, PANEL_BG, PANEL_EDGE)
 text(d, (18, 238), "攻41 魔0 道0 防26", F16, DIM)
-text(d, (18, 260), "血233/260 蓝20/43", F16, DIM)
+text(d, (18, 258), "血233/260 蓝20/43", F16, DIM)
 x0 = 18 + d.textlength("血233/260 蓝20/43  ", font=F16)
-text(d, (x0, 260), "红药x3", F16, RED)
-text(d, (x0 + d.textlength("红药x3  ", font=F16), 260), "蓝药x2", F16, MP_BLUE)
-text(d, (18, 282), "OK 卸下,长按返回", F16, DIM)
+text(d, (x0, 258), "红药x3", F16, RED)
+text(d, (x0 + d.textlength("红药x3  ", font=F16), 258), "蓝药x2", F16, MP_BLUE)
+text(d, (18, 278), "OK 卸下,长按返回", F16, DIM)
 save(img, "07-status")
 
 # ---- 17. skill page: 7 class skills with on/off states (1.76 plan) -----------
@@ -276,8 +278,8 @@ for s, c in skills:
     y += LH16 + 5
 panel(d, 6, 240, 228, 72, PANEL_BG, PANEL_EDGE)
 text(d, (18, 248), "OK 切换开关,立即存档", F16, DIM)
-text(d, (18, 270), "群攻:2只以上才施放", F16, DIM)
-text(d, (18, 292), "高阶书:精英/Boss掉落", F16, DIM)
+text(d, (18, 268), "群攻:2只以上才施放", F16, DIM)
+text(d, (18, 288), "高阶书:精英/Boss掉落", F16, DIM)
 save(img, "17-skills")
 
 # ---- 8. backpack (gear-only slots; potions live on the gear page) ------------
@@ -298,8 +300,8 @@ for s, q in items:
     y += LH16 + 4
 panel(d, 6, 246, 228, 74, PANEL_BG, PANEL_EDGE)
 text(d, (18, 254), "攻+9 魔+0 道+0", F16, DIM)
-text(d, (18, 278), "防+5 血+30", F16, DIM)
-text(d, (18, 302), "金币 2380", F16, DIM)
+text(d, (18, 274), "防+5 血+30", F16, DIM)
+text(d, (18, 294), "金币 2380", F16, DIM)
 save(img, "08-backpack")
 
 # ---- 9. store: potions + three class books, level-gated (1.76 plan) ----------
@@ -346,7 +348,7 @@ for s, c in maps:
     y += LH16 + 4
 panel(d, 6, 256, 228, 56, PANEL_BG, PANEL_EDGE)
 text(d, (18, 264), "当前:封魔谷 1层", F16, DIM)
-text(d, (18, 288), "击杀40出Boss,末层开下图", F16, DIM)
+text(d, (18, 284), "击杀40出Boss,末层开下图", F16, DIM)
 save(img, "10-maps")
 
 # ---- 16. floor list: OK on a combat map opens its ladder ---------------------
@@ -367,7 +369,7 @@ for s, c in floors:
     y += LH16 + 4
 panel(d, 6, 256, 228, 56, PANEL_BG, PANEL_EDGE)
 text(d, (18, 264), "祖玛寺庙 共7层", F16, DIM)
-text(d, (18, 288), "长按OK返回地图", F16, DIM)
+text(d, (18, 284), "长按OK返回地图", F16, DIM)
 save(img, "16-maps-floors")
 
 # ---- 10b. main page while resting in the safe zone --------------------------

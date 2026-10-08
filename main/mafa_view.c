@@ -114,27 +114,28 @@ lv_obj_t *mafa_view_page_main(mafa_view_t *v) {
     lv_obj_set_style_border_side(header, LV_BORDER_SIDE_BOTTOM, 0);
     v->map_label = new_label(header, 10, 6, true);
     lv_label_set_recolor(v->map_label, true);
-    /* Info column, TWO lines, right-aligned (the bar numbers now live on
-     * the bars, so this zone is bar-free): worst lines "Lv.14 100%" 73px
-     * (the percent is XP toward the next level; the cap shows bare
-     * "Lv.15") / "金65535" 61px in the 142px box — nothing collides. */
+    /* Info column, TWO lines, right-aligned (the bar values sit in their
+     * own column right of the bars, so this zone stays clear): worst lines
+     * "Lv.14 100%" 73px (the percent is XP toward the next level; the cap
+     * shows bare "Lv.15") / "金65535" 61px in the 142px box — nothing
+     * collides. */
     v->info_label = new_label(header, 92, 6, false);
     lv_label_set_recolor(v->info_label, true);
     lv_obj_set_style_text_color(v->info_label, MAFA_TEXT_DIM, 0);
     lv_obj_set_width(v->info_label, 142);
     lv_obj_set_style_text_align(v->info_label, LV_TEXT_ALIGN_RIGHT, 0);
-    /* Bars span 10..140; the current-value number is drawn ON the bar's
-     * right end (creation order keeps the label on top; the 19px text line
-     * bleeds a few px past the 10px bar onto the dark background). */
+    /* Bars span 10..140; each value sits right of its bar in a 36px
+     * right-aligned column (right edge 178, clear of the gold line's
+     * worst "金9999k" ink starting at 182) — no text over graphics. */
     v->hp_bar = bar(header, 10, 33, 130, 10, MAFA_HP_GREEN);
-    v->hp_text = new_label(header, 70, 28, false);
+    v->hp_text = new_label(header, 142, 28, false);
     lv_obj_set_style_text_color(v->hp_text, MAFA_TEXT_MAIN, 0);
-    lv_obj_set_width(v->hp_text, 66);
+    lv_obj_set_width(v->hp_text, 36);
     lv_obj_set_style_text_align(v->hp_text, LV_TEXT_ALIGN_RIGHT, 0);
     v->mp_bar = bar(header, 10, 48, 130, 7, MAFA_MP_BLUE);
-    v->mp_text = new_label(header, 70, 44, false);
+    v->mp_text = new_label(header, 142, 44, false);
     lv_obj_set_style_text_color(v->mp_text, MAFA_TEXT_MAIN, 0);
-    lv_obj_set_width(v->mp_text, 66);
+    lv_obj_set_width(v->mp_text, 36);
     lv_obj_set_style_text_align(v->mp_text, LV_TEXT_ALIGN_RIGHT, 0);
 
     /* Enemy strip: ▶mob name (+ ×N pack count; gold when boss) + monster
