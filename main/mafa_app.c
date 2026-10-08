@@ -902,7 +902,9 @@ static void refresh_maps(void) {
      * an 8-row window anchored so the cursor row always stays visible. */
     int first = 0;
     if (s_app.cur_maps > 7) first = (int)s_app.cur_maps - 7;
-    for (int i = first; i < MAFA_MAP_COUNT; ++i) {
+    int last = first + 7;
+    if (last > MAFA_MAP_COUNT - 1) last = MAFA_MAP_COUNT - 1;
+    for (int i = first; i <= last; ++i) {
         bool unlocked = i == MAFA_MAP_SAFE || i <= s_app.player.unlocked;
         char row[56];
         /* Design 10: locked rows are dim. */
@@ -913,8 +915,7 @@ static void refresh_maps(void) {
             snprintf(row, sizeof row, "#9AA3A8 %s%d.%s 锁定#",
                      s_app.cur_maps == i ? "＞" : "　", i, MAFA_MAP_NAMES[i]);
         strncat(buf, row, sizeof buf - strlen(buf) - 1);
-        bool last_shown = i == MAFA_MAP_COUNT - 1 || i == first + 7;
-        if (!last_shown) strncat(buf, "\n", sizeof buf - strlen(buf) - 1);
+        if (i < last) strncat(buf, "\n", sizeof buf - strlen(buf) - 1);
     }
     lv_label_set_text(s_app.view.items_label, buf);
     char det[96];
