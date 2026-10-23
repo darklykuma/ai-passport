@@ -188,12 +188,29 @@ static void test_window_truncated(void) {
     free(json);
 }
 
+static void test_filter_window(void) {
+    rift_match_t ms[8];
+    memset(ms, 0, sizeof ms);
+    /* Beijing days 5, 6, 5, 9, 6 against an inclusive [5,6] window */
+    static const int days[5] = {5, 6, 5, 9, 6};
+    for (int i = 0; i < 5; i++) ms[i].start = (int64_t)days[i] * 86400 + 100;
+    assert(rift_filter_window(ms, 5, 5, 6) == 4);
+    assert(rift_day_of(ms[0].start) == 5);
+    assert(rift_day_of(ms[1].start) == 6);
+    assert(rift_day_of(ms[2].start) == 5);
+    assert(rift_day_of(ms[3].start) == 6);
+    /* edges: nothing to filter keeps zero, no hits keeps everything */
+    assert(rift_filter_window(ms, 0, 0, 9) == 0);
+    assert(rift_filter_window(ms, 4, 0, 99) == 4);
+}
+
 int main(void) {
     test_time_helpers();
     test_schedule();
     test_event_details();
     test_window();
     test_window_truncated();
+    test_filter_window();
     printf("test_rift_model: all assertions passed\n");
     return 0;
 }

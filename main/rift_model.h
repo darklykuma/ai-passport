@@ -95,6 +95,9 @@ int rift_group_days(const rift_match_t *ms, int n, rift_day_t *days,
 /* The schedule endpoint spans every edition of the tournament; the app
  * keeps only the current event's window (inclusive Beijing days). */
 bool rift_in_window(const rift_match_t *m, int min_day, int max_day);
+/* In-place compaction: drops out-of-window matches, returns the new count.
+ * Boot filters without a second RIFT_MATCH_MAX buffer on the main-task stack. */
+int rift_filter_window(rift_match_t *ms, int n, int min_day, int max_day);
 int rift_day_of(int64_t start);  /* Beijing days-since-epoch */
 int rift_today_bj(void);         /* device clock day (-1 until network time) */
 

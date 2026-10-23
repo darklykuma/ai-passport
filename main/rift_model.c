@@ -615,3 +615,11 @@ bool rift_in_window(const rift_match_t *m, int min_day, int max_day) {
     int d = rift_day_of(m->start);
     return d >= min_day && d <= max_day;
 }
+
+int rift_filter_window(rift_match_t *ms, int n, int min_day, int max_day) {
+    /* keep <= i always, so the write never clobbers an entry still to read. */
+    int keep = 0;
+    for (int i = 0; i < n; i++)
+        if (rift_in_window(&ms[i], min_day, max_day)) ms[keep++] = ms[i];
+    return keep;
+}

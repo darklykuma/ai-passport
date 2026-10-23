@@ -407,6 +407,14 @@ static void on_net_ready(rift_net_res_t res, void *user) {
 
 /* --- boot ---------------------------------------------------------------------- */
 
+/* Boot screens are driven from the main task; every view call takes the LVGL
+ * lock, releasing between steps so the LVGL task can paint each progress. */
+static void show_boot_progress(int pct, const char *text) {
+    if (!bsp_lvgl_lock(500)) return;
+    rift_view_boot_progress(pct, text);
+    bsp_lvgl_unlock();
+}
+
 void rift_app_boot(void) {
     memset(&s_app, 0, sizeof s_app);
     s_app.battery = -1;
@@ -419,28 +427,21 @@ void rift_app_boot(void) {
         ESP_ERROR_CHECK(nvs_flash_init());
     }
 
+    if (!bsp_lvgl_lock(500)) return;
     rift_view_boot();
-    rift_view_boot_progress(20, "载入内置示例数据…");
+    bsp_lvgl_unlock();
+    show_boot_progress(20, "载入内置示例数据…");
     load_sample();
-    rift_view_boot_progress(50, "载入网络缓存…");
+    show_boot_progress(50, "载入网络缓存…");
     {
-        rift_match_t cached[RIFT_MATCH_MAX];
         int nc = 0;
-        if (rift_net_load_cache(cached, &nc)) {
-            memcpy(s_app.ms, cached, (size_t)nc * sizeof *s_app.ms);
-            s_app.nmatch = nc;
-        }
+        if (rift_net_load_cache(s_app.ms, &nc)) s_app.nmatch = nc;
     }
-    rift_view_boot_progress(80, "就绪");
+    show_boot_progress(80, "就绪");
 
     int w0 = rift_day_of(rift_parse_iso(RIFT_WIN0_ISO));
     int w1 = rift_day_of(rift_parse_iso(RIFT_WIN1_ISO));
-    rift_match_t keep[RIFT_MATCH_MAX];
-    int nk = 0;
-    for (int i = 0; i < s_app.nmatch; i++)
-        if (rift_in_window(&s_app.ms[i], w0, w1)) keep[nk++] = s_app.ms[i];
-    memcpy(s_app.ms, keep, sizeof keep);
-    s_app.nmatch = nk;
+    s_app.nmatch = rift_filter_window(s_app.ms, s_app.nmatch, w0, w1);
     rift_sort_matches(s_app.ms, s_app.nmatch);
     s_app.ndays = rift_group_days(s_app.ms, s_app.nmatch, s_app.days,
                                   RIFT_DAYS_MAX);
@@ -463,16 +464,15 @@ void rift_app_boot(void) {
     esp_err_t blufi = rift_blufi_start(on_got_ip, NULL);
     if (blufi != ESP_OK) ESP_LOGW(TAG, "blufi service not started: %s",
                                   esp_err_to_name(blufi));
-    rift_view_boot_progress(
-        90, rift_blufi_wifi_ok()
-                ? "Wi-Fi 已连接 · 同步中"
-                : "等待配网 · 打开 ESP Config 小程序");
+    show_boot_progress(
+        90, rift_blufi_wifi_ok() ? "Wi-Fi 已连接 · 同步中"
+                                 : "等待配网 · 打开 ESP Config 小程序");
 
     vTaskDelay(pdMS_TO_TICKS(600));
     s_app.ready = true;
     s_app.page = RIFT_PAGE_HOME;
-    rift_view_home_create();
     if (!bsp_lvgl_lock(500)) return;
+    rift_view_home_create();
     refresh_home();
     bsp_lvgl_unlock();
     ESP_LOGI(TAG, "RIFT BOARD ready (%d matches, %d days)", s_app.nmatch,
