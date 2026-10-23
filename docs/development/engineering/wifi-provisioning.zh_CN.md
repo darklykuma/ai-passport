@@ -2,16 +2,31 @@
   <strong>简体中文</strong> · <a href="wifi-provisioning.md">English</a>
 </p>
 
-# 通过蓝牙配网连接 Wi-Fi
+# 通过屏幕输入与蓝牙配网连接 Wi-Fi
 
-当用户需要设备通过 Wi-Fi 连接网络时，可以参考
-[`demo/blufi-provisioning` 分支](https://github.com/FoloToy/ai-passport/tree/demo/blufi-provisioning)
-的代码实现蓝牙配网。手机通过 BLE 上的 BLUFI 协议发送 Wi-Fi 名称（SSID）和
-密码，设备以 Wi-Fi STA 模式连接网络并回报连接状态。蓝牙用于传递配网信息，
-不是承载应用的互联网流量。
+当用户需要设备通过 Wi-Fi 连接网络时，应用可以走设备侧配网，也可以走蓝牙。
 
-这是可选的应用参考。当前 `main` 的 Wi-Fi demo 仅扫描网络，并未实现联网或
-蓝牙配网；没有联网需求的应用不必启用网络功能。
+- **设备侧配网**（RIFT BOARD）：数据页进入配网菜单，扫描附近热点后用三键
+  选中目标网络，在屏幕键盘上输入密码（`main/rift_kb.c` 模型 +
+  `rift_blufi_apply_credentials`）。开放网络无需密码直接连接。两条路径写入
+  同一份持久化 STA 配置，重启后自动重连。
+- **蓝牙配网**（[`demo/blufi-provisioning` 分支](https://github.com/FoloToy/ai-passport/tree/demo/blufi-provisioning)）：
+  手机通过 BLE 上的 BLUFI 协议发送 Wi-Fi 名称（SSID）和密码，设备以
+  Wi-Fi STA 模式连接网络并回报连接状态。蓝牙用于传递配网信息，不是承载
+  应用的互联网流量。RIFT BOARD 将该服务常驻为备用路径。
+
+配网是可选的应用能力；没有联网需求的应用不必启用网络功能。
+
+<a id="on-device-flow"></a>
+
+## 设备侧配网流程（RIFT BOARD）
+
+数据页 → Wi-Fi 行 → 配网菜单：扫描热点列表、手动输入 SSID（隐藏网络）、
+重试已存 Wi-Fi、蓝牙配网四项。键盘为三键线性选择：UP/DOWN 移动选中格
+（长按连发），OK 确认；特殊行提供空格、删除、大小写/符号切换与完成。
+密码以星号回显。连接失败回到键盘页提示重试，成功后自动回到数据页并由
+`wifi_line()` 展示状态。清除已存凭据仍在数据页 Wi-Fi 行（已连接时）。
+键盘模型为纯 C 实现，由 `tests/test_rift_kb.c` 覆盖；禁止记录密码。
 
 <a id="mini-program-name"></a>
 

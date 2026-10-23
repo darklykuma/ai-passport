@@ -57,6 +57,9 @@ run_static_checks() {
     "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -O1 \
         tests/test_rift_model.c -o "${test_dir}/test_rift_model"
     ( cd "${repo_root}" && "${test_dir}/test_rift_model" )
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -O1 \
+        tests/test_rift_kb.c -o "${test_dir}/test_rift_kb"
+    "${test_dir}/test_rift_kb"
     PYTHONDONTWRITEBYTECODE=1 python3 tests/test_rift_ui_glyphs.py
     for demo in audio low_power ble wifi; do
         "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \

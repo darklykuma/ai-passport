@@ -2,18 +2,37 @@
   <a href="wifi-provisioning.zh_CN.md">简体中文</a> · <strong>English</strong>
 </p>
 
-# Wi-Fi Connection via Bluetooth Provisioning
+# Wi-Fi Connection via On-Device and Bluetooth Provisioning
 
-When a user needs the device to connect to a Wi-Fi network, the
-[`demo/blufi-provisioning` branch](https://github.com/FoloToy/ai-passport/tree/demo/blufi-provisioning)
-provides a reference for Bluetooth-based Wi-Fi setup. The phone supplies the
-SSID and password over BLE using BLUFI; the device connects as a Wi-Fi station
-and reports connection status. Bluetooth carries the provisioning exchange,
-not the application's Internet traffic.
+When a user needs the device to connect to a Wi-Fi network, an application can
+provision from the device itself or over Bluetooth.
 
-This is an optional application reference. The current `main` Wi-Fi demo only
-scans networks; it does not implement connection or provisioning. Do not enable
-networking for applications that do not need it.
+- **On-device provisioning** (RIFT BOARD): the data page opens a provisioning
+  menu that scans for nearby access points, lets the user pick one with the
+  three buttons, and enters the password on an on-screen keyboard
+  (`main/rift_kb.c` model + `rift_blufi_apply_credentials`). Open networks
+  connect without the password step. Both paths write the same persistent
+  station config, so a reboot reconnects on its own.
+- **Bluetooth provisioning** ([`demo/blufi-provisioning` branch](https://github.com/FoloToy/ai-passport/tree/demo/blufi-provisioning)):
+  the phone supplies the SSID and password over BLE using BLUFI; the device
+  connects as a Wi-Fi station and reports connection status. Bluetooth carries
+  the provisioning exchange, not the application's Internet traffic. The RIFT
+  BOARD keeps this service resident as the alternative path.
+
+Provisioning is an optional application capability. Do not enable networking
+for applications that do not need it.
+
+## On-device flow (RIFT BOARD)
+
+Data page → Wi-Fi row → provisioning menu: scan list, manual SSID entry
+(for hidden networks), stored-credential retry, or the Bluetooth card. The
+keyboard is a three-key linear picker: UP/DOWN move the selection (hold
+repeats), OK activates; a special row carries space, delete, mode
+(lowercase/uppercase/symbols), and done. Passwords echo as asterisks. A failed
+attempt returns to the keyboard with a retry message; a successful one lands
+back on the data page showing the state from `wifi_line()`. Clearing saved
+credentials stays on the data page Wi-Fi row while connected. The keyboard
+model is pure C covered by `tests/test_rift_kb.c`; never log the password.
 
 ## Mini program name
 

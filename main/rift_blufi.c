@@ -30,6 +30,7 @@ static const char *TAG = "rift_blufi";
 static const char *DEVICE_NAME = "BLUFI_FoloPassport";
 
 #define BLUFI_AP_LIST_COUNT 16
+#define RIFT_BLUFI_SCAN_MAX 10
 
 static esp_netif_t *s_sta_netif;
 static esp_event_handler_instance_t s_wifi_handler;
@@ -55,6 +56,16 @@ static bool s_started;
 static SemaphoreHandle_t s_host_stopped;
 static rift_blufi_on_ip_cb s_on_ip;
 static void *s_on_ip_user;
+static rift_blufi_on_event_cb s_on_event;
+static void *s_on_event_user;
+static bool s_scan_for_app;               // SCAN_DONE belongs to the device UI
+static rift_blufi_ap_t s_scan[RIFT_BLUFI_SCAN_MAX];
+static volatile int s_scan_count;
+
+static void notify(rift_blufi_event_t event)
+{
+    if (s_on_event) s_on_event(event, s_on_event_user);   // event task: enqueue only
+}
 
 static void send_wifi_report(esp_blufi_sta_conn_state_t state)
 {
@@ -106,6 +117,38 @@ static void request_wifi_connect(void)
     }
 }
 
+// Fetch the finished scan into the app-visible table (strongest first).
+// esp_wifi_scan_get_ap_records drains the shared scan buffer, so the BLE
+// report path and the on-device picker split on who requested the scan.
+static void fill_app_scan(void)
+{
+    uint16_t count = BLUFI_AP_LIST_COUNT;
+    wifi_ap_record_t records[BLUFI_AP_LIST_COUNT] = { 0 };
+    if (esp_wifi_scan_get_ap_records(&count, records) != ESP_OK) {
+        s_scan_count = 0;
+        notify(RIFT_BLUFI_EV_SCAN_DONE);
+        return;
+    }
+    for (uint16_t i = 1; i < count; i++) {          // insertion sort, RSSI desc
+        wifi_ap_record_t key = records[i];
+        int j = (int)i - 1;
+        while (j >= 0 && records[j].rssi < key.rssi) {
+            records[j + 1] = records[j];
+            j--;
+        }
+        records[j + 1] = key;
+    }
+    int n = count < RIFT_BLUFI_SCAN_MAX ? count : RIFT_BLUFI_SCAN_MAX;
+    for (int i = 0; i < n; i++) {
+        snprintf(s_scan[i].ssid, sizeof(s_scan[i].ssid), "%.32s",
+                 (const char *)records[i].ssid);
+        s_scan[i].rssi = records[i].rssi;
+        s_scan[i].auth = records[i].authmode != WIFI_AUTH_OPEN;
+    }
+    s_scan_count = n;
+    notify(RIFT_BLUFI_EV_SCAN_DONE);
+}
+
 static void wifi_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     (void)arg;
@@ -127,6 +170,7 @@ static void wifi_event(void *arg, esp_event_base_t base, int32_t id, void *data)
         }
         if (s_state == RIFT_BLUFI_WIFI_CONNECTING) {
             send_wifi_report(ESP_BLUFI_STA_CONN_FAIL);
+            notify(RIFT_BLUFI_EV_CONN_FAIL);
         }
         s_wifi_connecting = false;
         s_wifi_got_ip = false;
@@ -134,7 +178,12 @@ static void wifi_event(void *arg, esp_event_base_t base, int32_t id, void *data)
                                   : RIFT_BLUFI_ADVERTISING;
         s_ip[0] = '\0';
     } else if (id == WIFI_EVENT_SCAN_DONE) {
-        send_wifi_list();
+        if (s_scan_for_app) {
+            s_scan_for_app = false;
+            fill_app_scan();
+        } else {
+            send_wifi_list();
+        }
     }
 }
 
@@ -389,4 +438,52 @@ void rift_blufi_clear_credentials(void)
 void rift_blufi_reconnect(void)
 {
     if (s_wifi_started && !s_wifi_connecting) request_wifi_connect();
+}
+
+void rift_blufi_set_event_cb(rift_blufi_on_event_cb cb, void *user)
+{
+    s_on_event = cb;
+    s_on_event_user = user;
+}
+
+esp_err_t rift_blufi_apply_credentials(const char *ssid, const char *pass)
+{
+    // Same field limits as the BLE handlers: full buffers cannot carry the
+    // trailing NUL the driver expects for its NVS blob.
+    if (!ssid || strlen(ssid) >= sizeof(s_sta_config.sta.ssid))
+        return ESP_ERR_INVALID_SIZE;
+    if (!pass || strlen(pass) >= sizeof(s_sta_config.sta.password))
+        return ESP_ERR_INVALID_SIZE;
+    if (!s_wifi_started) return ESP_ERR_INVALID_STATE;
+
+    memset(s_sta_config.sta.ssid, 0, sizeof(s_sta_config.sta.ssid));
+    memset(s_sta_config.sta.password, 0, sizeof(s_sta_config.sta.password));
+    memset(s_sta_config.sta.bssid, 0, sizeof(s_sta_config.sta.bssid));
+    s_sta_config.sta.bssid_set = false;
+    s_sta_config.sta.threshold.authmode = WIFI_AUTH_OPEN;
+    memcpy(s_sta_config.sta.ssid, ssid, strlen(ssid));
+    memcpy(s_sta_config.sta.password, pass, strlen(pass));
+    // STORAGE_FLASH persists the config, so a reboot reconnects on its own.
+    esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &s_sta_config);
+    if (err != ESP_OK) return err;
+    request_wifi_connect();
+    return ESP_OK;
+}
+
+esp_err_t rift_blufi_scan_start(void)
+{
+    if (!s_wifi_started) return ESP_ERR_INVALID_STATE;
+    // The Wi-Fi driver rejects scans while the station is connecting.
+    wifi_scan_config_t config = { 0 };
+    esp_err_t err = esp_wifi_scan_start(&config, false);
+    if (err == ESP_OK) s_scan_for_app = true;
+    return err;
+}
+
+int rift_blufi_scan_result(rift_blufi_ap_t *out, int max)
+{
+    if (!out || max <= 0) return 0;
+    int n = s_scan_count < max ? s_scan_count : max;
+    memcpy(out, s_scan, (size_t)n * sizeof *out);
+    return n;
 }

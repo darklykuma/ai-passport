@@ -18,6 +18,7 @@
 #include "freertos/task.h"
 #include "nvs_flash.h"
 #include "rift_blufi.h"
+#include "rift_kb.h"
 #include "rift_net.h"
 #include "rift_view.h"
 
@@ -32,7 +33,13 @@ typedef enum {
     EV_NET_DIRTY,    // worker swapped the schedule; refresh from app task
     EV_DETAILS,      // per-match game list arrived
     EV_WINDOW,       // BP/KDA window stats arrived
+    EV_SCAN_DONE,    // provisioning scan finished; refresh the AP list
+    EV_WIFI_STATE,   // provisioning connect attempt succeeded or failed
 } ev_kind_t;
+
+#define RIFT_APS_MAX 10
+
+typedef enum { KB_FIELD_SSID = 0, KB_FIELD_PASS = 1 } kb_field_t;
 
 typedef struct {
     ev_kind_t kind;
@@ -69,6 +76,13 @@ static struct {
     bool game_kda;
     int data_cursor;
     rift_match_t detail;   /* scratch: the match page's full data */
+
+    /* on-device provisioning */
+    int wifi_cursor;                 /* menu row */
+    rift_blufi_ap_t aps[RIFT_APS_MAX];
+    int naps, ap_cursor;
+    kb_field_t kb_field;             /* what the keyboard is editing */
+    char kb_ssid[33];                /* SSID chosen for the password step */
 } s_app;
 
 /* --- bundled sample (real probed data, offline increment) ------------------- */
@@ -232,13 +246,31 @@ static void refresh_data(void) {
 
 /* --- input -------------------------------------------------------------------- */
 
+/* Scan-list and keyboard refreshes read straight out of s_app/blufi state. */
+static void refresh_aps_view(void) {
+    rift_view_aps_refresh(s_app.aps, s_app.naps, s_app.ap_cursor,
+                          s_app.naps ? NULL : "未发现热点 · OK 重新扫描");
+}
+
+static void open_kb(kb_field_t field) {
+    s_app.kb_field = field;
+    rift_kb_reset();
+    rift_view_kb_create(field == KB_FIELD_PASS ? "Wi-Fi 密码" : "输入 SSID");
+    rift_view_kb_refresh(field == KB_FIELD_PASS, NULL);
+    s_app.page = RIFT_PAGE_KB;
+}
+
 static void process_event(const input_event_t *ev) {
     bool click = ev->ev == BSP_BTN_CLICK;
+    bool hold = ev->ev == BSP_BTN_HOLD;
+    /* Movement keys act on click (and hold-repeat); a bare PRESS must not
+     * double-step with the CLICK that follows it. */
+    bool move = click || hold;
     bool long_ok = ev->ev == BSP_BTN_LONG && ev->btn == BSP_BTN_OK;
 
     switch (s_app.page) {
     case RIFT_PAGE_HOME:
-        if (ev->btn == BSP_BTN_UP || ev->btn == BSP_BTN_DOWN) {
+        if (move && (ev->btn == BSP_BTN_UP || ev->btn == BSP_BTN_DOWN)) {
             int rows = ROW_COUNT;
             if (ev->btn == BSP_BTN_UP)
                 s_app.cur_row = (s_app.cur_row + rows - 1) % rows;
@@ -279,7 +311,7 @@ static void process_event(const input_event_t *ev) {
 
     case RIFT_PAGE_MATCH: {
         const rift_match_t *m = &s_app.detail;
-        if (ev->btn == BSP_BTN_UP || ev->btn == BSP_BTN_DOWN) {
+        if (move && (ev->btn == BSP_BTN_UP || ev->btn == BSP_BTN_DOWN)) {
             int dir = ev->btn == BSP_BTN_UP ? -1 : 1;
             for (int k = 0; k < m->game_count; k++) {
                 s_app.cur_game =
@@ -325,17 +357,21 @@ static void process_event(const input_event_t *ev) {
         break;
 
     case RIFT_PAGE_DATA:
-        if (ev->btn == BSP_BTN_UP || ev->btn == BSP_BTN_DOWN) {
+        if (move && (ev->btn == BSP_BTN_UP || ev->btn == BSP_BTN_DOWN)) {
             s_app.data_cursor =
                 (s_app.data_cursor + (ev->btn == BSP_BTN_UP ? 3 : 1)) % 4;
             refresh_data();
         } else if (click && s_app.data_cursor == 0) {
             /* Wi-Fi row: connected → clear credentials (re-provision);
-             * otherwise → retry the stored-credential connect. */
-            if (rift_blufi_wifi_ok())
+             * otherwise → the on-device provisioning menu. */
+            if (rift_blufi_wifi_ok()) {
                 rift_blufi_clear_credentials();
-            else
-                rift_blufi_reconnect();
+            } else {
+                s_app.wifi_cursor = 0;
+                s_app.page = RIFT_PAGE_WIFI;
+                rift_view_wifi_create();
+                rift_view_wifi_refresh(s_app.wifi_cursor);
+            }
             refresh_data();
         } else if (click && s_app.data_cursor == 1) {
             rift_net_request_sync();
@@ -344,6 +380,97 @@ static void process_event(const input_event_t *ev) {
             s_app.page = RIFT_PAGE_HOME;
             rift_view_home_create();
             refresh_home();
+        }
+        break;
+
+    case RIFT_PAGE_WIFI:
+        if (move && (ev->btn == BSP_BTN_UP || ev->btn == BSP_BTN_DOWN)) {
+            s_app.wifi_cursor = (s_app.wifi_cursor
+                                 + (ev->btn == BSP_BTN_UP ? 3 : 1)) % 4;
+            rift_view_wifi_refresh(s_app.wifi_cursor);
+        } else if (click && s_app.wifi_cursor == 0) {
+            if (rift_blufi_scan_start() == ESP_OK) {
+                s_app.naps = 0;
+                s_app.ap_cursor = 0;
+                s_app.page = RIFT_PAGE_APS;
+                rift_view_aps_create();
+                rift_view_aps_refresh(NULL, 0, 0, "扫描中…");
+            }
+        } else if (click && s_app.wifi_cursor == 1) {
+            open_kb(KB_FIELD_SSID);
+        } else if (click && s_app.wifi_cursor == 2) {
+            rift_blufi_reconnect();
+            s_app.page = RIFT_PAGE_DATA;
+            rift_view_data_create();
+            refresh_data();
+        }
+        /* card 3 (bluetooth) is informational; the mini-program stays usable */
+        if (long_ok) {
+            s_app.page = RIFT_PAGE_DATA;
+            rift_view_data_create();
+            refresh_data();
+        }
+        break;
+
+    case RIFT_PAGE_APS:
+        if (move && (ev->btn == BSP_BTN_UP || ev->btn == BSP_BTN_DOWN)) {
+            if (s_app.naps > 0) {
+                int dir = ev->btn == BSP_BTN_UP ? -1 : 1;
+                s_app.ap_cursor = (s_app.ap_cursor + dir + s_app.naps)
+                                  % s_app.naps;
+            }
+            refresh_aps_view();
+        } else if (click && s_app.ap_cursor < s_app.naps) {
+            const rift_blufi_ap_t *ap = &s_app.aps[s_app.ap_cursor];
+            if (ap->auth) {
+                snprintf(s_app.kb_ssid, sizeof s_app.kb_ssid, "%s", ap->ssid);
+                open_kb(KB_FIELD_PASS);
+            } else {
+                /* open network: no password step */
+                rift_blufi_apply_credentials(ap->ssid, "");
+                s_app.page = RIFT_PAGE_DATA;
+                rift_view_data_create();
+                refresh_data();
+            }
+        } else if (click) {
+            /* empty list (or stale scan): OK re-triggers the scan */
+            if (rift_blufi_scan_start() == ESP_OK) {
+                s_app.naps = 0;
+                rift_view_aps_refresh(NULL, 0, 0, "扫描中…");
+            }
+        }
+        if (long_ok) {
+            s_app.page = RIFT_PAGE_WIFI;
+            rift_view_wifi_create();
+            rift_view_wifi_refresh(s_app.wifi_cursor);
+        }
+        break;
+
+    case RIFT_PAGE_KB:
+        if (move && (ev->btn == BSP_BTN_UP || ev->btn == BSP_BTN_DOWN)) {
+            rift_kb_move(ev->btn == BSP_BTN_UP ? -1 : 1);
+            rift_view_kb_refresh(s_app.kb_field == KB_FIELD_PASS, NULL);
+        } else if (click) {
+            rift_kb_action_t act = rift_kb_press();
+            if (act == RIFT_KB_DONE) {
+                if (s_app.kb_field == KB_FIELD_SSID) {
+                    snprintf(s_app.kb_ssid, sizeof s_app.kb_ssid, "%s",
+                             rift_kb_text());
+                    open_kb(KB_FIELD_PASS);
+                } else {
+                    esp_err_t err = rift_blufi_apply_credentials(
+                        s_app.kb_ssid, rift_kb_text());
+                    rift_view_kb_refresh(
+                        true, err == ESP_OK ? "连接中…" : "账号或密码超长");
+                }
+            } else {
+                rift_view_kb_refresh(s_app.kb_field == KB_FIELD_PASS, NULL);
+            }
+        }
+        if (long_ok) {
+            s_app.page = RIFT_PAGE_WIFI;
+            rift_view_wifi_create();
+            rift_view_wifi_refresh(s_app.wifi_cursor);
         }
         break;
 
@@ -377,6 +504,26 @@ static void input_task(void *arg) {
                            || s_app.page == RIFT_PAGE_LIVE)) {
                 rift_view_game_refresh(&s_app.detail, s_app.cur_game,
                                        s_app.game_kda);
+            } else if (ev.kind == EV_SCAN_DONE) {
+                s_app.naps = rift_blufi_scan_result(s_app.aps, RIFT_APS_MAX);
+                s_app.ap_cursor = 0;
+                if (s_app.page == RIFT_PAGE_APS) refresh_aps_view();
+            } else if (ev.kind == EV_WIFI_STATE) {
+                if (rift_blufi_wifi_ok()) {
+                    /* provisioning landed: leave the flow, show the state */
+                    if (s_app.page == RIFT_PAGE_WIFI
+                        || s_app.page == RIFT_PAGE_APS
+                        || s_app.page == RIFT_PAGE_KB) {
+                        s_app.page = RIFT_PAGE_DATA;
+                        rift_view_data_create();
+                    }
+                    if (s_app.page == RIFT_PAGE_DATA) refresh_data();
+                } else if (s_app.page == RIFT_PAGE_KB) {
+                    rift_view_kb_refresh(s_app.kb_field == KB_FIELD_PASS,
+                                         "连接失败 · 检查密码后重试");
+                } else if (s_app.page == RIFT_PAGE_DATA) {
+                    refresh_data();
+                }
             }
             bsp_lvgl_unlock();
         }
@@ -394,6 +541,18 @@ static void on_key(bsp_btn_t btn, bsp_btn_ev_t event, void *user) {
 static void on_got_ip(void *user) {
     (void)user;
     rift_net_request_sync();
+    const input_event_t ev = {.kind = EV_WIFI_STATE};
+    if (s_app.ready && s_app.queue) xQueueSend(s_app.queue, &ev, 0);
+}
+
+// rift_blufi service events, ESP event task: enqueue only.
+static void on_blufi_event(rift_blufi_event_t event, void *user) {
+    (void)user;
+    if (!s_app.ready || !s_app.queue) return;
+    const input_event_t ev = {.kind = event == RIFT_BLUFI_EV_SCAN_DONE
+                                        ? EV_SCAN_DONE
+                                        : EV_WIFI_STATE};
+    xQueueSend(s_app.queue, &ev, 0);
 }
 
 // Runs in the rift_net worker: enqueue only.
@@ -461,12 +620,13 @@ void rift_app_boot(void) {
     rift_net_bind_detail(&s_app.detail);
     rift_net_set_ready_cb(on_net_ready, NULL);
     rift_net_init();
+    rift_blufi_set_event_cb(on_blufi_event, NULL);
     esp_err_t blufi = rift_blufi_start(on_got_ip, NULL);
     if (blufi != ESP_OK) ESP_LOGW(TAG, "blufi service not started: %s",
                                   esp_err_to_name(blufi));
-    show_boot_progress(
+    rift_view_boot_progress(
         90, rift_blufi_wifi_ok() ? "Wi-Fi 已连接 · 同步中"
-                                 : "等待配网 · 打开 ESP Config 小程序");
+                                 : "等待配网 · 长按OK 进数据页");
 
     vTaskDelay(pdMS_TO_TICKS(600));
     s_app.ready = true;

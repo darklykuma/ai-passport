@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "rift_kb.h"
+
 LV_FONT_DECLARE(rift_font_16);
 LV_FONT_DECLARE(rift_font_20);
 
@@ -573,4 +575,206 @@ void rift_view_data_refresh(int cursor, const char *cache_line,
                       wifi_ok ? wifi_line : "未连接 · 离线模式");
     lv_obj_set_style_text_color(s_data.wifi_sub, wifi_ok ? C_GREEN : C_RED, 0);
     lv_label_set_text(s_data.cache_sub, cache_line);
+}
+
+/* --- provisioning menu ---------------------------------------------------------- */
+
+static lv_obj_t *s_wifi_scr;
+static struct {
+    lv_obj_t *card[4], *cursor;
+} s_wifi;
+
+void rift_view_wifi_create(void) {
+    s_wifi_scr = screen();
+    lv_obj_t *t, *r;
+    band(s_wifi_scr, &t, &r, C_EDGE_GOLD);
+    lv_label_set_text(t, "Wi-Fi 配网");
+    static const char *TITLES[4] = {"扫描热点", "手动输入 SSID",
+                                    "重试已存 Wi-Fi", "蓝牙配网"};
+    static const char *SUBS[4] = {"搜索附近网络", "隐藏热点时使用",
+                                  "用保存的凭据重连", "ESP Config 小程序"};
+    for (int i = 0; i < 4; i++) {
+        s_wifi.card[i] = panel(s_wifi_scr, 4, 40 + i * 52, 232, 46,
+                               C_PANEL_BG, C_EDGE);
+        lv_obj_t *ti = label(s_wifi.card[i], 16, 4, &rift_font_16, C_MAIN);
+        lv_label_set_text(ti, TITLES[i]);
+        lv_obj_t *sub = label(s_wifi.card[i], 16, 24, &rift_font_16, C_DIM);
+        lv_label_set_text(sub, SUBS[i]);
+    }
+    s_wifi.cursor = label(s_wifi_scr, 216, 0, &rift_font_16, C_CYAN);
+    lv_obj_t *f;
+    footer(s_wifi_scr, &f, "OK 选择 · 长按OK 返回");
+}
+
+void rift_view_wifi_refresh(int cursor) {
+    for (int i = 0; i < 4; i++)
+        lv_obj_set_style_border_color(s_wifi.card[i],
+                                      i == cursor ? C_CYAN : C_EDGE, 0);
+    lv_obj_set_y(s_wifi.cursor, 40 + cursor * 52 + 16);
+    lv_label_set_text(s_wifi.cursor, ">");
+}
+
+/* --- scan results ----------------------------------------------------------------- */
+
+#define APS_ROWS 8   /* visible window; the list scrolls under the cursor */
+
+static lv_obj_t *s_aps_scr;
+static struct {
+    lv_obj_t *row[APS_ROWS], *rssi[APS_ROWS], *auth[APS_ROWS];
+    lv_obj_t *center, *cursor;
+} s_aps;
+
+void rift_view_aps_create(void) {
+    s_aps_scr = screen();
+    lv_obj_t *t, *r;
+    band(s_aps_scr, &t, &r, C_EDGE_GOLD);
+    lv_label_set_text(t, "选择热点");
+    for (int i = 0; i < APS_ROWS; i++) {
+        int y = 40 + i * 30;
+        s_aps.rssi[i] = label(s_aps_scr, 4, y + 7, &rift_font_16, C_DIM);
+        lv_obj_set_width(s_aps.rssi[i], 38);
+        lv_obj_set_style_text_align(s_aps.rssi[i], LV_TEXT_ALIGN_RIGHT, 0);
+        s_aps.row[i] = label(s_aps_scr, 50, y + 7, &rift_font_16, C_MAIN);
+        lv_obj_set_width(s_aps.row[i], 128);
+        lv_label_set_long_mode(s_aps.row[i], LV_LABEL_LONG_DOT);
+        s_aps.auth[i] = label(s_aps_scr, 182, y + 7, &rift_font_16, C_DIM);
+    }
+    s_aps.center = label(s_aps_scr, 0, 130, &rift_font_16, C_DIM);
+    lv_obj_set_width(s_aps.center, 240);
+    lv_obj_set_style_text_align(s_aps.center, LV_TEXT_ALIGN_CENTER, 0);
+    s_aps.cursor = label(s_aps_scr, 38, 0, &rift_font_16, C_CYAN);
+    lv_obj_t *f;
+    footer(s_aps_scr, &f, "OK 选择 · 长按OK 返回");
+}
+
+void rift_view_aps_refresh(const rift_blufi_ap_t *aps, int n, int cursor,
+                           const char *status) {
+    bool list = aps && n > 0;
+    if (list)
+        lv_obj_add_flag(s_aps.center, LV_OBJ_FLAG_HIDDEN);
+    else {
+        lv_label_set_text(s_aps.center, status ? status : "");
+        lv_obj_remove_flag(s_aps.center, LV_OBJ_FLAG_HIDDEN);
+    }
+    int first = cursor >= APS_ROWS ? cursor - (APS_ROWS - 1) : 0;
+    for (int i = 0; i < APS_ROWS; i++) {
+        int idx = first + i;
+        if (idx < n) {
+            char b[8];
+            snprintf(b, sizeof b, "%d", aps[idx].rssi);
+            lv_label_set_text(s_aps.rssi[i], b);
+            lv_label_set_text(s_aps.row[i], aps[idx].ssid);
+            lv_label_set_text(s_aps.auth[i], aps[idx].auth ? "密" : "开放");
+            lv_obj_set_style_text_color(s_aps.row[i],
+                                        idx == cursor ? C_CYAN : C_MAIN, 0);
+        } else {
+            lv_label_set_text(s_aps.rssi[i], "");
+            lv_label_set_text(s_aps.row[i], "");
+            lv_label_set_text(s_aps.auth[i], "");
+        }
+    }
+    if (list) {
+        lv_obj_set_y(s_aps.cursor, 40 + (cursor - first) * 30 + 7);
+        lv_label_set_text(s_aps.cursor, ">");
+    } else {
+        lv_label_set_text(s_aps.cursor, "");
+    }
+}
+
+/* --- keyboard ------------------------------------------------------------------------ */
+
+#define KB_KEYS_MAX 34   /* 30 symbol-page cells + 4 specials */
+
+static lv_obj_t *s_kb_scr;
+static struct {
+    lv_obj_t *echo, *status;
+    lv_obj_t *key[KB_KEYS_MAX], *key_label[KB_KEYS_MAX];
+} s_kb;
+
+/* Special-row labels; the mode key shows the page the next press lands on. */
+static void kb_key_text(const rift_kb_cell_t *cell, char *out) {
+    switch (cell->kind) {
+    case RIFT_KC_CHAR:
+        out[0] = cell->ch;
+        out[1] = '\0';
+        break;
+    case RIFT_KC_SPACE:
+        strcpy(out, "空格");
+        break;
+    case RIFT_KC_DEL:
+        strcpy(out, "删除");
+        break;
+    case RIFT_KC_MODE: {
+        static const char *NEXT[RIFT_KB_MODE_COUNT] = {"Aa", "123", "abc"};
+        strcpy(out, NEXT[(rift_kb_mode() + 1) % RIFT_KB_MODE_COUNT]);
+        break;
+    }
+    case RIFT_KC_DONE:
+    default:
+        strcpy(out, "完成");
+        break;
+    }
+}
+
+void rift_view_kb_create(const char *title) {
+    s_kb_scr = screen();
+    lv_obj_t *t, *r;
+    band(s_kb_scr, &t, &r, C_EDGE_GOLD);
+    lv_label_set_text(t, title);
+    lv_obj_t *box = panel(s_kb_scr, 4, 40, 232, 28, C_STRIP_BG, C_EDGE);
+    s_kb.echo = label(box, 8, 6, &rift_font_16, C_MAIN);
+    lv_obj_set_width(s_kb.echo, 216);
+    lv_label_set_long_mode(s_kb.echo, LV_LABEL_LONG_DOT);
+    s_kb.status = label(s_kb_scr, 4, 72, &rift_font_16, C_RED);
+    int index = 0;
+    for (int row = 0; row < rift_kb_row_count(); row++) {
+        int cols = rift_kb_row_cells(row);
+        for (int col = 0; col < cols; col++) {
+            bool special = row == 3;
+            int x = special ? 2 + col * 60
+                            : (240 - cols * 24) / 2 + 1 + col * 24;
+            int y = 96 + row * 46;
+            s_kb.key[index] = panel(s_kb_scr, x, y, special ? 56 : 22, 36,
+                                    C_PANEL_BG, C_EDGE);
+            s_kb.key_label[index] = label(s_kb.key[index], 0, 9,
+                                          &rift_font_16, C_MAIN);
+            lv_obj_set_width(s_kb.key_label[index], special ? 56 : 22);
+            lv_obj_set_style_text_align(s_kb.key_label[index],
+                                        LV_TEXT_ALIGN_CENTER, 0);
+            index++;
+        }
+    }
+    lv_obj_t *f;
+    footer(s_kb_scr, &f, "OK 输入 · UP/DOWN 移动 · 长按OK 返回");
+}
+
+void rift_view_kb_refresh(bool mask, const char *status) {
+    char b[28];   /* 27-char echo window + NUL */
+    int len = rift_kb_len();
+    if (mask) {
+        len = len > 27 ? 27 : len;   /* echo window; DOT tail shows more */
+        for (int i = 0; i < len; i++) b[i] = '*';
+        b[len] = '\0';
+    } else {
+        snprintf(b, sizeof b, "%.27s", rift_kb_text());
+    }
+    lv_label_set_text(s_kb.echo, b);
+    lv_label_set_text(s_kb.status, status ? status : "");
+    int cursor = rift_kb_cursor();
+    int index = 0;
+    for (int row = 0; row < rift_kb_row_count(); row++) {
+        int cols = rift_kb_row_cells(row);
+        for (int col = 0; col < cols; col++) {
+            const rift_kb_cell_t *cell = rift_kb_cell(index);
+            char text[12];
+            kb_key_text(cell, text);
+            lv_label_set_text(s_kb.key_label[index], text);
+            bool selected = index == cursor;
+            lv_obj_set_style_bg_color(s_kb.key[index],
+                                      selected ? C_TRACK : C_PANEL_BG, 0);
+            lv_obj_set_style_border_color(s_kb.key[index],
+                                          selected ? C_CYAN : C_EDGE, 0);
+            index++;
+        }
+    }
 }

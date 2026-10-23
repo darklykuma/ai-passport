@@ -17,6 +17,7 @@ typedef enum {
     BSP_BTN_CLICK,       // 单击(按下并抬起)
     BSP_BTN_DOUBLE,      // 双击
     BSP_BTN_LONG,        // 长按
+    BSP_BTN_HOLD,        // 长按后的周期连发(按住期间持续回调,键盘/列表快速滚动)
 } bsp_btn_ev_t;
 
 // 按键事件回调。运行于 button 组件使用的共享 esp_timer 任务,只能入队或执行同等级
