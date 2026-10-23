@@ -9,6 +9,7 @@ SOURCES = [
     ROOT / "main" / "rift_app.c",
     ROOT / "main" / "rift_view.c",
     ROOT / "main" / "rift_model.c",
+    ROOT / "main" / "rift_champs.c",
 ]
 CHARSET = ROOT / "assets" / "fonts" / "rift_charset.txt"
 

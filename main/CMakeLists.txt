@@ -5,6 +5,7 @@
 idf_component_register(
     SRCS "main.c"
          "rift_model.c"
+         "rift_champs.c"
          "rift_kb.c"
          "rift_view.c"
          "rift_app.c"

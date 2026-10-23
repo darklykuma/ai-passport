@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "rift_champs.h"
 #include "rift_kb.h"
 
 LV_FONT_DECLARE(rift_font_16);
@@ -368,13 +369,18 @@ void rift_view_match_refresh(const rift_match_t *m, int cur_game) {
 static lv_obj_t *s_game_scr;
 static struct {
     lv_obj_t *title, *bp_tab, *kda_tab;
-    lv_obj_t *ban_note;
-    lv_obj_t *bp_rows[10];      /* role+name+champ per player */
-    struct { lv_obj_t *name, *kda, *cs, *gold; } kda_rows[10];
-    lv_obj_t *team_head[2];
+    lv_obj_t *head[2];          /* per-side team line, both views */
+    struct { lv_obj_t *role, *name, *champ; } bp[10];
+    struct { lv_obj_t *name, *kda, *cs; } kda[10];
 } s_game;
 
 static const char *ROLE[5] = {"上", "野", "中", "下", "辅"};
+
+/* Shared grid for both views: team heads at 38/162, five 20px rows under
+ * each (design page 05; page 06 uses the same rows at 19px pitch). */
+static int game_row_y(int i) {
+    return 60 + (i % 5) * 20 + (i / 5) * 124;
+}
 
 void rift_view_game_create(void) {
     s_game_scr = screen();
@@ -392,34 +398,40 @@ void rift_view_game_create(void) {
     lv_obj_set_width(kdat, 36);
     lv_obj_set_style_text_align(kdat, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(kdat, "KDA");
-    s_game.ban_note = label(s_game_scr, 0, 38, &rift_font_16, C_DIM);
-    lv_obj_set_width(s_game.ban_note, 228);
-    lv_obj_set_style_text_align(s_game.ban_note, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_label_set_text(s_game.ban_note, "BAN数据源待接入");
-    for (int i = 0; i < 10; i++) {
-        int y = 58 + (i % 5) * 20 + (i / 5) * 102;
-        s_game.bp_rows[i] = label(s_game_scr, 12, y, &rift_font_16, C_MAIN);
-        int ky = 38 + (i % 5) * 19 + (i / 5) * 100;
-        s_game.kda_rows[i].name = label(s_game_scr, 14, ky + (i / 5) * 2,
-                                        &rift_font_16, C_MAIN);
-        s_game.kda_rows[i].kda = label(s_game_scr, 100, ky + (i / 5) * 2,
-                                       &rift_font_16, C_MAIN);
-        s_game.kda_rows[i].cs = label(s_game_scr, 150, ky + (i / 5) * 2,
-                                      &rift_font_16, C_DIM);
-        s_game.kda_rows[i].gold = label(s_game_scr, 190, ky + (i / 5) * 2,
-                                        &rift_font_16, C_DIM);
-    }
     for (int i = 0; i < 2; i++)
-        s_game.team_head[i] = label(s_game_scr, 14, 38, &rift_font_16,
-                                    i == 0 ? C_BLUE : C_RED);
+        s_game.head[i] = label(s_game_scr, 14, 38 + i * 124, &rift_font_16,
+                               i == 0 ? C_BLUE : C_RED);
+    for (int i = 0; i < 10; i++) {
+        int y = game_row_y(i);
+        lv_color_t side = i < 5 ? C_BLUE : C_RED;
+        s_game.bp[i].role = label(s_game_scr, 12, y, &rift_font_16, side);
+        s_game.bp[i].name = label(s_game_scr, 32, y, &rift_font_16, C_MAIN);
+        lv_obj_set_width(s_game.bp[i].name, 112);
+        lv_label_set_long_mode(s_game.bp[i].name, LV_LABEL_LONG_DOT);
+        s_game.bp[i].champ = label(s_game_scr, 36, y, &rift_font_16, side);
+        lv_obj_set_width(s_game.bp[i].champ, 196);
+        lv_obj_set_style_text_align(s_game.bp[i].champ,
+                                    LV_TEXT_ALIGN_RIGHT, 0);
+        s_game.kda[i].name = label(s_game_scr, 14, y, &rift_font_16, C_MAIN);
+        lv_obj_set_width(s_game.kda[i].name, 84);
+        lv_label_set_long_mode(s_game.kda[i].name, LV_LABEL_LONG_DOT);
+        s_game.kda[i].kda = label(s_game_scr, 100, y, &rift_font_16, C_MAIN);
+        s_game.kda[i].cs = label(s_game_scr, 150, y, &rift_font_16, C_DIM);
+    }
     lv_obj_t *f;
     footer(s_game_scr, &f, "OK 切换KDA · 长按OK 返回");
 }
 
 void rift_view_game_refresh(const rift_match_t *m, int game_idx, bool kda) {
     char b[48];
-    snprintf(b, sizeof b, "第%d场 %s", game_idx + 1,
-             m->games[game_idx].state == RIFT_ST_DONE ? "已结束" : "未结束");
+    uint8_t st = m->games[game_idx].state;
+    uint8_t win = m->games[game_idx].winner;
+    if (st == RIFT_ST_DONE && win)
+        snprintf(b, sizeof b, "第%d场 %s胜", game_idx + 1,
+                 win == 1 ? m->code1 : m->code2);
+    else
+        snprintf(b, sizeof b, "第%d场 %s", game_idx + 1,
+                 st == RIFT_ST_DONE ? "已结束" : "未结束");
     lv_label_set_text(s_game.title, b);
     lv_obj_set_style_bg_color(s_game.bp_tab, kda ? C_PANEL_BG2 : C_CYAN, 0);
     lv_obj_set_style_border_color(s_game.bp_tab, kda ? C_EDGE : C_CYAN, 0);
@@ -428,51 +440,45 @@ void rift_view_game_refresh(const rift_match_t *m, int game_idx, bool kda) {
 
     const rift_side_t *sides[2] = {&m->blue, &m->red};
     for (int side = 0; side < 2; side++) {
+        const rift_side_t *sd = sides[side];
+        const char *code = side == 0 ? m->code1 : m->code2;
+        if (kda)
+            snprintf(b, sizeof b, "%s  %d杀 · %dk", code, sd->kills,
+                     sd->gold / 1000);
+        else
+            snprintf(b, sizeof b, "%s · %s", code,
+                     side == 0 ? "蓝方" : "红方");
+        lv_label_set_text(s_game.head[side], b);
         for (int i = 0; i < 5; i++) {
-            const rift_player_t *p = &sides[side]->p[i];
+            const rift_player_t *p = &sd->p[i];
             int idx = side * 5 + i;
-            /* BP view: 上 Canna · Jayce */
-            snprintf(b, sizeof b, "%s %s  ·  %s", ROLE[i], p->who, p->champ);
-            lv_label_set_text(s_game.bp_rows[idx], b);
-            lv_obj_set_style_text_color(
-                s_game.bp_rows[idx], side == 0 ? C_BLUE : C_RED, 0);
-            /* KDA view */
+            lv_label_set_text(s_game.bp[idx].role, ROLE[i]);
+            lv_label_set_text(s_game.bp[idx].name, p->who);
+            lv_label_set_text(s_game.bp[idx].champ, rift_champ_zh(p->champ));
             snprintf(b, sizeof b, "%d/%d/%d", p->k, p->d, p->a);
-            lv_label_set_text(s_game.kda_rows[idx].kda, b);
+            lv_label_set_text(s_game.kda[idx].kda, b);
             snprintf(b, sizeof b, "%d", p->cs);
-            lv_label_set_text(s_game.kda_rows[idx].cs, b);
-            snprintf(b, sizeof b, "%dk", p->cs * 0 + sides[side]->gold / 5000);
-            lv_label_set_text(s_game.kda_rows[idx].gold, b);
-            lv_label_set_text(s_game.kda_rows[idx].name, p->who);
+            lv_label_set_text(s_game.kda[idx].cs, b);
+            lv_label_set_text(s_game.kda[idx].name, p->who);
         }
-        snprintf(b, sizeof b, "%s  %d杀 · %dk", side == 0 ? m->code1 : m->code2,
-                 sides[side]->kills, sides[side]->gold / 1000);
-        lv_label_set_text(s_game.team_head[side], b);
     }
-    /* visibility: hide the inactive view's objects */
     for (int i = 0; i < 10; i++) {
-        if (kda) {
-            lv_obj_add_flag(s_game.bp_rows[i], LV_OBJ_FLAG_HIDDEN);
-            lv_obj_clear_flag(s_game.kda_rows[i].name, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_clear_flag(s_game.kda_rows[i].kda, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_clear_flag(s_game.kda_rows[i].cs, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_clear_flag(s_game.bp_rows[i], LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(s_game.kda_rows[i].name, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(s_game.kda_rows[i].kda, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(s_game.kda_rows[i].cs, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_t *bp_objs[3] = {s_game.bp[i].role, s_game.bp[i].name,
+                                s_game.bp[i].champ};
+        for (int j = 0; j < 3; j++) {
+            if (kda) lv_obj_add_flag(bp_objs[j], LV_OBJ_FLAG_HIDDEN);
+            else lv_obj_clear_flag(bp_objs[j], LV_OBJ_FLAG_HIDDEN);
         }
-        lv_obj_add_flag(s_game.kda_rows[i].gold, LV_OBJ_FLAG_HIDDEN);
+        if (kda) {
+            lv_obj_clear_flag(s_game.kda[i].name, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(s_game.kda[i].kda, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(s_game.kda[i].cs, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_game.kda[i].name, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(s_game.kda[i].kda, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(s_game.kda[i].cs, LV_OBJ_FLAG_HIDDEN);
+        }
     }
-    for (int i = 0; i < 2; i++) {
-        int y = kda ? (36 + i * 100) : -20;
-        lv_obj_set_pos(s_game.team_head[i], 14, y);
-        lv_obj_add_flag(s_game.team_head[i],
-                        kda ? 0 : LV_OBJ_FLAG_HIDDEN);
-    }
-    lv_obj_add_flag(s_game.ban_note, kda ? LV_OBJ_FLAG_HIDDEN : 0);
-    lv_obj_t *f = lv_obj_get_child(s_game_scr, -1);
-    (void)f;
 }
 
 /* --- live ------------------------------------------------------------------- */

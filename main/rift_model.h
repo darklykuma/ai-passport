@@ -6,8 +6,8 @@
 //   getSchedule      — event list with per-match teams/score/BO (paged)
 //   getEventDetails  — per-match game list (ids, state, side)
 //   feed livestats window — per-game roster/champions + final-frame stats
-// Bans are NOT available from any reachable source in v1; the UI reserves a
-// ban strip but the model carries no ban data.
+// Bans are NOT available from any reachable source in v1; the BP page shows
+// picks only and the model carries no ban data.
 #pragma once
 
 #include <stdbool.h>
