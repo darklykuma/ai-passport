@@ -310,7 +310,7 @@ void rift_view_match_create(void) {
         s_match.card[i] = panel(s_match_scr, 4, y, 232, 30, C_PANEL_BG,
                                 C_EDGE);
         lv_obj_t *g = label(s_match.card[i], 16, 5, &rift_font_16, C_DIM);
-        g_name[i] = g;
+        s_match.g_name[i] = g;
         s_match.g_res[i] = label(s_match.card[i], 48, 5, &rift_font_16,
                                  C_DIM);
         s_match.g_dur[i] = label(s_match.card[i], 150, 5, &rift_font_16,
@@ -321,9 +321,6 @@ void rift_view_match_create(void) {
     lv_obj_t *f;
     footer(s_match_scr, &f, "OK 小场详情 · 长按OK 返回");
 }
-
-/* small scratch buffer shared by refresh paths */
-static char *bf(void) { static char b[64]; return b; }
 
 void rift_view_match_refresh(const rift_match_t *m, int cur_game) {
     char b[64];
@@ -347,7 +344,7 @@ void rift_view_match_refresh(const rift_match_t *m, int cur_game) {
                                       0);
         char gl[8];
         snprintf(gl, sizeof gl, "G%d", i + 1);
-        lv_obj_t *glab = g_name[i];
+        lv_obj_t *glab = s_match.g_name[i];
         lv_label_set_text(glab, gl);
         lv_label_set_text(s_match.g_res[i],
                           m->games[i].state == RIFT_ST_DONE
