@@ -268,9 +268,10 @@ void rift_view_home_refresh(const rift_match_t *ms, const rift_day_t *days,
         if (days[i].day > cur_day) { nd = i; break; }
     if (nd >= 0) {
         const rift_match_t *m = &ms[days[nd].first];
-        rift_fmt_hhmm(m->start, b, sizeof b);
+        char tm[8];
+        rift_fmt_hhmm(m->start, tm, sizeof tm);
         char t2[48];
-        snprintf(t2, sizeof t2, "次日 %s %s vs %s", b + 0, m->code1, m->code2);
+        snprintf(t2, sizeof t2, "次日 %s %s vs %s", tm, m->code1, m->code2);
         /* "HH:MM" is all we want; strip to time text */
         lv_label_set_text(s_home.row[2].time, t2);
         lv_obj_set_style_text_color(s_home.row[2].time,
