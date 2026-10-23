@@ -1,0 +1,702 @@
+{
+ "patch": "16.21.1",
+ "updated": "2026-10-23",
+ "note": "ddragon zh_CN champion.json stores title in 'name' and proper name in 'title'; normalized here: name = display proper name, compound names keep only the first segment (e.g. 烈娜塔 · 戈拉斯克->烈娜塔, 努努和威朗普->努努; official full name kept in name_full), title = epithet",
+ "champions": {
+  "Aatrox": {
+   "name": "亚托克斯",
+   "title": "暗裔剑魔"
+  },
+  "Ahri": {
+   "name": "阿狸",
+   "title": "九尾妖狐"
+  },
+  "Akali": {
+   "name": "阿卡丽",
+   "title": "离群之刺"
+  },
+  "Akshan": {
+   "name": "阿克尚",
+   "title": "影哨"
+  },
+  "Alistar": {
+   "name": "阿利斯塔",
+   "title": "牛头酋长"
+  },
+  "Ambessa": {
+   "name": "安蓓萨",
+   "title": "铁血狼母"
+  },
+  "Amumu": {
+   "name": "阿木木",
+   "title": "殇之木乃伊"
+  },
+  "Anivia": {
+   "name": "艾尼维亚",
+   "title": "冰晶凤凰"
+  },
+  "Annie": {
+   "name": "安妮",
+   "title": "黑暗之女"
+  },
+  "Aphelios": {
+   "name": "厄斐琉斯",
+   "title": "残月之肃"
+  },
+  "Ashe": {
+   "name": "艾希",
+   "title": "寒冰射手"
+  },
+  "AurelionSol": {
+   "name": "奥瑞利安",
+   "title": "铸星龙王",
+   "name_full": "奥瑞利安·索尔"
+  },
+  "Aurora": {
+   "name": "阿萝拉",
+   "title": "双界灵兔"
+  },
+  "Azir": {
+   "name": "阿兹尔",
+   "title": "沙漠皇帝"
+  },
+  "Bard": {
+   "name": "巴德",
+   "title": "星界游神"
+  },
+  "Belveth": {
+   "name": "卑尔维斯",
+   "title": "虚空女皇"
+  },
+  "Blitzcrank": {
+   "name": "布里茨",
+   "title": "蒸汽机器人"
+  },
+  "Brand": {
+   "name": "布兰德",
+   "title": "复仇焰魂"
+  },
+  "Braum": {
+   "name": "布隆",
+   "title": "弗雷尔卓德之心"
+  },
+  "Briar": {
+   "name": "贝蕾亚",
+   "title": "狂厄蔷薇"
+  },
+  "Caitlyn": {
+   "name": "凯特琳",
+   "title": "皮城女警"
+  },
+  "Camille": {
+   "name": "卡蜜尔",
+   "title": "青钢影"
+  },
+  "Cassiopeia": {
+   "name": "卡西奥佩娅",
+   "title": "魔蛇之拥"
+  },
+  "Chogath": {
+   "name": "科加斯",
+   "title": "虚空恐惧"
+  },
+  "Corki": {
+   "name": "库奇",
+   "title": "英勇投弹手"
+  },
+  "Darius": {
+   "name": "德莱厄斯",
+   "title": "诺克萨斯之手"
+  },
+  "Diana": {
+   "name": "黛安娜",
+   "title": "皎月女神"
+  },
+  "DrMundo": {
+   "name": "蒙多医生",
+   "title": "祖安狂人"
+  },
+  "Draven": {
+   "name": "德莱文",
+   "title": "荣耀行刑官"
+  },
+  "Ekko": {
+   "name": "艾克",
+   "title": "时间刺客"
+  },
+  "Elise": {
+   "name": "伊莉丝",
+   "title": "蜘蛛女皇"
+  },
+  "Evelynn": {
+   "name": "伊芙琳",
+   "title": "痛苦之拥"
+  },
+  "Ezreal": {
+   "name": "伊泽瑞尔",
+   "title": "探险家"
+  },
+  "Fiddlesticks": {
+   "name": "费德提克",
+   "title": "远古恐惧"
+  },
+  "Fiora": {
+   "name": "菲奥娜",
+   "title": "无双剑姬"
+  },
+  "Fizz": {
+   "name": "菲兹",
+   "title": "潮汐海灵"
+  },
+  "Galio": {
+   "name": "加里奥",
+   "title": "正义巨像"
+  },
+  "Gangplank": {
+   "name": "普朗克",
+   "title": "海洋之灾"
+  },
+  "Garen": {
+   "name": "盖伦",
+   "title": "德玛西亚之力"
+  },
+  "Gnar": {
+   "name": "纳尔",
+   "title": "迷失之牙"
+  },
+  "Gragas": {
+   "name": "古拉加斯",
+   "title": "酒桶"
+  },
+  "Graves": {
+   "name": "格雷福斯",
+   "title": "法外狂徒"
+  },
+  "Gwen": {
+   "name": "格温",
+   "title": "灵罗娃娃"
+  },
+  "Hecarim": {
+   "name": "赫卡里姆",
+   "title": "战争之影"
+  },
+  "Heimerdinger": {
+   "name": "黑默丁格",
+   "title": "大发明家"
+  },
+  "Hwei": {
+   "name": "彗",
+   "title": "异画师"
+  },
+  "Illaoi": {
+   "name": "俄洛伊",
+   "title": "海兽祭司"
+  },
+  "Irelia": {
+   "name": "艾瑞莉娅",
+   "title": "刀锋舞者"
+  },
+  "Ivern": {
+   "name": "艾翁",
+   "title": "翠神"
+  },
+  "Janna": {
+   "name": "迦娜",
+   "title": "风暴之怒"
+  },
+  "JarvanIV": {
+   "name": "嘉文四世",
+   "title": "德玛西亚皇子"
+  },
+  "Jax": {
+   "name": "贾克斯",
+   "title": "武器大师"
+  },
+  "Jayce": {
+   "name": "杰斯",
+   "title": "未来守护者"
+  },
+  "Jhin": {
+   "name": "烬",
+   "title": "戏命师"
+  },
+  "Jinx": {
+   "name": "金克丝",
+   "title": "暴走萝莉"
+  },
+  "KSante": {
+   "name": "奎桑提",
+   "title": "纳祖芒荣耀"
+  },
+  "Kaisa": {
+   "name": "卡莎",
+   "title": "虚空之女"
+  },
+  "Kalista": {
+   "name": "卡莉丝塔",
+   "title": "复仇之矛"
+  },
+  "Karma": {
+   "name": "卡尔玛",
+   "title": "天启者"
+  },
+  "Karthus": {
+   "name": "卡尔萨斯",
+   "title": "死亡颂唱者"
+  },
+  "Kassadin": {
+   "name": "卡萨丁",
+   "title": "虚空行者"
+  },
+  "Katarina": {
+   "name": "卡特琳娜",
+   "title": "不祥之刃"
+  },
+  "Kayle": {
+   "name": "凯尔",
+   "title": "正义天使"
+  },
+  "Kayn": {
+   "name": "凯隐",
+   "title": "影流之镰"
+  },
+  "Kennen": {
+   "name": "凯南",
+   "title": "狂暴之心"
+  },
+  "Khazix": {
+   "name": "卡兹克",
+   "title": "虚空掠夺者"
+  },
+  "Kindred": {
+   "name": "千珏",
+   "title": "永猎双子"
+  },
+  "Kled": {
+   "name": "克烈",
+   "title": "暴怒骑士"
+  },
+  "KogMaw": {
+   "name": "克格莫",
+   "title": "深渊巨口"
+  },
+  "Leblanc": {
+   "name": "乐芙兰",
+   "title": "诡术妖姬"
+  },
+  "LeeSin": {
+   "name": "李青",
+   "title": "盲僧"
+  },
+  "Leona": {
+   "name": "蕾欧娜",
+   "title": "曙光女神"
+  },
+  "Lillia": {
+   "name": "莉莉娅",
+   "title": "含羞蓓蕾"
+  },
+  "Lissandra": {
+   "name": "丽桑卓",
+   "title": "冰霜女巫"
+  },
+  "Locke": {
+   "name": "洛克",
+   "title": "灰烬驱魔人"
+  },
+  "Lucian": {
+   "name": "卢锡安",
+   "title": "圣枪游侠"
+  },
+  "Lulu": {
+   "name": "璐璐",
+   "title": "仙灵女巫"
+  },
+  "Lux": {
+   "name": "拉克丝",
+   "title": "光辉女郎"
+  },
+  "Malphite": {
+   "name": "墨菲特",
+   "title": "熔岩巨兽"
+  },
+  "Malzahar": {
+   "name": "玛尔扎哈",
+   "title": "虚空先知"
+  },
+  "Maokai": {
+   "name": "茂凯",
+   "title": "扭曲树精"
+  },
+  "MasterYi": {
+   "name": "易",
+   "title": "无极剑圣"
+  },
+  "Mel": {
+   "name": "梅尔",
+   "title": "流光镜影"
+  },
+  "Milio": {
+   "name": "米利欧",
+   "title": "明烛"
+  },
+  "MissFortune": {
+   "name": "厄运小姐",
+   "title": "赏金猎人"
+  },
+  "MonkeyKing": {
+   "name": "孙悟空",
+   "title": "齐天大圣"
+  },
+  "Mordekaiser": {
+   "name": "莫德凯撒",
+   "title": "铁铠冥魂"
+  },
+  "Morgana": {
+   "name": "莫甘娜",
+   "title": "堕落天使"
+  },
+  "Naafiri": {
+   "name": "纳亚菲利",
+   "title": "百裂冥犬"
+  },
+  "Nami": {
+   "name": "娜美",
+   "title": "唤潮鲛姬"
+  },
+  "Nasus": {
+   "name": "内瑟斯",
+   "title": "沙漠死神"
+  },
+  "Nautilus": {
+   "name": "诺提勒斯",
+   "title": "深海泰坦"
+  },
+  "Neeko": {
+   "name": "妮蔻",
+   "title": "万花通灵"
+  },
+  "Nidalee": {
+   "name": "奈德丽",
+   "title": "狂野女猎手"
+  },
+  "Nilah": {
+   "name": "尼菈",
+   "title": "不羁之悦"
+  },
+  "Nocturne": {
+   "name": "魔腾",
+   "title": "永恒梦魇"
+  },
+  "Nunu": {
+   "name": "努努",
+   "title": "雪原双子",
+   "name_full": "努努和威朗普"
+  },
+  "Olaf": {
+   "name": "奥拉夫",
+   "title": "狂战士"
+  },
+  "Orianna": {
+   "name": "奥莉安娜",
+   "title": "发条魔灵"
+  },
+  "Ornn": {
+   "name": "奥恩",
+   "title": "山隐之焰"
+  },
+  "Pantheon": {
+   "name": "潘森",
+   "title": "不屈之枪"
+  },
+  "Poppy": {
+   "name": "波比",
+   "title": "圣锤之毅"
+  },
+  "Pyke": {
+   "name": "派克",
+   "title": "血港鬼影"
+  },
+  "Qiyana": {
+   "name": "奇亚娜",
+   "title": "元素女皇"
+  },
+  "Quinn": {
+   "name": "奎因",
+   "title": "德玛西亚之翼"
+  },
+  "Rakan": {
+   "name": "洛",
+   "title": "幻翎"
+  },
+  "Rammus": {
+   "name": "拉莫斯",
+   "title": "披甲龙龟"
+  },
+  "RekSai": {
+   "name": "雷克塞",
+   "title": "虚空遁地兽"
+  },
+  "Rell": {
+   "name": "芮尔",
+   "title": "镕铁少女"
+  },
+  "Renata": {
+   "name": "烈娜塔",
+   "title": "炼金男爵",
+   "name_full": "烈娜塔 · 戈拉斯克"
+  },
+  "Renekton": {
+   "name": "雷克顿",
+   "title": "荒漠屠夫"
+  },
+  "Rengar": {
+   "name": "雷恩加尔",
+   "title": "傲之追猎者"
+  },
+  "Riven": {
+   "name": "锐雯",
+   "title": "放逐之刃"
+  },
+  "Rumble": {
+   "name": "兰博",
+   "title": "机械公敌"
+  },
+  "Ryze": {
+   "name": "瑞兹",
+   "title": "符文法师"
+  },
+  "Samira": {
+   "name": "莎弥拉",
+   "title": "沙漠玫瑰"
+  },
+  "Sejuani": {
+   "name": "瑟庄妮",
+   "title": "北地之怒"
+  },
+  "Senna": {
+   "name": "赛娜",
+   "title": "涤魂圣枪"
+  },
+  "Seraphine": {
+   "name": "萨勒芬妮",
+   "title": "星籁歌姬"
+  },
+  "Sett": {
+   "name": "瑟提",
+   "title": "腕豪"
+  },
+  "Shaco": {
+   "name": "萨科",
+   "title": "恶魔小丑"
+  },
+  "Shen": {
+   "name": "慎",
+   "title": "暮光之眼"
+  },
+  "Shyvana": {
+   "name": "希瓦娜",
+   "title": "龙血武姬"
+  },
+  "Singed": {
+   "name": "辛吉德",
+   "title": "炼金术士"
+  },
+  "Sion": {
+   "name": "赛恩",
+   "title": "亡灵战神"
+  },
+  "Sivir": {
+   "name": "希维尔",
+   "title": "战争女神"
+  },
+  "Skarner": {
+   "name": "斯卡纳",
+   "title": "上古领主"
+  },
+  "Smolder": {
+   "name": "斯莫德",
+   "title": "炽炎雏龙"
+  },
+  "Sona": {
+   "name": "娑娜",
+   "title": "琴瑟仙女"
+  },
+  "Soraka": {
+   "name": "索拉卡",
+   "title": "众星之子"
+  },
+  "Swain": {
+   "name": "斯维因",
+   "title": "诺克萨斯统领"
+  },
+  "Sylas": {
+   "name": "塞拉斯",
+   "title": "解脱者"
+  },
+  "Syndra": {
+   "name": "辛德拉",
+   "title": "暗黑元首"
+  },
+  "TahmKench": {
+   "name": "塔姆",
+   "title": "河流之王"
+  },
+  "Taliyah": {
+   "name": "塔莉垭",
+   "title": "岩雀"
+  },
+  "Talon": {
+   "name": "泰隆",
+   "title": "刀锋之影"
+  },
+  "Taric": {
+   "name": "塔里克",
+   "title": "瓦洛兰之盾"
+  },
+  "Teemo": {
+   "name": "提莫",
+   "title": "迅捷斥候"
+  },
+  "Thresh": {
+   "name": "锤石",
+   "title": "魂锁典狱长"
+  },
+  "Tristana": {
+   "name": "崔丝塔娜",
+   "title": "麦林炮手"
+  },
+  "Trundle": {
+   "name": "特朗德尔",
+   "title": "巨魔之王"
+  },
+  "Tryndamere": {
+   "name": "泰达米尔",
+   "title": "蛮族之王"
+  },
+  "TwistedFate": {
+   "name": "崔斯特",
+   "title": "卡牌大师"
+  },
+  "Twitch": {
+   "name": "图奇",
+   "title": "瘟疫之源"
+  },
+  "Udyr": {
+   "name": "乌迪尔",
+   "title": "兽灵行者"
+  },
+  "Urgot": {
+   "name": "厄加特",
+   "title": "无畏战车"
+  },
+  "Varus": {
+   "name": "韦鲁斯",
+   "title": "惩戒之箭"
+  },
+  "Vayne": {
+   "name": "薇恩",
+   "title": "暗夜猎手"
+  },
+  "Veigar": {
+   "name": "维迦",
+   "title": "邪恶小法师"
+  },
+  "Velkoz": {
+   "name": "维克兹",
+   "title": "虚空之眼"
+  },
+  "Vex": {
+   "name": "薇古丝",
+   "title": "愁云使者"
+  },
+  "Vi": {
+   "name": "蔚",
+   "title": "皮城执法官"
+  },
+  "Viego": {
+   "name": "佛耶戈",
+   "title": "破败之王"
+  },
+  "Viktor": {
+   "name": "维克托",
+   "title": "奥术先驱"
+  },
+  "Vladimir": {
+   "name": "弗拉基米尔",
+   "title": "猩红收割者"
+  },
+  "Volibear": {
+   "name": "沃利贝尔",
+   "title": "不灭狂雷"
+  },
+  "Warwick": {
+   "name": "沃里克",
+   "title": "祖安怒兽"
+  },
+  "Xayah": {
+   "name": "霞",
+   "title": "逆羽"
+  },
+  "Xerath": {
+   "name": "泽拉斯",
+   "title": "远古巫灵"
+  },
+  "XinZhao": {
+   "name": "赵信",
+   "title": "德邦总管"
+  },
+  "Yasuo": {
+   "name": "亚索",
+   "title": "疾风剑豪"
+  },
+  "Yone": {
+   "name": "永恩",
+   "title": "封魔剑魂"
+  },
+  "Yorick": {
+   "name": "约里克",
+   "title": "牧魂人"
+  },
+  "Yunara": {
+   "name": "芸阿娜",
+   "title": "不破之誓"
+  },
+  "Yuumi": {
+   "name": "悠米",
+   "title": "魔法猫咪"
+  },
+  "Zaahen": {
+   "name": "亚恒",
+   "title": "不落魔锋"
+  },
+  "Zac": {
+   "name": "扎克",
+   "title": "生化魔人"
+  },
+  "Zed": {
+   "name": "劫",
+   "title": "影流之主"
+  },
+  "Zeri": {
+   "name": "泽丽",
+   "title": "祖安花火"
+  },
+  "Ziggs": {
+   "name": "吉格斯",
+   "title": "爆破鬼才"
+  },
+  "Zilean": {
+   "name": "基兰",
+   "title": "时光守护者"
+  },
+  "Zoe": {
+   "name": "佐伊",
+   "title": "暮光星灵"
+  },
+  "Zyra": {
+   "name": "婕拉",
+   "title": "荆棘之兴"
+  }
+ }
+}

@@ -17,6 +17,13 @@ Data provenance (user fact-checks; do not present invented numbers as real):
 - G1 of KC 3-0 MVK (2026-10-17 02:00 BJ, Play-Ins BO5): roster, champions,
   final K/D/A, CS, and team kills/gold are the real probed window-feed
   values. Per-player gold on the KDA page is approximated.
+- The feed has no ban data, so the BP page shows picks only (no ban strip).
+- Champion names render as zh_CN proper names (杰斯, 李青…) via
+  champions_zh.json, built from Data Dragon 16.21.1 zh_CN champion.json
+  (upstream stores the epithet in "name" and the proper name in "title";
+  normalized there; compound names keep only the first segment, e.g.
+  烈娜塔, 努努). The device font subset must cover the 191 unique CJK
+  glyphs these names need.
 - Game 2/3 durations on the match page, the LIVE board scenario (GEN vs IG
   mid-game stats and both rosters), and Wi-Fi name/IP are illustrative
   placeholders. Rest day (10-22/23), TBD and unpublished rows are real.
@@ -24,6 +31,7 @@ Data provenance (user fact-checks; do not present invented numbers as real):
 Fonts approximate the device's Source Han Sans subsets with Microsoft
 YaHei at 16/20px, same as the MAFA and WILD TRACKS mockups."""
 
+import json
 import os
 from PIL import Image, ImageDraw, ImageFont
 
@@ -54,6 +62,12 @@ F20 = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", 20)
 LH16, LH20 = 19, 25
 
 OUT = os.path.dirname(os.path.abspath(__file__))
+
+with open(os.path.join(OUT, "champions_zh.json"), encoding="utf-8") as _f:
+    CHAMPS = json.load(_f)   # ddragon zh_CN 16.21.1; "name" = proper name
+
+def champ_zh(champ_id):
+    return CHAMPS["champions"].get(champ_id, {}).get("name", champ_id)
 
 def new_page():
     img = Image.new("RGB", (W, H), BG)
@@ -280,36 +294,30 @@ def p05_bp():
     text_c(d, 169, 8, "BP", F16, BG)
     d.rounded_rectangle([192, 6, 230, 26], radius=3, outline=EDGE, width=1)
     text_c(d, 211, 8, "KDA", F16, DIM)
-    # ban strip: layout reserved, v1 has no ban source yet
-    d.rounded_rectangle([4, 36, 117, 54], radius=3,
-                        fill=PANEL_BG2, outline=EDGE, width=1)
-    text(d, (10, 38), "禁", F16, BLUE)
-    text(d, (28, 38), "—  —  —  —  —", F16, DIM)
-    d.rounded_rectangle([122, 36, 235, 54], radius=3,
-                        fill=PANEL_BG2, outline=EDGE, width=1)
-    text(d, (128, 38), "禁", F16, RED)
-    text(d, (146, 38), "—  —  —  —  —", F16, DIM)
-    text_r(d, 232, 58, "BAN数据源待接入", F16, DIM)
-    # picks: real G1 window-feed roster/champions, single full-width column
+    # picks: real G1 window-feed roster/champions, single full-width column;
+    # no ban strip — the feed has no ban data (v1 shows picks only)
     blue = [("上", "Canna", "Jayce"), ("野", "Yike", "LeeSin"),
             ("中", "kyeahoo", "Cassiopeia"), ("下", "Caliste", "Zeri"),
             ("辅", "Busio", "Yuumi")]
     red = [("上", "Kratos", "Yorick"), ("野", "Gury", "JarvanIV"),
            ("中", "Chika", "Akali"), ("下", "Harky", "Ashe"),
            ("辅", "SiuLoong", "Seraphine")]
-    y = 78
+    text(d, (14, 38), "KC · 蓝方", F16, BLUE)
+    y = 60
     d.rectangle([4, y, 6, y + 99], fill=BLUE)     # blue group bar
     for role, name, champ in blue:
         text(d, (12, y), role, F16, BLUE)
         text(d, (32, y), name, F16, MAIN)
-        text_r(d, 232, y, champ, F16, BLUE)
+        text_r(d, 232, y, champ_zh(champ), F16, BLUE)
         y += 20
     y += 2
+    text(d, (14, y), "MVK · 红方", F16, RED)
+    y += 22
     d.rectangle([4, y, 6, y + 99], fill=RED)      # red group bar
     for role, name, champ in red:
         text(d, (12, y), role, F16, RED)
         text(d, (32, y), name, F16, MAIN)
-        text_r(d, 232, y, champ, F16, RED)
+        text_r(d, 232, y, champ_zh(champ), F16, RED)
         y += 20
     footer(d, "OK 切换KDA · 长按OK 返回")
     return img
