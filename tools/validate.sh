@@ -54,6 +54,10 @@ run_static_checks() {
         tests/test_bsp_audio_recovery.c components/bsp/src/bsp_es8311_sleep_check.c \
         -o "${test_dir}/test_bsp_audio_recovery"
     "${test_dir}/test_bsp_audio_recovery"
+    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -O1 \
+        tests/test_rift_model.c -o "${test_dir}/test_rift_model"
+    ( cd "${repo_root}" && "${test_dir}/test_rift_model" )
+    PYTHONDONTWRITEBYTECODE=1 python3 tests/test_rift_ui_glyphs.py
     for demo in audio low_power ble wifi; do
         "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
             -ffunction-sections -fdata-sections -Itests/demo_stubs -Imain \
