@@ -4,6 +4,8 @@
 // ±1), OK activates. The special row carries space/delete/mode/done.
 #include "rift_kb.h"
 
+#include <stddef.h>
+
 /* Letter pages are 10/9/7 qwerty rows; the symbol page is three full rows.
  * Row 4 is the special cells on every page. */
 static const char *const LAYOUT[RIFT_KB_MODE_COUNT][3] = {
