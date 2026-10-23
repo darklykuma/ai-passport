@@ -22,6 +22,7 @@
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "services/gap/ble_svc_gap.h"
+#include <stdio.h>
 #include <string.h>
 
 static const char *TAG = "rift_blufi";

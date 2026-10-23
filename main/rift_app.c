@@ -1,8 +1,8 @@
 // rift_app.c — RIFT BOARD state machine and input. Button callbacks only
 // enqueue; the app task owns all LVGL access behind bsp_lvgl_lock().
-// v1 increments ship offline-first: pages run from a bundled sample of the
-// probed 2026-10-24 Swiss round plus the KC 3:0 MVK Play-Ins series (real
-// window data); the Wi-Fi/HTTPS fetch lands in the networking increment.
+// Schedule data comes from rift_net (SNTP + HTTPS + NVS cache); until the
+// first sync lands, the pages serve the bundled probed sample (the 10-24
+// Swiss round-1 pairings and the KC 3:0 MVK Play-Ins series).
 #include "rift_app.h"
 
 #include <stdio.h>
@@ -28,15 +28,6 @@ static const char *RIFT_WIN0_ISO = "2026-10-15T00:00:00Z";
 static const char *RIFT_WIN1_ISO = "2026-11-15T23:59:59Z";
 
 typedef enum {
-    ROW_DATE = 0,      /* date bar */
-    ROW_M0, ROW_M1,    /* up to two matches */
-    ROW_TEASER,
-    ROW_COUNT
-} home_row_t;
-
-static void process_event(const input_event_t *ev);
-
-typedef enum {
     EV_BTN = 0,
     EV_NET_DIRTY,    // worker swapped the schedule; refresh from app task
     EV_DETAILS,      // per-match game list arrived
@@ -48,6 +39,15 @@ typedef struct {
     bsp_btn_t btn;
     bsp_btn_ev_t ev;
 } input_event_t;
+
+typedef enum {
+    ROW_DATE = 0,      /* date bar */
+    ROW_M0, ROW_M1,    /* up to two matches */
+    ROW_TEASER,
+    ROW_COUNT
+} home_row_t;
+
+static void process_event(const input_event_t *ev);
 
 static struct {
     QueueHandle_t queue;

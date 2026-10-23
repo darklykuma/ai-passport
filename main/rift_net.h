@@ -6,6 +6,7 @@
 #include <stdbool.h>
 
 #include "esp_err.h"
+#include "rift_model.h"
 
 typedef enum {
     RIFT_NET_IDLE = 0,

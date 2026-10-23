@@ -12,6 +12,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "esp_crt_bundle.h"
 #include "esp_http_client.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -104,18 +105,22 @@ static int http_to_buf(const char *url, char *buf, int cap) {
         esp_http_client_cleanup(client);
         return -1;
     }
+    // Response headers (and the status code) must be fetched before the
+    // body read; after close() they are gone.
+    esp_http_client_fetch_headers(client);
+    int status = esp_http_client_get_status_code(client);
     int total = 0;
-    int n;
-    while ((n = esp_http_client_read(client, buf + total, cap - total)) > 0) {
-        total += n;
-        if (total >= cap) break;
+    if (status == 200) {
+        int n;
+        while ((n = esp_http_client_read(client, buf + total, cap - total)) >
+               0) {
+            total += n;
+            if (total >= cap) break;
+        }
     }
     esp_http_client_close(client);
-    int status = esp_http_client_fetch_headers(client), status_code = 0;
-    (void)status;
-    status_code = esp_http_client_get_status_code(client);
     esp_http_client_cleanup(client);
-    if (status_code != 200 || total <= 0) return -1;
+    if (status != 200 || total <= 0) return -1;
     return total;
 }
 
