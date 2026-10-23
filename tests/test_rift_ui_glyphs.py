@@ -12,13 +12,14 @@ SOURCES = [
 ]
 CHARSET = ROOT / "assets" / "fonts" / "rift_charset.txt"
 
-CJK = re.compile(
-    r"[\u2026\u00d7\u25a0-\u25ff\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uff01-\uffee]"
-)
+# Mirror tools/gen_rift_charset.py: every non-ASCII codepoint in the UI
+# sources must have a glyph. A hand-picked CJK class once missed "·"
+# (U+00B7) and shipped boxes on every page while this test stayed green.
+NON_ASCII = re.compile(r"[^\x00-\x7f]")
 
 used = set()
 for src in SOURCES:
-    used.update(CJK.findall(src.read_text(encoding="utf-8")))
+    used.update(NON_ASCII.findall(src.read_text(encoding="utf-8")))
 
 have = set(CHARSET.read_text(encoding="utf-8").strip().split("\n"))
 have = {c for c in have if c and not c.startswith("#")}
