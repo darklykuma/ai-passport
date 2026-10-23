@@ -213,9 +213,11 @@ static void blufi_sync(void)
     int rc = esp_blufi_profile_init();
     if (rc == 0) {
         s_profile_initialized = true;
+        ESP_LOGI(TAG, "NimBLE synced, BLUFI profile init OK");
     } else {
         s_error = rc;
         s_state = RIFT_BLUFI_FAILED;
+        ESP_LOGE(TAG, "BLUFI profile init failed: %d", rc);
     }
 }
 
@@ -231,6 +233,7 @@ static void blufi_event(esp_blufi_cb_event_t event, esp_blufi_cb_param_t *param)
 {
     switch (event) {
     case ESP_BLUFI_EVENT_INIT_FINISH:
+        ESP_LOGI(TAG, "BLUFI init finish, advertising as %s", DEVICE_NAME);
         esp_blufi_adv_start_with_name(DEVICE_NAME);
         if (s_wifi_got_ip) {
             s_state = RIFT_BLUFI_WIFI_CONNECTED;
@@ -384,6 +387,7 @@ static esp_err_t host_start(void)
     s_btc_initialized = true;
     err = esp_nimble_enable(host_task);
     if (err == ESP_OK) s_host_running = true;
+    else ESP_LOGE(TAG, "nimble host enable failed: %s", esp_err_to_name(err));
     return err;
 }
 
