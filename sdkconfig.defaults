@@ -28,6 +28,12 @@ CONFIG_LV_MEM_SIZE_KILOBYTES=24
 # --- 系统 ---
 CONFIG_FREERTOS_HZ=1000
 
+# --- 三键(ADC 分压)按键手感 ---
+# 组件默认长按 1500ms 太钝(用户常在 1s 内松手,被判成单击),连发默认 20ms 太快
+# (按住一格瞬间飞过几十格)。长按 800ms 进"长按"态,连发 200ms ≈ 每秒 5 格。
+CONFIG_BUTTON_LONG_PRESS_TIME_MS=800
+CONFIG_BUTTON_LONG_PRESS_HOLD_SERIAL_TIME_MS=200
+
 # --- Bluetooth LE / NimBLE ---
 # ESP32-C3 仅支持 BLE；示例只启用单连接 peripheral 所需的最小 host 配置。
 CONFIG_BT_ENABLED=y
