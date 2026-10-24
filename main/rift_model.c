@@ -281,194 +281,443 @@ static rift_state_t state_of(const char *s, const char *c1, const char *c2) {
     return RIFT_ST_UNSTARTED;
 }
 
+/* --- streaming walker --------------------------------------------------------
+ * The device heap cannot hold a whole schedule page (44 KB against ~21 KB
+ * largest free block), so the endpoint parsers feed payload chunks through
+ * this sliding window instead. One complete JSON element at a time fits
+ * easily (largest probed event 641 B, largest details game 4.2 KB);
+ * consumed bytes slide out, so the window only ever holds one pending
+ * element plus a key-length tail while seeking. */
+
+enum { JS_SEEK_ARRAY = 0, JS_ELEMENTS, JS_SEEK_STRING, JS_DONE };
+
+static void js_slide(rift_jstream_t *s, size_t drop) {
+    if (drop >= s->len) s->len = 0;
+    else {
+        memmove(s->win, s->win + drop, s->len - drop);
+        s->len -= drop;
+    }
+    s->win[s->len] = '\0';
+}
+
+/* Offset of the quoted "key" in the window, or -1. */
+static long js_find_key(rift_jstream_t *s) {
+    size_t kq = strlen(s->key) + 2;
+    if (s->len < kq) return -1;
+    for (size_t i = 0; i + kq <= s->len; i++) {
+        if (s->win[i] == '"' && memcmp(s->win + i + 1, s->key, kq - 2) == 0
+            && s->win[i + kq - 1] == '"')
+            return (long)i;
+    }
+    return -1;
+}
+
+static void js_array(rift_jstream_t *s, const char *key, rift_elem_cb cb,
+                     void *user) {
+    s->mode = JS_SEEK_ARRAY;
+    s->key = key;
+    s->cb = cb;
+    s->user = user;
+    s->closed = false;
+    s->halted = false;
+    s->on_close = NULL;
+}
+
+static void js_string(rift_jstream_t *s, const char *key, char *out,
+                      size_t cap) {
+    s->mode = JS_SEEK_STRING;
+    s->key = key;
+    s->cb = NULL;
+    s->str_out = out;
+    s->str_cap = cap;
+    s->closed = false;
+    s->halted = false;
+    s->on_close = NULL;
+    if (out && cap) out[0] = '\0';
+}
+
+/* Consumes whatever the current mode can; -1 only on structural garbage.
+ * Running out of bytes just stops (feed refills). */
+static int js_process(rift_jstream_t *s) {
+    for (;;) {
+        if (s->mode == JS_DONE || s->halted) return 0;
+        if (s->mode == JS_SEEK_ARRAY || s->mode == JS_SEEK_STRING) {
+            long at = js_find_key(s);
+            size_t kq = strlen(s->key) + 2;
+            if (at < 0) {
+                /* keep whatever could still grow into the quoted key */
+                if (s->len > kq) js_slide(s, s->len - kq);
+                return 0;
+            }
+            jp_t j = {s->win + at + kq, s->win + s->len};
+            jp_ws(&j);
+            if (j.p >= j.end) {
+                js_slide(s, (size_t)at);   /* colon not fed yet */
+                return 0;
+            }
+            if (*j.p != ':') {
+                js_slide(s, (size_t)at + kq);   /* string value, not a key */
+                continue;
+            }
+            j.p++;
+            jp_ws(&j);
+            if (j.p >= j.end) {
+                /* value not fed yet: keep the key so it re-matches */
+                js_slide(s, (size_t)at);
+                return 0;
+            }
+            if (s->mode == JS_SEEK_ARRAY) {
+                if (*j.p != '[') {
+                    js_slide(s, (size_t)at + kq);
+                    continue;
+                }
+                js_slide(s, (size_t)(j.p + 1 - s->win));   /* past '[' */
+                s->mode = JS_ELEMENTS;
+                continue;
+            }
+            /* JS_SEEK_STRING: capture the value */
+            if (*j.p == 'n') {            /* null = oldest page reached */
+                if (s->win + s->len - j.p < 4) return 0;
+                if (memcmp(j.p, "null", 4) != 0) {
+                    js_slide(s, (size_t)at + kq);
+                    continue;
+                }
+                s->str_out[0] = '\0';
+                s->mode = JS_DONE;
+                return 0;
+            }
+            jp_t v = j;
+            if (jp_string(&v, s->str_out, (int)s->str_cap)) return 0;
+            s->mode = JS_DONE;
+            return 0;
+        }
+        /* JS_ELEMENTS: ws, then ',' | ']' | '{' object */
+        size_t i = 0;
+        while (i < s->len && (s->win[i] == ' ' || s->win[i] == '\t'
+                              || s->win[i] == '\n' || s->win[i] == '\r'))
+            i++;
+        if (i >= s->len) {
+            js_slide(s, i);
+            return 0;
+        }
+        if (s->win[i] == ',') {
+            js_slide(s, i + 1);
+            continue;
+        }
+        if (s->win[i] == ']') {
+            js_slide(s, i + 1);
+            s->mode = JS_DONE;
+            s->closed = true;
+            /* a retarget installed by the owner consumes the bytes that
+             * follow the array inside this same process pass, so a single
+             * large feed cannot drain past the boundary */
+            if (s->on_close && s->on_close(s->user) == 0) continue;
+            return 0;
+        }
+        if (s->win[i] != '{') return -1;
+        jp_t j = {s->win + i, s->win + s->len};
+        if (jp_skip(&j)) {
+            /* incomplete object: keep it whole, wait for bytes */
+            js_slide(s, i);
+            return 0;
+        }
+        size_t objlen = (size_t)(j.p - (s->win + i));
+        if (s->cb && s->cb(s->user, s->win + i, objlen) != 0) s->halted = true;
+        js_slide(s, i + objlen);
+    }
+}
+
+int rift_jstream_feed(rift_jstream_t *s, const char *data, size_t n,
+                      bool fin) {
+    (void)fin;
+    if (js_process(s)) return -1;
+    while (n > 0) {
+        if (s->mode == JS_DONE || s->halted) return 0;   /* drain the rest */
+        size_t room = s->cap - 1 - s->len;
+        if (room == 0) {
+            /* seek modes always keep only a key tail, so a full window
+             * here means one element larger than the window */
+            if (js_process(s)) return -1;
+            room = s->cap - 1 - s->len;
+            if (room == 0) return -1;
+        }
+        size_t take = n < room ? n : room;
+        memcpy(s->win + s->len, data, take);
+        s->len += take;
+        s->win[s->len] = '\0';
+        data += take;
+        n -= take;
+        if (js_process(s)) return -1;
+    }
+    return 0;
+}
+
+/* --- schedule page ---------------------------------------------------------- */
+
+/* Parses one events[] element into *m; true = a match to keep (window
+ * filtering stays with the caller, which owns the event window days). */
+static bool sched_parse_event(const char *es, const char *ee,
+                              rift_match_t *m) {
+    char type[12] = "", state[12] = "", iso[40] = "";
+    memset(m, 0, sizeof *m);
+    jp_get_str(es, ee, "type", type, sizeof type);
+    jp_get_str(es, ee, "state", state, sizeof state);
+    jp_get_str(es, ee, "blockName", m->stage, RIFT_STAGE_MAX);
+    if (jp_get_str(es, ee, "startTime", iso, sizeof iso))
+        m->start = parse_iso(iso);
+    if (strcmp(type, "match")) return false;
+
+    jp_t mv;
+    if (!jp_goto(es, ee, "match", &mv)) return false;
+    const char *ms = mv.p;
+    const char *mend = ee;
+
+    jp_get_str(ms, mend, "id", m->id, RIFT_ID_MAX);
+    long bo = 1;
+    jp_t sv;
+    if (jp_goto(ms, mend, "strategy", &sv)) {
+        const char *ss = sv.p;
+        jp_t se = sv;
+        if (jp_skip(&se)) return false;
+        jp_get_long(ss, se.p, "count", &bo);
+    }
+    m->bo = (uint8_t)bo;
+
+    jp_t tv;
+    if (!jp_goto(ms, mend, "teams", &tv)) return false;
+    if (jp_array(&tv)) return false;
+    for (int t = 0; t < 2; t++) {
+        if (jp_more(&tv) != 1) break;
+        const char *ts = tv.p;
+        jp_t te = tv;
+        if (jp_skip(&te)) return false;
+        const char *tee = te.p;
+        tv = te;
+
+        char code[RIFT_CODE_MAX] = "", name[RIFT_NAME_MAX] = "";
+        char tid[RIFT_ID_MAX] = "";
+        long wins = 0;
+        jp_get_str(ts, tee, "id", tid, sizeof tid);
+        jp_get_str(ts, tee, "code", code, sizeof code);
+        jp_get_str(ts, tee, "name", name, sizeof name);
+        jp_t rv;
+        if (jp_goto(ts, tee, "result", &rv)) {
+            const char *rs = rv.p;
+            jp_t re = rv;
+            if (jp_skip(&re)) return false;
+            jp_get_long(rs, re.p, "gameWins", &wins);
+        }
+        if (t == 0) {
+            strcpy(m->id1, tid);
+            strcpy(m->code1, code);
+            strcpy(m->name1, name);
+            m->wins1 = (uint8_t)wins;
+        } else {
+            strcpy(m->id2, tid);
+            strcpy(m->code2, code);
+            strcpy(m->name2, name);
+            m->wins2 = (uint8_t)wins;
+        }
+    }
+    m->state = state_of(state, m->code1, m->code2);
+    return true;
+}
+
+static int sched_elem(void *user, const char *elem, size_t len) {
+    rift_sched_stream_t *st = user;
+    if (st->n >= st->max) return 1;   /* full: stop consuming the page */
+    rift_match_t *m = &st->out[st->n];
+    if (!sched_parse_event(elem, elem + len, m)) return 0;
+    if (!rift_in_window(m, st->win0, st->win1)) return 0;
+    st->n++;
+    return 0;
+}
+
+static int sched_on_close(void *user) {
+    rift_sched_stream_t *st = user;
+    st->closed = true;
+    return 1;   /* no retarget: nothing parseable trails the array */
+}
+
+void rift_sched_stream_begin(rift_sched_stream_t *st, char *win, size_t cap,
+                             rift_match_t *out, int max, int win0_day,
+                             int win1_day) {
+    memset(st, 0, sizeof *st);
+    st->out = out;
+    st->max = max;
+    st->win0 = win0_day;
+    st->win1 = win1_day;
+    st->js.win = win;
+    st->js.cap = cap;
+    win[0] = '\0';
+    js_array(&st->js, "events", sched_elem, st);
+    st->js.on_close = sched_on_close;
+}
+
+int rift_sched_stream_feed(rift_sched_stream_t *st, const char *data,
+                           size_t n, bool fin) {
+    /* pages precedes events in the payload, so the head snapshot (not a
+     * tail seek) carries the pages.older token out of the stream. */
+    if (st->head_len < sizeof st->head) {
+        size_t take = sizeof st->head - st->head_len;
+        if (take > n) take = n;
+        memcpy(st->head + st->head_len, data, take);
+        st->head_len += take;
+    }
+    return rift_jstream_feed(&st->js, data, n, fin) ? -1 : 0;
+}
+
+void rift_sched_stream_older(rift_sched_stream_t *st, char *out,
+                             size_t cap) {
+    if (!st->older[0] && st->head_len) {
+        char win[256];
+        rift_jstream_t js;
+        memset(&js, 0, sizeof js);
+        js.win = win;
+        js.cap = sizeof win;
+        win[0] = '\0';
+        js_string(&js, "older", st->older, sizeof st->older);
+        rift_jstream_feed(&js, st->head, st->head_len, true);
+    }
+    snprintf(out, cap, "%s", st->older);
+}
+
 int rift_parse_schedule(const char *json, rift_match_t *out, int max,
                         int *count, int win0_day, int win1_day) {
-    jp_t j = {json, json + strlen(json)};
     *count = 0;
-    if (jp_find(&j, "data")) return -1;
-    if (jp_find(&j, "schedule")) return -1;
-    if (jp_find(&j, "events")) return -1;
-    if (jp_array(&j)) return -1;
-    int n = 0;
-    for (;;) {
-        int more = jp_more(&j);
-        if (more < 0) return -1;
-        if (!more) break;
-        if (n >= max) break;
-        const char *es = j.p;                /* element start */
-        jp_t e = j;
-        if (jp_skip(&e)) return -1;
-        const char *ee = e.p;                /* element end */
-        j = e;
+    char *win = malloc(RIFT_JSTREAM_WIN);
+    if (!win) return -1;
+    rift_sched_stream_t st;
+    rift_sched_stream_begin(&st, win, RIFT_JSTREAM_WIN, out, max, win0_day,
+                            win1_day);
+    int r = rift_sched_stream_feed(&st, json, strlen(json), true);
+    bool ok = r == 0 && st.closed;
+    if (ok) *count = st.n;
+    free(win);
+    return ok ? 0 : -1;
+}
 
-        char type[12] = "", state[12] = "", iso[40] = "";
-        rift_match_t *m = &out[n];
-        memset(m, 0, sizeof *m);
+bool rift_schedule_older(const char *json, char *out, size_t cap) {
+    out[0] = '\0';
+    char *win = malloc(256);
+    if (!win) return false;
+    rift_jstream_t js;
+    memset(&js, 0, sizeof js);
+    js.win = win;
+    js.cap = 256;
+    win[0] = '\0';
+    js_string(&js, "older", out, cap);
+    bool ok = rift_jstream_feed(&js, json, strlen(json), true) == 0
+              && js.mode == JS_DONE;
+    free(win);
+    return ok && out[0] != '\0';
+}
 
-        jp_get_str(es, ee, "type", type, sizeof type);
-        jp_get_str(es, ee, "state", state, sizeof state);
-        jp_get_str(es, ee, "blockName", m->stage, RIFT_STAGE_MAX);
-        if (jp_get_str(es, ee, "startTime", iso, sizeof iso))
-            m->start = parse_iso(iso);
-        if (strcmp(type, "match")) continue;
+/* --- getEventDetails -------------------------------------------------------- */
 
-        jp_t mv;
-        if (!jp_goto(es, ee, "match", &mv)) continue;
-        const char *ms = mv.p;
-        jp_t me = mv;
-        if (jp_skip(&me)) return -1;
-        const char *mend = me.p;
+/* --- getEventDetails (streamed: match.teams, then match.games) -------------- */
 
-        jp_get_str(ms, mend, "id", m->id, RIFT_ID_MAX);
-        long bo = 1;
-        jp_t sv;
-        if (jp_goto(ms, mend, "strategy", &sv)) {
-            const char *ss = sv.p;
-            jp_t se = sv;
-            if (jp_skip(&se)) return -1;
-            jp_get_long(ss, se.p, "count", &bo);
-        }
-        m->bo = (uint8_t)bo;
+static int details_team_elem(void *user, const char *elem, size_t len) {
+    rift_details_stream_t *st = user;
+    char tid[RIFT_ID_MAX] = "", tcode[RIFT_CODE_MAX] = "";
+    jp_get_str(elem, elem + len, "id", tid, sizeof tid);
+    jp_get_str(elem, elem + len, "code", tcode, sizeof tcode);
+    /* Team ids only exist here (the schedule payload omits them); they key
+     * the per-game side resolution in the games pass. */
+    if (st->tidx == 0) {
+        strcpy(st->m->id1, tid);
+        if (tcode[0]) strcpy(st->m->code1, tcode);
+    } else if (st->tidx == 1) {
+        strcpy(st->m->id2, tid);
+        if (tcode[0]) strcpy(st->m->code2, tcode);
+    }
+    st->tidx++;
+    return 0;
+}
 
-        jp_t tv;
-        if (!jp_goto(ms, mend, "teams", &tv)) continue;
-        if (jp_array(&tv)) continue;
-        for (int t = 0; t < 2; t++) {
-            if (jp_more(&tv) != 1) break;
+static int details_game_elem(void *user, const char *elem, size_t len) {
+    rift_details_stream_t *st = user;
+    if (st->d->game_count >= RIFT_GAMES_MAX) return 1;
+    const char *gs = elem;
+    const char *gee = elem + len;
+
+    char gid[RIFT_ID_MAX] = "", state[12] = "";
+    uint8_t side1 = 0;
+    jp_get_str(gs, gee, "id", gid, sizeof gid);
+    jp_get_str(gs, gee, "state", state, sizeof state);
+
+    jp_t tv;
+    if (jp_goto(gs, gee, "teams", &tv)) {
+        if (jp_array(&tv)) return -1;
+        for (int t = 0; t < 2 && jp_more(&tv); t++) {
             const char *ts = tv.p;
             jp_t te = tv;
             if (jp_skip(&te)) return -1;
             const char *tee = te.p;
             tv = te;
-
-            char code[RIFT_CODE_MAX] = "", name[RIFT_NAME_MAX] = "";
-            char tid[RIFT_ID_MAX] = "";
-            long wins = 0;
+            char tid[RIFT_ID_MAX] = "", side[8] = "";
             jp_get_str(ts, tee, "id", tid, sizeof tid);
-            jp_get_str(ts, tee, "code", code, sizeof code);
-            jp_get_str(ts, tee, "name", name, sizeof name);
-            jp_t rv;
-            if (jp_goto(ts, tee, "result", &rv)) {
-                const char *rs = rv.p;
-                jp_t re = rv;
-                if (jp_skip(&re)) return -1;
-                jp_get_long(rs, re.p, "gameWins", &wins);
-            }
-            if (t == 0) {
-                strcpy(m->id1, tid);
-                strcpy(m->code1, code);
-                strcpy(m->name1, name);
-                m->wins1 = (uint8_t)wins;
-            } else {
-                strcpy(m->id2, tid);
-                strcpy(m->code2, code);
-                strcpy(m->name2, name);
-                m->wins2 = (uint8_t)wins;
-            }
+            jp_get_str(ts, tee, "side", side, sizeof side);
+            /* Position t belongs to whichever schedule team id appears
+             * first here; resolve code1's side by id comparison. */
+            if (strcmp(tid, st->m->id1) == 0)
+                side1 = strcmp(side, "red") == 0 ? 1 : 0;
         }
-        m->state = state_of(state, m->code1, m->code2);
-        if (!rift_in_window(m, win0_day, win1_day)) continue;
-        n++;
     }
-    *count = n;
+    rift_detail_t *d = st->d;
+    d->games[d->game_count].state =
+        strcmp(state, "completed") == 0 ? RIFT_ST_DONE
+        : strcmp(state, "started") == 0 ? RIFT_ST_LIVE
+        : RIFT_ST_UNSTARTED;
+    strcpy(d->games[d->game_count].id, gid);
+    d->games[d->game_count].side1 = side1;
+    d->games[d->game_count].winner = 0;
+    d->game_count++;
     return 0;
 }
 
-bool rift_schedule_older(const char *json, char *out, size_t cap) {
-    out[0] = '\0';
-    jp_t j = {json, json + strlen(json)};
-    if (jp_find(&j, "data")) return false;
-    if (jp_find(&j, "schedule")) return false;
-    if (jp_find(&j, "pages")) return false;
-    if (jp_find(&j, "older")) return false;
-    /* "older": null (oldest page reached) parses as no token. */
-    char tok[256];
-    if (jp_string(&j, tok, sizeof tok)) return false;
-    snprintf(out, cap, "%s", tok);
-    return tok[0] != '\0';
+/* match.teams precedes match.games in the payload; chain the retarget at
+ * the teams close bracket so bytes arriving in the same feed survive. */
+static int details_on_close(void *user) {
+    rift_details_stream_t *st = user;
+    if (!st->teams_closed) {
+        st->teams_closed = true;
+        js_array(&st->js, "games", details_game_elem, st);
+        st->js.on_close = details_on_close;   /* js_array clears it */
+        return 0;
+    }
+    st->games_closed = true;
+    return 1;
 }
 
-/* --- getEventDetails -------------------------------------------------------- */
+void rift_details_stream_begin(rift_details_stream_t *st, char *win,
+                               size_t cap, rift_match_t *m,
+                               rift_detail_t *d) {
+    memset(st, 0, sizeof *st);
+    st->m = m;
+    st->d = d;
+    st->js.win = win;
+    st->js.cap = cap;
+    win[0] = '\0';
+    js_array(&st->js, "teams", details_team_elem, st);
+    st->js.on_close = details_on_close;
+}
+
+int rift_details_stream_feed(rift_details_stream_t *st, const char *data,
+                             size_t n, bool fin) {
+    return rift_jstream_feed(&st->js, data, n, fin) ? -1 : 0;
+}
 
 int rift_parse_event_details(const char *json, rift_match_t *m,
                              rift_detail_t *d) {
-    const char *end = json + strlen(json);
-    jp_t dv, ev, mv, gv;
-    if (!jp_goto(json, end, "data", &dv)) return -1;
-    if (!jp_goto(dv.p, end, "event", &ev)) return -1;
-    if (!jp_goto(ev.p, end, "match", &mv)) return -1;
-    /* Team ids only exist here (the schedule payload omits them); they key
-     * the per-game side resolution below. */
-    {
-        jp_t tv2;
-        if (!jp_goto(mv.p, end, "teams", &tv2)) return -1;
-        if (jp_array(&tv2)) return -1;
-        for (int t = 0; t < 2; t++) {
-            if (jp_more(&tv2) != 1) break;
-            const char *ts = tv2.p;
-            jp_t te = tv2;
-            if (jp_skip(&te)) return -1;
-            const char *tee = te.p;
-            tv2 = te;
-            char tid[RIFT_ID_MAX] = "", tcode[RIFT_CODE_MAX] = "";
-            jp_get_str(ts, tee, "id", tid, sizeof tid);
-            jp_get_str(ts, tee, "code", tcode, sizeof tcode);
-            if (t == 0) {
-                strcpy(m->id1, tid);
-                if (tcode[0]) strcpy(m->code1, tcode);
-            } else {
-                strcpy(m->id2, tid);
-                if (tcode[0]) strcpy(m->code2, tcode);
-            }
-        }
-    }
-    if (!jp_goto(mv.p, end, "games", &gv)) return -1;
-    if (jp_array(&gv)) return -1;
-
-    d->game_count = 0;
-    for (;;) {
-        int more = jp_more(&gv);
-        if (more < 0) return -1;
-        if (!more || d->game_count >= RIFT_GAMES_MAX) break;
-        const char *gs = gv.p;
-        jp_t ge = gv;
-        if (jp_skip(&ge)) return -1;
-        const char *gee = ge.p;
-        gv = ge;
-
-        char gid[RIFT_ID_MAX] = "", state[12] = "";
-        uint8_t side1 = 0;
-        jp_get_str(gs, gee, "id", gid, sizeof gid);
-        jp_get_str(gs, gee, "state", state, sizeof state);
-
-        jp_t tv;
-        if (jp_goto(gs, gee, "teams", &tv)) {
-            if (jp_array(&tv)) return -1;
-            for (int t = 0; t < 2 && jp_more(&tv); t++) {
-                const char *ts = tv.p;
-                jp_t te = tv;
-                if (jp_skip(&te)) return -1;
-                const char *tee = te.p;
-                tv = te;
-                char tid[RIFT_ID_MAX] = "", side[8] = "";
-                jp_get_str(ts, tee, "id", tid, sizeof tid);
-                jp_get_str(ts, tee, "side", side, sizeof side);
-                /* Position t belongs to whichever schedule team id appears
-                 * first here; resolve code1's side by id comparison. */
-                if (strcmp(tid, m->id1) == 0)
-                    side1 = strcmp(side, "red") == 0 ? 1 : 0;
-            }
-        }
-        d->games[d->game_count].state =
-            strcmp(state, "completed") == 0 ? RIFT_ST_DONE
-            : strcmp(state, "started") == 0 ? RIFT_ST_LIVE
-            : RIFT_ST_UNSTARTED;
-        strcpy(d->games[d->game_count].id, gid);
-        d->games[d->game_count].side1 = side1;
-        d->games[d->game_count].winner = 0;
-        d->game_count++;
-    }
-    return 0;
+    char *win = malloc(RIFT_JSTREAM_WIN);
+    if (!win) return -1;
+    rift_details_stream_t st;
+    rift_details_stream_begin(&st, win, RIFT_JSTREAM_WIN, m, d);
+    int r = rift_details_stream_feed(&st, json, strlen(json), true);
+    bool ok = r == 0 && st.games_closed;
+    free(win);
+    return ok ? 0 : -1;
 }
 
 /* --- livestats window ------------------------------------------------------- */

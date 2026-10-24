@@ -1,8 +1,9 @@
-// rift_net.c — HTTPS schedule sync + SNTP. One worker task; responses are
-// pulled into one bounded heap buffer (schedule page ≈ 44 KB probed) and
-// parsed in place by rift_parse_schedule. Game-detail and live-window
-// endpoints join in the next increment (the app currently serves those from
-// the bundled sample).
+// rift_net.c — HTTPS schedule sync + SNTP. One worker task. Schedule pages
+// (≈ 44 KB) and event details (≈ 13 KB) stream through an 8 KB sliding
+// window (rift_model jstream): next to Wi-Fi + BLE + LVGL no free heap
+// block on this board holds a whole payload, so whole-buffer fetches were
+// silent no-ops. The live-window endpoint keeps its whole-buffer parse
+// behind a tiered allocation (best effort, BP page degrades to sample).
 //
 // The lolesports API key below is the public key embedded in the
 // lolesports.com web app itself; it is not a credential.
@@ -33,6 +34,10 @@ static const char *TAG = "rift_net";
 #define RIFT_SYNC_PAGES_MAX 8
 #define RIFT_NVS_KEY "sched"
 #define RIFT_SYNC_TASK_STACK (6 * 1024)
+
+/* Sliding window for streamed fetches, carved out once at init while the
+ * heap is still whole (the largest block only shrinks once BLE starts). */
+static char *s_win;
 
 static volatile rift_net_state_t s_state;
 static TaskHandle_t s_task;
@@ -129,6 +134,47 @@ static int http_to_buf(const char *url, char *buf, int cap) {
     return total;
 }
 
+/* Streaming variant of http_to_buf: hands body chunks to on_data (worker
+ * context); a nonzero return aborts the read. Returns total bytes
+ * delivered, or -1. Header/status handling mirrors http_to_buf. */
+static int http_to_stream(
+    const char *url,
+    int (*on_data)(void *user, const char *buf, int len), void *user) {
+    esp_http_client_config_t cfg = {
+        .url = url,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .timeout_ms = 15000,
+        .buffer_size = 4096,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (!client) return -1;
+    esp_http_client_set_header(client, "x-api-key", API_KEY);
+    esp_err_t err = esp_http_client_open(client, 0);
+    if (err != ESP_OK) {
+        esp_http_client_cleanup(client);
+        return -1;
+    }
+    esp_http_client_fetch_headers(client);
+    int status = esp_http_client_get_status_code(client);
+    int total = 0;
+    int n = 0;
+    if (status == 200) {
+        char buf[1024];
+        while ((n = esp_http_client_read(client, buf, sizeof buf)) > 0) {
+            total += n;
+            if (on_data && on_data(user, buf, n) != 0) {
+                total = -1;
+                break;
+            }
+        }
+        if (total >= 0 && n < 0) total = -1;
+    }
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+    if (status != 200 || total < 0) return -1;
+    return total;
+}
+
 static void cache_store(const rift_match_t *ms, int n) {
     nvs_handle_t h;
     if (nvs_open("rift", NVS_READWRITE, &h) != ESP_OK) return;
@@ -155,7 +201,10 @@ static bool cache_load(rift_match_t *ms, int *n) {
 static void time_sync(void) {
     setenv("TZ", "CST-8", 1);
     tzset();
-    if (sntp_get_sync_mode() == SNTP_SYNC_MODE_IMMED) return;
+    /* The mode probe this replaces was always true on a fresh boot (lwIP
+     * default == IMMED), so SNTP never started and the clock stayed in
+     * 1970; only an already-valid clock skips the sync. */
+    if (time(NULL) > 1780000000) return;
     esp_sntp_config_t cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG("ntp.aliyun.com");
     cfg.start = false;
     cfg.sync_cb = NULL;
@@ -169,10 +218,49 @@ static void time_sync(void) {
     time_t now = 0;
     time(&now);
     if (now < 1780000000) {   // before 2026: no real time yet
+        ESP_LOGW(TAG, "sntp gave no time (now=%lld); retry next sync",
+                 (long long)now);
         esp_netif_sntp_deinit();
         return;
     }
+    ESP_LOGI(TAG, "sntp time ok");
     esp_netif_sntp_deinit();
+}
+
+typedef struct {
+    rift_sched_stream_t st;
+    int rc;
+} page_ctx_t;
+
+static int page_feed(void *user, const char *buf, int len) {
+    page_ctx_t *ctx = (page_ctx_t *)user;
+    if (rift_sched_stream_feed(&ctx->st, buf, (size_t)len, false)) {
+        ctx->rc = -1;
+        return -1;   /* abort the read */
+    }
+    return 0;
+}
+
+/* One schedule page through the sliding window: appends in-window matches
+ * at out (keep), yields the pages.older token ("" = oldest page). */
+static bool sync_page(const char *url, rift_match_t *out, int max, int *keep,
+                      char *older, size_t older_cap) {
+    if (!s_win) {
+        ESP_LOGE(TAG, "stream window unavailable (alloc failed at init)");
+        return false;
+    }
+    page_ctx_t ctx = {.rc = 0};
+    rift_sched_stream_begin(&ctx.st, s_win, RIFT_JSTREAM_WIN, out, max,
+                            s_win0, s_win1);
+    int total = http_to_stream(url, page_feed, &ctx);
+    *keep = ctx.st.n;
+    bool ok = total >= 0 && ctx.rc == 0 && ctx.st.closed;
+    if (ok)
+        rift_sched_stream_older(&ctx.st, older, older_cap);
+    else
+        ESP_LOGW(TAG, "schedule page failed (fetch=%d parse=%d closed=%d)",
+                 total, ctx.rc, ctx.st.closed);
+    return ok;
 }
 
 /* The first schedule page only spans the days around now; past event days
@@ -180,30 +268,28 @@ static void time_sync(void) {
  * never drops results it already showed. Bounded by page count and by two
  * consecutive pages that added nothing in-window (everything older is out). */
 static void sync_once(void) {
-    char *buf = heap_caps_malloc(RIFT_BUF_MAX, MALLOC_CAP_8BIT);
-    if (!buf) return;
-    char url[384], token[256];
+    char url[384], token[64];
     token[0] = '\0';
     int total = 0, empty_pages = 0;
+    ESP_LOGI(TAG, "sync: heap free=%u largest=%u",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     for (int page = 0; page < RIFT_SYNC_PAGES_MAX; page++) {
         if (token[0])
             snprintf(url, sizeof url, SCHEDULE_URL "&pageToken=%s", token);
         else
             snprintf(url, sizeof url, "%s", SCHEDULE_URL);
-        int len = http_to_buf(url, buf, RIFT_BUF_MAX);
-        if (len <= 0) {
-            ESP_LOGW(TAG, "schedule fetch failed (page %d)", page);
-            break;
-        }
         int keep = 0;
-        if (rift_parse_schedule(buf, s_ms + total, RIFT_MATCH_MAX - total,
-                                &keep, s_win0, s_win1) != 0)
+        char older[64] = "";
+        if (!sync_page(url, s_ms + total, RIFT_MATCH_MAX - total, &keep,
+                       older, sizeof older))
             break;
         total += keep;
-        ESP_LOGI(TAG, "schedule page %d: +%d in-window (%d total)", page, keep,
-                 total);
+        ESP_LOGI(TAG, "schedule page %d: +%d in-window (%d total)", page,
+                 keep, total);
+        snprintf(token, sizeof token, "%s", older);
+        if (!token[0]) break;
         if (total >= RIFT_MATCH_MAX) break;
-        if (!rift_schedule_older(buf, token, sizeof token)) break;
         if (keep == 0 && ++empty_pages >= 2) break;
     }
     if (total > 0) {
@@ -218,30 +304,70 @@ static void sync_once(void) {
                  tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min);
         *s_dirty = true;
         if (s_ready_cb) s_ready_cb(RIFT_NET_RES_SCHEDULE, s_ready_user);
+    } else {
+        ESP_LOGW(TAG, "schedule sync produced nothing");
     }
-    heap_caps_free(buf);
+}
+
+typedef struct {
+    rift_details_stream_t st;
+    int rc;
+} details_ctx_t;
+
+static int details_feed(void *user, const char *buf, int len) {
+    details_ctx_t *ctx = (details_ctx_t *)user;
+    if (rift_details_stream_feed(&ctx->st, buf, (size_t)len, false)) {
+        ctx->rc = -1;
+        return -1;
+    }
+    return 0;
 }
 
 static void fetch_details_once(void) {
     if (!s_detail || !s_detail_games || !s_pending_match_id[0]) return;
+    if (!s_win) {
+        ESP_LOGE(TAG, "stream window unavailable (alloc failed at init)");
+        return;
+    }
     char url[160];
     snprintf(url, sizeof url,
              "https://esports-api.lolesports.com/persisted/gw/"
              "getEventDetails?hl=en-US&id=%s",
              s_pending_match_id);
-    char *buf = heap_caps_malloc(32 * 1024, MALLOC_CAP_8BIT);
-    if (!buf) return;
-    int len = http_to_buf(url, buf, 32 * 1024);
-    if (len > 0
-        && rift_parse_event_details(buf, s_detail, s_detail_games) == 0) {
+    details_ctx_t ctx = {.rc = 0};
+    rift_details_stream_begin(&ctx.st, s_win, RIFT_JSTREAM_WIN, s_detail,
+                              s_detail_games);
+    int total = http_to_stream(url, details_feed, &ctx);
+    if (total >= 0 && ctx.rc == 0 && ctx.st.games_closed) {
         /* Bind the fresh games to the match they belong to, so the app can
          * tell this scratch pair from a stale one opened earlier. */
         strcpy(s_detail_games->id, s_pending_match_id);
         if (s_ready_cb) s_ready_cb(RIFT_NET_RES_DETAILS, s_ready_user);
     } else {
-        ESP_LOGW(TAG, "event details fetch failed");
+        ESP_LOGW(TAG, "event details failed (fetch=%d parse=%d closed=%d)",
+                 total, ctx.rc, ctx.st.games_closed);
     }
-    heap_caps_free(buf);
+}
+
+/* Whole-buffer fetches must at least say why they failed: the window
+ * payload (18+ KB) needs the largest remaining block after BLE started. */
+static char *buf_alloc(int want, int *got) {
+    static const int TIERS[] = {96 * 1024, 48 * 1024, 32 * 1024,
+                                24 * 1024, 16 * 1024};
+    for (unsigned i = 0; i < sizeof TIERS / sizeof TIERS[0]; i++) {
+        if (TIERS[i] > want) continue;
+        char *p = heap_caps_malloc((size_t)TIERS[i], MALLOC_CAP_8BIT);
+        if (p) {
+            *got = TIERS[i];
+            if (TIERS[i] < want)
+                ESP_LOGW(TAG, "fetch buffer shrunk %d -> %d B", want,
+                         TIERS[i]);
+            return p;
+        }
+    }
+    ESP_LOGW(TAG, "no heap for a %d B fetch buffer (largest %u B)", want,
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    return NULL;
 }
 
 /* The window feed returns the frames around startingTime; a finished game
@@ -251,7 +377,8 @@ static void fetch_details_once(void) {
 static void fetch_window_once(void) {
     if (!s_detail || !s_detail_games || !s_pending_game_id[0]) return;
     static const int OFFSET_MIN[] = {0, 35, 45, 60, 90};
-    char *buf = heap_caps_malloc(96 * 1024, MALLOC_CAP_8BIT);
+    int cap = 0;
+    char *buf = buf_alloc(RIFT_BUF_MAX, &cap);
     if (!buf) return;
     for (unsigned i = 0; i < sizeof OFFSET_MIN / sizeof OFFSET_MIN[0]; i++) {
         time_t t = (time_t)(s_pending_game_start
@@ -267,8 +394,12 @@ static void fetch_window_once(void) {
                  "https://feed.lolesports.com/livestats/v1/window/"
                  "%s?startingTime=%s",
                  s_pending_game_id, when);
-        int len = http_to_buf(url, buf, 96 * 1024);
+        int len = http_to_buf(url, buf, cap);
         if (len <= 0) continue;
+        if (len >= cap) {
+            ESP_LOGW(TAG, "window payload hit the %d B buffer cap", cap);
+            break;
+        }
         if (rift_parse_window(buf, s_detail_games, s_pending_game_idx) == 0) {
             if (s_ready_cb) s_ready_cb(RIFT_NET_RES_WINDOW, s_ready_user);
             if (strcmp(s_detail_games->game_state, "finished") == 0) break;
@@ -302,7 +433,15 @@ static void net_task(void *arg) {
 }
 
 void rift_net_init(void) {
-    xTaskCreate(net_task, "rift_net", RIFT_SYNC_TASK_STACK, NULL, 4, &s_task);
+    s_win = heap_caps_malloc(RIFT_JSTREAM_WIN, MALLOC_CAP_8BIT);
+    if (!s_win)
+        ESP_LOGE(TAG, "stream window alloc failed (%d B): sync is dead",
+                 RIFT_JSTREAM_WIN);
+    if (xTaskCreate(net_task, "rift_net", RIFT_SYNC_TASK_STACK, NULL, 4,
+                    &s_task) != pdPASS) {
+        ESP_LOGE(TAG, "net task create failed");
+        s_task = NULL;
+    }
 }
 
 void rift_net_request_sync(void) {

@@ -29,6 +29,10 @@
 #define RIFT_WHO_MAX 20   /* "KC kyeahoo", "TheShy" */
 #define RIFT_CHAMP_MAX 16 /* "Cassiopeia" */
 #define RIFT_ROLE_MAX 8
+/* Sliding-window size for streamed payload scans: the largest probed JSON
+ * element is a 4.2 KB details game; the window must also stay allocable on
+ * the no-PSRAM C3 next to Wi-Fi + BLE + LVGL (largest block ~21 KB). */
+#define RIFT_JSTREAM_WIN 8192
 
 typedef enum {
     RIFT_ST_UNSTARTED = 0,
@@ -98,6 +102,77 @@ bool rift_schedule_older(const char *json, char *out, size_t cap);
 int rift_parse_event_details(const char *json, rift_match_t *m,
                              rift_detail_t *d);
 int rift_parse_window(const char *json, rift_detail_t *m, int game_idx);
+
+/* --- streaming scans (device heap: payloads exceed any single free block) --
+ * One sliding window yields complete JSON elements one at a time; the
+ * full-buffer functions above are one-shot feeds through the same walkers,
+ * so host tests cover both paths. The caller owns the window bytes: they
+ * must stay valid and the cap must leave room for a NUL sentinel. */
+typedef struct rift_jstream rift_jstream_t;
+
+/* Yields every complete object element of the array found under "key" to
+ * cb(user, span). cb returning nonzero halts the walk (treated as done);
+ * a malformed or over-window element fails the feed with -1. */
+typedef int (*rift_elem_cb)(void *user, const char *elem, size_t len);
+
+/* Sliding-window walker state; the window bytes live in the owner struct
+ * or buffer right next to this. */
+struct rift_jstream {
+    char *win;
+    size_t cap, len;
+    int mode;               /* 0 seek-array, 1 elements, 2 seek-string, 3 done */
+    const char *key;
+    rift_elem_cb cb;
+    void *user;
+    char *str_out;
+    size_t str_cap;
+    bool closed;            /* the array ended (seen ']') */
+    bool halted;            /* cb asked to stop */
+    /* Called the moment an array closes; retargeting the stream (js-style
+     * helpers inside the model) and returning 0 keeps processing pending
+     * bytes with the new target, so nothing mid-payload is drained. */
+    int (*on_close)(void *user);
+};
+
+/* Schedule page walk: events elements append to out. The pages object
+ * precedes the events array in the payload, so the token is recovered from
+ * a head snapshot instead of a post-array seek. */
+typedef struct {
+    rift_jstream_t js;
+    rift_match_t *out;      /* append base for this page */
+    int max, n;             /* capacity / kept matches so far */
+    int win0, win1;
+    bool closed;            /* the events array ended */
+    char head[256];         /* payload head snapshot (holds pages) */
+    size_t head_len;
+    char older[64];         /* pages.older token ("" = none) */
+} rift_sched_stream_t;
+
+/* Details walk: match.teams elements patch the owning match, then the
+ * games array (retarget after teams close) fills the detail struct. */
+typedef struct {
+    rift_jstream_t js;
+    rift_match_t *m;
+    rift_detail_t *d;
+    int tidx;               /* teams elements seen (0, 1) */
+    bool teams_closed, games_closed;
+} rift_details_stream_t;
+
+void rift_sched_stream_begin(rift_sched_stream_t *st, char *win, size_t cap,
+                             rift_match_t *out, int max, int win0_day,
+                             int win1_day);
+/* Feed one chunk (fin = last). 0 = ok, -1 = malformed/overflow. */
+int rift_sched_stream_feed(rift_sched_stream_t *st, const char *data,
+                           size_t n, bool fin);
+/* Token seen in the head snapshot ("" = no older page). */
+void rift_sched_stream_older(rift_sched_stream_t *st, char *out, size_t cap);
+
+void rift_details_stream_begin(rift_details_stream_t *st, char *win,
+                               size_t cap, rift_match_t *m,
+                               rift_detail_t *d);
+/* Feed one chunk (fin = last). 0 = ok, -1 = malformed/overflow. */
+int rift_details_stream_feed(rift_details_stream_t *st, const char *data,
+                             size_t n, bool fin);
 
 /* --- grouping and lookup --------------------------------------------------- */
 void rift_sort_matches(rift_match_t *ms, int n);

@@ -165,6 +165,97 @@ static void test_schedule_backfill_append(void) {
     assert(found);
 }
 
+/* Streaming scans: the device feeds 1 KB HTTP reads into an 8 KB sliding
+ * window, so chunked feeds must reproduce the one-shot parse (and its
+ * pages.older token) for every chunk size — including byte-per-byte. */
+static void test_sched_stream_chunks(void) {
+    char *json = slurp("tests/fixtures/rift/schedule.json");
+    /* the real event window: 11-15T23:59Z rolls into Beijing 11-16 */
+    int w0 = rift_day_of(parse_iso("2026-10-15T00:00:00Z"));
+    int w1 = rift_day_of(parse_iso("2026-11-15T23:59:59Z"));
+    static const int CHUNKS[] = {1, 7, 64, 1024};
+    static char win[RIFT_JSTREAM_WIN];
+    for (unsigned c = 0; c < sizeof CHUNKS / sizeof CHUNKS[0]; c++) {
+        rift_match_t ms[RIFT_MATCH_MAX];
+        rift_sched_stream_t st;
+        rift_sched_stream_begin(&st, win, sizeof win, ms, RIFT_MATCH_MAX, w0,
+                                w1);
+        size_t n = strlen(json);
+        for (size_t i = 0; i < n; i += (size_t)CHUNKS[c]) {
+            size_t take = (size_t)CHUNKS[c] < n - i ? (size_t)CHUNKS[c]
+                                                    : n - i;
+            assert(rift_sched_stream_feed(&st, json + i, take, false) == 0);
+        }
+        assert(st.closed);
+        assert(st.n == 46);
+        int tbds = 0, kc = 0;
+        for (int i = 0; i < st.n; i++) {
+            if (ms[i].state == RIFT_ST_TBD) tbds++;
+            if (strcmp(ms[i].code1, "KC") == 0
+                && strcmp(ms[i].code2, "MVK") == 0 && ms[i].start == 1792173600)
+                kc = 1;
+        }
+        assert(tbds == 32);
+        assert(kc);
+        char tok[64];
+        rift_sched_stream_older(&st, tok, sizeof tok);
+        assert(strcmp(tok, "b2xkZXI6OjExMzQ3NTc5ODAwNjY2NDU4Mg==") == 0);
+    }
+    /* truncation mid-array: closed stays false (sync rejects the page) */
+    rift_sched_stream_t st;
+    rift_match_t ms[RIFT_MATCH_MAX];
+    rift_sched_stream_begin(&st, win, sizeof win, ms, RIFT_MATCH_MAX, w0, w1);
+    assert(rift_sched_stream_feed(&st, json, 2000, true) == 0);
+    assert(!st.closed);
+    free(json);
+}
+
+static void test_details_stream_chunks(void) {
+    char *json = slurp("tests/fixtures/rift/event_details.json");
+    static const int CHUNKS[] = {1, 100, 1024};
+    static char win[RIFT_JSTREAM_WIN];
+    for (unsigned c = 0; c < sizeof CHUNKS / sizeof CHUNKS[0]; c++) {
+        rift_match_t m;
+        rift_detail_t d;
+        memset(&m, 0, sizeof m);
+        memset(&d, 0, sizeof d);
+        strcpy(m.code1, "KC");
+        strcpy(m.code2, "MVK");
+        rift_details_stream_t st;
+        rift_details_stream_begin(&st, win, sizeof win, &m, &d);
+        size_t n = strlen(json);
+        for (size_t i = 0; i < n; i += (size_t)CHUNKS[c]) {
+            size_t take = (size_t)CHUNKS[c] < n - i ? (size_t)CHUNKS[c]
+                                                    : n - i;
+            assert(rift_details_stream_feed(&st, json + i, take, false) == 0);
+        }
+        assert(st.teams_closed && st.games_closed);
+        assert(strcmp(m.id1, "111692118851466302") == 0);
+        assert(strcmp(m.id2, "107251245690956393") == 0);
+        assert(d.game_count == 5);
+        assert(d.games[0].side1 == 0 && d.games[1].side1 == 0
+               && d.games[2].side1 == 1);
+        assert(d.games[0].state == RIFT_ST_DONE
+               && d.games[3].state == RIFT_ST_UNSTARTED);
+    }
+    free(json);
+}
+
+/* An element larger than the window must fail the feed, not truncate. */
+static void test_stream_overflow(void) {
+    static char win[128];
+    char big[400];
+    big[0] = '\0';
+    for (int i = 0; i < 40; i++) strcat(big, "0123456789");
+    char payload[512];
+    snprintf(payload, sizeof payload,
+             "{\"data\":{\"schedule\":{\"events\":[{\"x\":\"%s\"}]}}}", big);
+    rift_sched_stream_t st;
+    rift_match_t ms[4];
+    rift_sched_stream_begin(&st, win, sizeof win, ms, 4, 20741, 20757);
+    assert(rift_sched_stream_feed(&st, payload, strlen(payload), true) == -1);
+}
+
 static void test_event_details(void) {
     rift_match_t ms[RIFT_MATCH_MAX];
     int n = parse_window_fixture(ms);
@@ -270,6 +361,9 @@ int main(void) {
     test_schedule();
     test_schedule_older();
     test_schedule_backfill_append();
+    test_sched_stream_chunks();
+    test_details_stream_chunks();
+    test_stream_overflow();
     test_event_details();
     test_window();
     test_window_truncated();
