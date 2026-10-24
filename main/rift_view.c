@@ -341,7 +341,8 @@ void rift_view_match_create(void) {
     load_screen(s_match_scr);
 }
 
-void rift_view_match_refresh(const rift_match_t *m, int cur_game) {
+void rift_view_match_refresh(const rift_match_t *m, const rift_detail_t *d,
+                             int cur_game) {
     char b[64];
     lv_label_set_text(s_match.c1, m->code1);
     snprintf(b, sizeof b, "%d : %d", m->wins1, m->wins2);
@@ -354,7 +355,7 @@ void rift_view_match_refresh(const rift_match_t *m, int cur_game) {
     lv_label_set_text(s_match.meta, b);
 
     for (int i = 0; i < RIFT_GAMES_MAX; i++) {
-        bool shown = i < m->game_count;
+        bool shown = i < d->game_count;
         lv_obj_t *card = s_match.card[i];
         lv_obj_add_flag(card, LV_OBJ_FLAG_HIDDEN);
         if (!shown) continue;
@@ -366,16 +367,16 @@ void rift_view_match_refresh(const rift_match_t *m, int cur_game) {
         lv_obj_t *glab = s_match.g_name[i];
         lv_label_set_text(glab, gl);
         lv_label_set_text(s_match.g_res[i],
-                          m->games[i].state == RIFT_ST_DONE
-                              ? (m->games[i].winner == 0
+                          d->games[i].state == RIFT_ST_DONE
+                              ? (d->games[i].winner == 0
                                      ? "已结束"
-                                     : m->games[i].winner == 1 ? "胜" : "负")
-                              : m->games[i].state == RIFT_ST_LIVE ? "进行中"
+                                     : d->games[i].winner == 1 ? "胜" : "负")
+                              : d->games[i].state == RIFT_ST_LIVE ? "进行中"
                                                                   : "未开始");
         lv_obj_set_style_text_color(s_match.g_res[i],
-                                    m->games[i].winner ? C_GOLD : C_DIM, 0);
+                                    d->games[i].winner ? C_GOLD : C_DIM, 0);
         lv_label_set_text(s_match.g_dur[i],
-                          m->games[i].side1 == 0 ? "蓝方" : "红方");
+                          d->games[i].side1 == 0 ? "蓝方" : "红方");
     }
 }
 
@@ -438,10 +439,11 @@ void rift_view_game_create(void) {
     load_screen(s_game_scr);
 }
 
-void rift_view_game_refresh(const rift_match_t *m, int game_idx, bool kda) {
+void rift_view_game_refresh(const rift_match_t *m, const rift_detail_t *d,
+                            int game_idx, bool kda) {
     char b[48];
-    uint8_t st = m->games[game_idx].state;
-    uint8_t win = m->games[game_idx].winner;
+    uint8_t st = d->games[game_idx].state;
+    uint8_t win = d->games[game_idx].winner;
     if (st == RIFT_ST_DONE && win)
         snprintf(b, sizeof b, "第%d场 %s胜", game_idx + 1,
                  win == 1 ? m->code1 : m->code2);
@@ -454,7 +456,7 @@ void rift_view_game_refresh(const rift_match_t *m, int game_idx, bool kda) {
     lv_obj_set_style_bg_color(s_game.kda_tab, kda ? C_CYAN : C_PANEL_BG2, 0);
     lv_obj_set_style_border_color(s_game.kda_tab, kda ? C_CYAN : C_EDGE, 0);
 
-    const rift_side_t *sides[2] = {&m->blue, &m->red};
+    const rift_side_t *sides[2] = {&d->blue, &d->red};
     for (int side = 0; side < 2; side++) {
         const rift_side_t *sd = sides[side];
         const char *code = side == 0 ? m->code1 : m->code2;
@@ -532,19 +534,19 @@ void rift_view_live_create(void) {
     load_screen(s_live_scr);
 }
 
-void rift_view_live_refresh(const rift_match_t *m) {
+void rift_view_live_refresh(const rift_match_t *m, const rift_detail_t *d) {
     char b[48];
     lv_label_set_text(s_live.state, "LIVE · 实时");
     lv_label_set_text(s_live.c1, m->code1);
     lv_label_set_text(s_live.c2, m->code2);
     snprintf(b, sizeof b, "%d : %d", m->wins1, m->wins2);
     lv_label_set_text(s_live.score, b);
-    snprintf(b, sizeof b, "击杀 %d", m->blue.kills);
+    snprintf(b, sizeof b, "击杀 %d", d->blue.kills);
     lv_label_set_text(s_live.k1, b);
-    snprintf(b, sizeof b, "%d 击杀", m->red.kills);
+    snprintf(b, sizeof b, "%d 击杀", d->red.kills);
     lv_label_set_text(s_live.k2, b);
     for (int side = 0; side < 2; side++) {
-        const rift_side_t *sd = side == 0 ? &m->blue : &m->red;
+        const rift_side_t *sd = side == 0 ? &d->blue : &d->red;
         for (int i = 0; i < 5; i++) {
             const rift_player_t *p = &sd->p[i];
             snprintf(b, sizeof b, "%s %d/%d/%d", p->who, p->k, p->d, p->a);

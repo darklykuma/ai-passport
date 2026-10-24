@@ -126,18 +126,20 @@ static void test_event_details(void) {
     assert(kc);
 
     char *json = slurp("tests/fixtures/rift/event_details.json");
-    assert(rift_parse_event_details(json, kc) == 0);
+    rift_detail_t d;
+    memset(&d, 0, sizeof d);
+    assert(rift_parse_event_details(json, kc, &d) == 0);
     /* The payload lists all 5 BO5 slots: 3 completed + 2 "unneeded". */
-    assert(kc->game_count == 5);
-    assert(kc->games[0].state == RIFT_ST_DONE);
-    assert(kc->games[2].state == RIFT_ST_DONE);
-    assert(kc->games[3].state == RIFT_ST_UNSTARTED);
-    assert(kc->games[0].id[0]);
+    assert(d.game_count == 5);
+    assert(d.games[0].state == RIFT_ST_DONE);
+    assert(d.games[2].state == RIFT_ST_DONE);
+    assert(d.games[3].state == RIFT_ST_UNSTARTED);
+    assert(d.games[0].id[0]);
     assert(kc->id1[0] && kc->id2[0]);  /* ids live in the details payload */
     assert(strcmp(kc->code1, "KC") == 0);
-    assert(kc->games[0].side1 == 0);   /* KC blue in G1 (probed) */
-    assert(kc->games[1].side1 == 0);   /* KC blue in G2 (probed) */
-    assert(kc->games[2].side1 == 1);   /* KC red in G3 (probed) */
+    assert(d.games[0].side1 == 0);   /* KC blue in G1 (probed) */
+    assert(d.games[1].side1 == 0);   /* KC blue in G2 (probed) */
+    assert(d.games[2].side1 == 1);   /* KC red in G3 (probed) */
     free(json);
 }
 
@@ -152,39 +154,40 @@ static void test_window(void) {
     assert(kc);
 
     char *json = slurp("tests/fixtures/rift/event_details.json");
-    assert(rift_parse_event_details(json, kc) == 0);
+    rift_detail_t d;
+    memset(&d, 0, sizeof d);
+    assert(rift_parse_event_details(json, kc, &d) == 0);
     free(json);
 
     json = slurp("tests/fixtures/rift/window_finished.json");
-    assert(rift_parse_window(json, kc, 0) == 0);
-    assert(strcmp(kc->game_state, "finished") == 0);
+    assert(rift_parse_window(json, &d, 0) == 0);
+    assert(strcmp(d.game_state, "finished") == 0);
     /* probed final frame of G1 */
-    assert(kc->blue.kills == 13 && kc->red.kills == 2);
-    assert(kc->blue.gold == 58490 && kc->red.gold == 47092);
-    assert(kc->blue.towers == 9 && kc->red.towers == 2);
-    assert(strcmp(kc->blue.p[0].who, "KC Canna") == 0);
-    assert(strcmp(kc->blue.p[0].champ, "Jayce") == 0);
-    assert(strcmp(kc->blue.p[0].role, "top") == 0);
-    assert(kc->blue.p[0].k == 1 && kc->blue.p[0].d == 0
-           && kc->blue.p[0].a == 6 && kc->blue.p[0].cs == 301);
-    assert(strcmp(kc->red.p[4].who, "MVK SiuLoong") == 0);
-    assert(strcmp(kc->red.p[4].champ, "Seraphine") == 0);
-    assert(kc->red.p[4].k == 0 && kc->red.p[4].d == 2
-           && kc->red.p[4].a == 0 && kc->red.p[4].cs == 40);
+    assert(d.blue.kills == 13 && d.red.kills == 2);
+    assert(d.blue.gold == 58490 && d.red.gold == 47092);
+    assert(d.blue.towers == 9 && d.red.towers == 2);
+    assert(strcmp(d.blue.p[0].who, "KC Canna") == 0);
+    assert(strcmp(d.blue.p[0].champ, "Jayce") == 0);
+    assert(strcmp(d.blue.p[0].role, "top") == 0);
+    assert(d.blue.p[0].k == 1 && d.blue.p[0].d == 0
+           && d.blue.p[0].a == 6 && d.blue.p[0].cs == 301);
+    assert(strcmp(d.red.p[4].who, "MVK SiuLoong") == 0);
+    assert(strcmp(d.red.p[4].champ, "Seraphine") == 0);
+    assert(d.red.p[4].k == 0 && d.red.p[4].d == 2
+           && d.red.p[4].a == 0 && d.red.p[4].cs == 40);
     /* KC is blue (side1==0) and won G1 */
-    assert(kc->games[0].winner == 1);
+    assert(d.games[0].winner == 1);
     free(json);
 }
 
 static void test_window_truncated(void) {
     char *json = slurp("tests/fixtures/rift/window_finished.json");
-    rift_match_t m;
-    memset(&m, 0, sizeof m);
-    m.game_count = 1;
-    strcpy(m.id1, "x");
-    /* game_idx bounds: idx 0 parses against the fake match, idx 1 rejects */
-    assert(rift_parse_window(json, &m, 0) == 0);
-    assert(rift_parse_window(json, &m, 1) == -1);
+    rift_detail_t d;
+    memset(&d, 0, sizeof d);
+    d.game_count = 1;
+    /* game_idx bounds: idx 0 parses against the fake detail, idx 1 rejects */
+    assert(rift_parse_window(json, &d, 0) == 0);
+    assert(rift_parse_window(json, &d, 1) == -1);
     free(json);
 }
 
@@ -204,8 +207,16 @@ static void test_filter_window(void) {
     assert(rift_filter_window(ms, 4, 0, 99) == 4);
 }
 
+/* RAM budget guard: the schedule array must stay small on the no-PSRAM C3
+ * (48 matches); games/window rosters belong to the scratch detail struct. */
+static void test_struct_sizing(void) {
+    assert(sizeof(rift_match_t) <= 240);
+    assert(sizeof(rift_detail_t) > sizeof(rift_match_t));
+}
+
 int main(void) {
     test_time_helpers();
+    test_struct_sizing();
     test_schedule();
     test_event_details();
     test_window();

@@ -376,7 +376,8 @@ int rift_parse_schedule(const char *json, rift_match_t *out, int max,
 
 /* --- getEventDetails -------------------------------------------------------- */
 
-int rift_parse_event_details(const char *json, rift_match_t *m) {
+int rift_parse_event_details(const char *json, rift_match_t *m,
+                             rift_detail_t *d) {
     const char *end = json + strlen(json);
     jp_t dv, ev, mv, gv;
     if (!jp_goto(json, end, "data", &dv)) return -1;
@@ -410,11 +411,11 @@ int rift_parse_event_details(const char *json, rift_match_t *m) {
     if (!jp_goto(mv.p, end, "games", &gv)) return -1;
     if (jp_array(&gv)) return -1;
 
-    m->game_count = 0;
+    d->game_count = 0;
     for (;;) {
         int more = jp_more(&gv);
         if (more < 0) return -1;
-        if (!more || m->game_count >= RIFT_GAMES_MAX) break;
+        if (!more || d->game_count >= RIFT_GAMES_MAX) break;
         const char *gs = gv.p;
         jp_t ge = gv;
         if (jp_skip(&ge)) return -1;
@@ -444,14 +445,14 @@ int rift_parse_event_details(const char *json, rift_match_t *m) {
                     side1 = strcmp(side, "red") == 0 ? 1 : 0;
             }
         }
-        m->games[m->game_count].state =
+        d->games[d->game_count].state =
             strcmp(state, "completed") == 0 ? RIFT_ST_DONE
             : strcmp(state, "started") == 0 ? RIFT_ST_LIVE
             : RIFT_ST_UNSTARTED;
-        strcpy(m->games[m->game_count].id, gid);
-        m->games[m->game_count].side1 = side1;
-        m->games[m->game_count].winner = 0;
-        m->game_count++;
+        strcpy(d->games[d->game_count].id, gid);
+        d->games[d->game_count].side1 = side1;
+        d->games[d->game_count].winner = 0;
+        d->game_count++;
     }
     return 0;
 }
@@ -520,7 +521,7 @@ static int parse_side(jp_t *meta_side, jp_t *frame_side, rift_side_t *side) {
     return 0;
 }
 
-int rift_parse_window(const char *json, rift_match_t *m, int game_idx) {
+int rift_parse_window(const char *json, rift_detail_t *m, int game_idx) {
     if (game_idx < 0 || game_idx >= m->game_count) return -1;
     const char *end = json + strlen(json);
 

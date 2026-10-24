@@ -40,6 +40,7 @@ static char s_last_sync[24];
 
 /* Detail/window pipeline state (guarded by the worker's single thread). */
 static rift_match_t *s_detail;
+static rift_detail_t *s_detail_games;
 static char s_pending_match_id[RIFT_ID_MAX];
 static char s_pending_game_id[RIFT_ID_MAX];
 static int64_t s_pending_game_start;
@@ -47,7 +48,10 @@ static int s_pending_game_idx;
 static void (*s_ready_cb)(rift_net_res_t res, void *user);
 static void *s_ready_user;
 
-void rift_net_bind_detail(rift_match_t *detail) { s_detail = detail; }
+void rift_net_bind_detail(rift_match_t *match, rift_detail_t *detail) {
+    s_detail = match;
+    s_detail_games = detail;
+}
 
 void rift_net_set_ready_cb(void (*cb)(rift_net_res_t res, void *user),
                            void *user) {
@@ -196,7 +200,7 @@ static void sync_once(void) {
 }
 
 static void fetch_details_once(void) {
-    if (!s_detail || !s_pending_match_id[0]) return;
+    if (!s_detail || !s_detail_games || !s_pending_match_id[0]) return;
     char url[160];
     snprintf(url, sizeof url,
              "https://esports-api.lolesports.com/persisted/gw/"
@@ -205,7 +209,11 @@ static void fetch_details_once(void) {
     char *buf = heap_caps_malloc(32 * 1024, MALLOC_CAP_8BIT);
     if (!buf) return;
     int len = http_to_buf(url, buf, 32 * 1024);
-    if (len > 0 && rift_parse_event_details(buf, s_detail) == 0) {
+    if (len > 0
+        && rift_parse_event_details(buf, s_detail, s_detail_games) == 0) {
+        /* Bind the fresh games to the match they belong to, so the app can
+         * tell this scratch pair from a stale one opened earlier. */
+        strcpy(s_detail_games->id, s_pending_match_id);
         if (s_ready_cb) s_ready_cb(RIFT_NET_RES_DETAILS, s_ready_user);
     } else {
         ESP_LOGW(TAG, "event details fetch failed");
@@ -218,7 +226,7 @@ static void fetch_details_once(void) {
  * the last frame says "finished" (probed: start+45min hit for a 32:32
  * game); an in-progress game answers at the current time. */
 static void fetch_window_once(void) {
-    if (!s_detail || !s_pending_game_id[0]) return;
+    if (!s_detail || !s_detail_games || !s_pending_game_id[0]) return;
     static const int OFFSET_MIN[] = {0, 35, 45, 60, 90};
     char *buf = heap_caps_malloc(96 * 1024, MALLOC_CAP_8BIT);
     if (!buf) return;
@@ -238,9 +246,9 @@ static void fetch_window_once(void) {
                  s_pending_game_id, when);
         int len = http_to_buf(url, buf, 96 * 1024);
         if (len <= 0) continue;
-        if (rift_parse_window(buf, s_detail, s_pending_game_idx) == 0) {
+        if (rift_parse_window(buf, s_detail_games, s_pending_game_idx) == 0) {
             if (s_ready_cb) s_ready_cb(RIFT_NET_RES_WINDOW, s_ready_user);
-            if (strcmp(s_detail->game_state, "finished") == 0) break;
+            if (strcmp(s_detail_games->game_state, "finished") == 0) break;
         }
     }
     heap_caps_free(buf);

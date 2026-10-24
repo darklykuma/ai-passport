@@ -18,9 +18,11 @@
 #define RIFT_CODE_MAX 8
 #define RIFT_NAME_MAX 28
 #define RIFT_STAGE_MAX 16
-/* Whole-struct array lives in internal RAM (no PSRAM): ~1.2 KB per match.
- * The 2026 event window holds 46 matches; 48 caps the array under 60 KB.
- * Per-match details/window data goes to the app's single scratch match. */
+/* Whole-struct array lives in internal RAM (no PSRAM): ~170 B per match.
+ * The 2026 event window holds 46 matches; 48 caps the array under 10 KB.
+ * Per-match game lists and window rosters live in ONE scratch rift_detail_t
+ * (about 850 B) owned by the app: embedding them here would burn ~40 KB for
+ * data only the currently open match ever shows. */
 #define RIFT_MATCH_MAX 48
 #define RIFT_GAMES_MAX 5
 #define RIFT_DAYS_MAX 40
@@ -58,8 +60,12 @@ typedef struct {
     char code1[RIFT_CODE_MAX], code2[RIFT_CODE_MAX];
     char name1[RIFT_NAME_MAX], name2[RIFT_NAME_MAX];
     uint8_t wins1, wins2;
+} rift_match_t;
 
-    /* event details (filled by rift_parse_event_details) */
+/* Games and window rosters for the match the user opened. id binds it to its
+ * rift_match_t so stale data is never shown under a different match. */
+typedef struct {
+    char id[RIFT_ID_MAX];
     uint8_t game_count;
     struct {
         char id[RIFT_ID_MAX];
@@ -67,12 +73,10 @@ typedef struct {
         uint8_t side1;        /* side of code1 in this game: 0=blue 1=red */
         uint8_t winner;       /* 0=none 1=code1 2=code2 (kills heuristic) */
     } games[RIFT_GAMES_MAX];
-
-    /* last-parsed window (filled by rift_parse_window) */
     bool window_valid;
     char game_state[12];      /* "in_game", "finished", ... */
     rift_side_t blue, red;
-} rift_match_t;
+} rift_detail_t;
 
 typedef struct {
     int day;                  /* days-since-epoch, Beijing calendar day */
@@ -85,8 +89,11 @@ typedef struct {
  * bounded array cannot be starved by stale seasons. */
 int rift_parse_schedule(const char *json, rift_match_t *out, int max,
                         int *count, int win0_day, int win1_day);
-int rift_parse_event_details(const char *json, rift_match_t *m);
-int rift_parse_window(const char *json, rift_match_t *m, int game_idx);
+/* Details fill the scratch struct and patch the owning match's team ids and
+ * codes (the details payload is their only source). */
+int rift_parse_event_details(const char *json, rift_match_t *m,
+                             rift_detail_t *d);
+int rift_parse_window(const char *json, rift_detail_t *m, int game_idx);
 
 /* --- grouping and lookup --------------------------------------------------- */
 void rift_sort_matches(rift_match_t *ms, int n);

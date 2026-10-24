@@ -75,7 +75,8 @@ static struct {
     int cur_game;
     bool game_kda;
     int data_cursor;
-    rift_match_t detail;   /* scratch: the match page's full data */
+    rift_match_t detail_base;   /* scratch: copy of the open match */
+    rift_detail_t detail;       /* scratch: its games + window */
 
     /* on-device provisioning */
     int wifi_cursor;                 /* menu row */
@@ -86,6 +87,10 @@ static struct {
 } s_app;
 
 /* --- bundled sample (real probed data, offline increment) ------------------- */
+
+/* Detail sample for the bundled Play-Ins final: lets the match/game pages
+ * render offline. open_match() replays it whenever its match id reopens. */
+static rift_detail_t s_kc_detail;
 
 static void load_sample(void) {
     /* Swiss round 1, 2026-10-24 Beijing (probed 2026-10-23). */
@@ -113,7 +118,8 @@ static void load_sample(void) {
         strcpy(m->code1, rows[i].c1);
         strcpy(m->code2, rows[i].c2);
     }
-    /* Play-Ins: KC 3:0 MVK, 2026-10-17 02:00 Beijing (probed). */
+    /* Play-Ins: KC 3:0 MVK, 2026-10-17 02:00 Beijing (probed). Games and the
+     * G1 window go to the sample detail, not into the schedule array. */
     rift_match_t *kc = &s_app.ms[n++];
     memset(kc, 0, sizeof *kc);
     snprintf(kc->id, sizeof kc->id, "playin-kc-mvk");
@@ -129,14 +135,16 @@ static void load_sample(void) {
     strcpy(kc->id2, "107251245690956393");
     kc->wins1 = 3;
     kc->wins2 = 0;
+    memset(&s_kc_detail, 0, sizeof s_kc_detail);
+    strcpy(s_kc_detail.id, "playin-kc-mvk");
     static const uint8_t SIDES[5] = {0, 0, 1, 0, 1};
     static const uint8_t WIN[5] = {1, 1, 1, 0, 0};
-    kc->game_count = 5;
+    s_kc_detail.game_count = 5;
     for (int g = 0; g < 5; g++) {
-        kc->games[g].state = g < 3 ? RIFT_ST_DONE : RIFT_ST_UNSTARTED;
-        kc->games[g].side1 = SIDES[g];
-        kc->games[g].winner = WIN[g];
-        snprintf(kc->games[g].id, sizeof kc->games[g].id,
+        s_kc_detail.games[g].state = g < 3 ? RIFT_ST_DONE : RIFT_ST_UNSTARTED;
+        s_kc_detail.games[g].side1 = SIDES[g];
+        s_kc_detail.games[g].winner = WIN[g];
+        snprintf(s_kc_detail.games[g].id, sizeof s_kc_detail.games[g].id,
                  "11629964949830388%c", (char)('5' + g));
     }
     /* G1 window (real probed final frame). */
@@ -157,7 +165,7 @@ static void load_sample(void) {
                 {"MVK Harky", "Ashe", "bottom", 1, 1, 1, 319},
                 {"MVK SiuLoong", "Seraphine", "support", 0, 2, 0, 40}};
     for (int i = 0; i < 5; i++) {
-        rift_player_t *b = &kc->blue.p[i], *r = &kc->red.p[i];
+        rift_player_t *b = &s_kc_detail.blue.p[i], *r = &s_kc_detail.red.p[i];
         strcpy(b->who, BLUE[i].who);
         strcpy(b->champ, BLUE[i].champ);
         strcpy(b->role, BLUE[i].role);
@@ -173,17 +181,19 @@ static void load_sample(void) {
         r->a = RED[i].a;
         r->cs = RED[i].cs;
     }
-    kc->blue.kills = 13;
-    kc->red.kills = 2;
-    kc->blue.gold = 58490;
-    kc->red.gold = 47092;
-    kc->blue.towers = 9;
-    kc->red.towers = 2;
-    kc->window_valid = true;
+    s_kc_detail.blue.kills = 13;
+    s_kc_detail.red.kills = 2;
+    s_kc_detail.blue.gold = 58490;
+    s_kc_detail.red.gold = 47092;
+    s_kc_detail.blue.towers = 9;
+    s_kc_detail.red.towers = 2;
+    s_kc_detail.window_valid = true;
     s_app.nmatch = n;
     rift_sort_matches(s_app.ms, s_app.nmatch);
     s_app.ndays = rift_group_days(s_app.ms, s_app.nmatch, s_app.days,
                                   RIFT_DAYS_MAX);
+    /* The sample detail is the initial scratch: reopening KC keeps it. */
+    s_app.detail = s_kc_detail;
 }
 
 /* --- refresh dispatch -------------------------------------------------------- */
@@ -260,6 +270,26 @@ static void open_kb(kb_field_t field) {
     s_app.page = RIFT_PAGE_KB;
 }
 
+/* Opens ms[idx] on the match page. The scratch pair (base copy + detail) is
+ * reused while its id still matches; otherwise it resets, replaying the
+ * bundled sample when that id reopens. */
+static void open_match(int idx) {
+    s_app.cur_match = idx;
+    s_app.cur_game = 0;
+    s_app.detail_base = s_app.ms[idx];
+    if (strcmp(s_app.detail.id, s_app.detail_base.id) != 0) {
+        memset(&s_app.detail, 0, sizeof s_app.detail);
+        strcpy(s_app.detail.id, s_app.detail_base.id);
+        if (strcmp(s_kc_detail.id, s_app.detail.id) == 0)
+            s_app.detail = s_kc_detail;
+    }
+    if (!s_app.detail.game_count && s_app.detail_base.id[0])
+        rift_net_request_details(s_app.detail_base.id);
+    s_app.page = RIFT_PAGE_MATCH;
+    rift_view_match_create();
+    rift_view_match_refresh(&s_app.detail_base, &s_app.detail, 0);
+}
+
 static void process_event(const input_event_t *ev) {
     bool click = ev->ev == BSP_BTN_CLICK;
     bool hold = ev->ev == BSP_BTN_HOLD;
@@ -291,16 +321,7 @@ static void process_event(const input_event_t *ev) {
                    && (s_app.cur_row == ROW_M0 || s_app.cur_row == ROW_M1)) {
             int idx = match_index_for_day(s_app.cur_day,
                                           s_app.cur_row == ROW_M0 ? 0 : 1);
-            if (idx >= 0) {
-                s_app.cur_match = idx;
-                s_app.cur_game = 0;
-                s_app.detail = s_app.ms[idx];
-                if (!s_app.detail.game_count && s_app.detail.id[0])
-                    rift_net_request_details(s_app.detail.id);
-                s_app.page = RIFT_PAGE_MATCH;
-                rift_view_match_create();
-                rift_view_match_refresh(&s_app.detail, 0);
-            }
+            if (idx >= 0) open_match(idx);
         } else if (long_ok) {
             s_app.page = RIFT_PAGE_DATA;
             s_app.data_cursor = 0;
@@ -310,22 +331,23 @@ static void process_event(const input_event_t *ev) {
         break;
 
     case RIFT_PAGE_MATCH: {
-        const rift_match_t *m = &s_app.detail;
+        const rift_match_t *m = &s_app.detail_base;
+        const rift_detail_t *d = &s_app.detail;
         if (move && (ev->btn == BSP_BTN_UP || ev->btn == BSP_BTN_DOWN)) {
             int dir = ev->btn == BSP_BTN_UP ? -1 : 1;
-            for (int k = 0; k < m->game_count; k++) {
+            for (int k = 0; k < d->game_count; k++) {
                 s_app.cur_game =
-                    (s_app.cur_game + dir + m->game_count) % m->game_count;
-                if (m->games[s_app.cur_game].state == RIFT_ST_DONE) break;
+                    (s_app.cur_game + dir + d->game_count) % d->game_count;
+                if (d->games[s_app.cur_game].state == RIFT_ST_DONE) break;
             }
-            rift_view_match_refresh(m, s_app.cur_game);
-        } else if (click && m->games[s_app.cur_game].state == RIFT_ST_DONE) {
+            rift_view_match_refresh(m, d, s_app.cur_game);
+        } else if (click && d->games[s_app.cur_game].state == RIFT_ST_DONE) {
             s_app.page = RIFT_PAGE_GAME;
             s_app.game_kda = false;
             rift_view_game_create();
-            rift_view_game_refresh(m, s_app.cur_game, false);
-            if (m->games[s_app.cur_game].id[0])
-                rift_net_request_window(m->games[s_app.cur_game].id,
+            rift_view_game_refresh(m, d, s_app.cur_game, false);
+            if (d->games[s_app.cur_game].id[0])
+                rift_net_request_window(d->games[s_app.cur_game].id,
                                         m->start, s_app.cur_game);
         } else if (long_ok) {
             s_app.page = RIFT_PAGE_HOME;
@@ -336,14 +358,15 @@ static void process_event(const input_event_t *ev) {
     }
 
     case RIFT_PAGE_GAME: {
-        rift_match_t *m = &s_app.detail;
+        const rift_match_t *m = &s_app.detail_base;
+        const rift_detail_t *d = &s_app.detail;
         if (click) {
             s_app.game_kda = !s_app.game_kda;
-            rift_view_game_refresh(m, s_app.cur_game, s_app.game_kda);
+            rift_view_game_refresh(m, d, s_app.cur_game, s_app.game_kda);
         } else if (long_ok) {
             s_app.page = RIFT_PAGE_MATCH;
             rift_view_match_create();
-            rift_view_match_refresh(m, s_app.cur_game);
+            rift_view_match_refresh(m, d, s_app.cur_game);
         }
         break;
     }
@@ -517,12 +540,13 @@ static void input_task(void *arg) {
                 else if (s_app.page == RIFT_PAGE_DATA) refresh_data();
             } else if (ev.kind == EV_DETAILS
                        && s_app.page == RIFT_PAGE_MATCH) {
-                rift_view_match_refresh(&s_app.detail, s_app.cur_game);
+                rift_view_match_refresh(&s_app.detail_base, &s_app.detail,
+                                        s_app.cur_game);
             } else if (ev.kind == EV_WINDOW
                        && (s_app.page == RIFT_PAGE_GAME
                            || s_app.page == RIFT_PAGE_LIVE)) {
-                rift_view_game_refresh(&s_app.detail, s_app.cur_game,
-                                       s_app.game_kda);
+                rift_view_game_refresh(&s_app.detail_base, &s_app.detail,
+                                       s_app.cur_game, s_app.game_kda);
             } else if (ev.kind == EV_SCAN_DONE) {
                 s_app.naps = rift_blufi_scan_result(s_app.aps, RIFT_APS_MAX);
                 s_app.ap_cursor = 0;
@@ -646,7 +670,7 @@ void rift_app_boot(void) {
 
     rift_net_attach(s_app.ms, &s_app.nmatch, s_app.days, &s_app.ndays,
                     &s_app.net_dirty);
-    rift_net_bind_detail(&s_app.detail);
+    rift_net_bind_detail(&s_app.detail_base, &s_app.detail);
     rift_net_set_ready_cb(on_net_ready, NULL);
     rift_net_init();
     rift_blufi_set_event_cb(on_blufi_event, NULL);

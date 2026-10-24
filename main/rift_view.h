@@ -27,13 +27,15 @@ void rift_view_home_refresh(const rift_match_t *ms, const rift_day_t *days,
                             int ndays, int cur_day, int cur_row, int rows);
 
 void rift_view_match_create(void);
-void rift_view_match_refresh(const rift_match_t *m, int cur_game);
+void rift_view_match_refresh(const rift_match_t *m, const rift_detail_t *d,
+                             int cur_game);
 
 void rift_view_game_create(void);
-void rift_view_game_refresh(const rift_match_t *m, int game_idx, bool kda);
+void rift_view_game_refresh(const rift_match_t *m, const rift_detail_t *d,
+                            int game_idx, bool kda);
 
 void rift_view_live_create(void);
-void rift_view_live_refresh(const rift_match_t *m);
+void rift_view_live_refresh(const rift_match_t *m, const rift_detail_t *d);
 
 void rift_view_data_create(void);
 void rift_view_data_refresh(int cursor, const char *cache_line,
