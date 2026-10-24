@@ -482,9 +482,28 @@ static void process_event(const input_event_t *ev) {
 static void input_task(void *arg) {
     (void)arg;
     input_event_t ev;
+    /* Freeze probe (2026-10-24): a wedged run showed rift_input pinning CPU0
+     * until the task watchdog fired. Rate-per-second plus lock-timeout
+     * counters discriminate a flooding event source from a spin inside the
+     * locked section; the watchdog's frame-pointer backtrace names the loop. */
+    int evt_count = 0, lock_timeouts = 0;
+    int64_t window = esp_timer_get_time();
     for (;;) {
         if (xQueueReceive(s_app.queue, &ev, portMAX_DELAY) == pdTRUE) {
-            if (!bsp_lvgl_lock(500)) continue;
+            int64_t now = esp_timer_get_time();
+            if (now - window >= 1000000) {
+                if (evt_count > 30 || lock_timeouts > 2)
+                    ESP_LOGW(TAG, "input: %d ev/s (btn=%d ev=%d), %d lock timeouts",
+                             evt_count, (int)ev.btn, (int)ev.ev, lock_timeouts);
+                evt_count = 0;
+                lock_timeouts = 0;
+                window = now;
+            }
+            evt_count++;
+            if (!bsp_lvgl_lock(500)) {
+                lock_timeouts++;
+                continue;
+            }
             if (ev.kind == EV_BTN) {
                 process_event(&ev);
             } else if (ev.kind == EV_NET_DIRTY) {
@@ -530,11 +549,21 @@ static void input_task(void *arg) {
     }
 }
 
+static int64_t s_last_drop_log;
+
 static void on_key(bsp_btn_t btn, bsp_btn_ev_t event, void *user) {
     (void)user;
     if (!s_app.ready || !s_app.queue) return;
     const input_event_t input = {.kind = EV_BTN, .btn = btn, .ev = event};
-    xQueueSend(s_app.queue, &input, 0);
+    if (xQueueSend(s_app.queue, &input, 0) != pdTRUE) {
+        // A full queue means the input task stopped draining (wedged inside
+        // its locked section). Which key keeps firing is the flood fingerprint.
+        int64_t now = esp_timer_get_time();
+        if (s_last_drop_log == 0 || now - s_last_drop_log >= 1000000) {
+            s_last_drop_log = now;
+            ESP_LOGW(TAG, "input queue full (btn=%d ev=%d dropped)", btn, event);
+        }
+    }
 }
 
 // Runs in the ESP event task: enqueue only, no LVGL, no blocking.
