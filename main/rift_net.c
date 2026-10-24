@@ -30,6 +30,7 @@ static const char *TAG = "rift_net";
     "https://esports-api.lolesports.com/persisted/gw/getSchedule?hl=en-US" \
     "&leagueId=98767975604431411"
 #define RIFT_BUF_MAX (96 * 1024)
+#define RIFT_SYNC_PAGES_MAX 8
 #define RIFT_NVS_KEY "sched"
 #define RIFT_SYNC_TASK_STACK (6 * 1024)
 
@@ -174,27 +175,49 @@ static void time_sync(void) {
     esp_netif_sntp_deinit();
 }
 
+/* The first schedule page only spans the days around now; past event days
+ * slide off it. Walk pages.older to backfill the whole window so a sync
+ * never drops results it already showed. Bounded by page count and by two
+ * consecutive pages that added nothing in-window (everything older is out). */
 static void sync_once(void) {
     char *buf = heap_caps_malloc(RIFT_BUF_MAX, MALLOC_CAP_8BIT);
     if (!buf) return;
-    int len = http_to_buf(SCHEDULE_URL, buf, RIFT_BUF_MAX);
-    if (len > 0) {
-        int keep = 0;
-        if (rift_parse_schedule(buf, s_ms, RIFT_MATCH_MAX, &keep,
-                                s_win0, s_win1) == 0 && keep > 0) {
-            rift_sort_matches(s_ms, keep);
-            *s_nmatch = keep;
-            *s_ndays = rift_group_days(s_ms, keep, s_days, RIFT_DAYS_MAX);
-            cache_store(s_ms, keep);
-            time_t now = time(NULL) + 8 * 3600;
-            struct tm tm;
-            localtime_r(&now, &tm);
-            snprintf(s_last_sync, sizeof s_last_sync, "%02d-%02d %02d:%02d",
-                     tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min);
-            *s_dirty = true;
+    char url[384], token[256];
+    token[0] = '\0';
+    int total = 0, empty_pages = 0;
+    for (int page = 0; page < RIFT_SYNC_PAGES_MAX; page++) {
+        if (token[0])
+            snprintf(url, sizeof url, SCHEDULE_URL "&pageToken=%s", token);
+        else
+            snprintf(url, sizeof url, "%s", SCHEDULE_URL);
+        int len = http_to_buf(url, buf, RIFT_BUF_MAX);
+        if (len <= 0) {
+            ESP_LOGW(TAG, "schedule fetch failed (page %d)", page);
+            break;
         }
-    } else {
-        ESP_LOGW(TAG, "schedule fetch failed");
+        int keep = 0;
+        if (rift_parse_schedule(buf, s_ms + total, RIFT_MATCH_MAX - total,
+                                &keep, s_win0, s_win1) != 0)
+            break;
+        total += keep;
+        ESP_LOGI(TAG, "schedule page %d: +%d in-window (%d total)", page, keep,
+                 total);
+        if (total >= RIFT_MATCH_MAX) break;
+        if (!rift_schedule_older(buf, token, sizeof token)) break;
+        if (keep == 0 && ++empty_pages >= 2) break;
+    }
+    if (total > 0) {
+        rift_sort_matches(s_ms, total);
+        *s_nmatch = total;
+        *s_ndays = rift_group_days(s_ms, total, s_days, RIFT_DAYS_MAX);
+        cache_store(s_ms, total);
+        time_t now = time(NULL) + 8 * 3600;
+        struct tm tm;
+        localtime_r(&now, &tm);
+        snprintf(s_last_sync, sizeof s_last_sync, "%02d-%02d %02d:%02d",
+                 tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min);
+        *s_dirty = true;
+        if (s_ready_cb) s_ready_cb(RIFT_NET_RES_SCHEDULE, s_ready_user);
     }
     heap_caps_free(buf);
 }

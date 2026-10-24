@@ -374,6 +374,20 @@ int rift_parse_schedule(const char *json, rift_match_t *out, int max,
     return 0;
 }
 
+bool rift_schedule_older(const char *json, char *out, size_t cap) {
+    out[0] = '\0';
+    jp_t j = {json, json + strlen(json)};
+    if (jp_find(&j, "data")) return false;
+    if (jp_find(&j, "schedule")) return false;
+    if (jp_find(&j, "pages")) return false;
+    if (jp_find(&j, "older")) return false;
+    /* "older": null (oldest page reached) parses as no token. */
+    char tok[256];
+    if (jp_string(&j, tok, sizeof tok)) return false;
+    snprintf(out, cap, "%s", tok);
+    return tok[0] != '\0';
+}
+
 /* --- getEventDetails -------------------------------------------------------- */
 
 int rift_parse_event_details(const char *json, rift_match_t *m,

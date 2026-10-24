@@ -212,6 +212,34 @@ static int match_index_for_day(int day, int which) {
     return -1;
 }
 
+/* Steps the home day through days that have matches, wrapping around; days
+ * between events are skipped. A cur_day without matches (e.g. today on a
+ * rest day) steps from the nearest earlier day. */
+static void day_step(int dir) {
+    if (!s_app.ndays) return;
+    int pos = s_app.ndays - 1;
+    for (int i = 0; i < s_app.ndays; i++) {
+        if (s_app.days[i].day == s_app.cur_day) { pos = i; break; }
+        if (s_app.days[i].day < s_app.cur_day) pos = i;
+    }
+    pos = (pos + dir + s_app.ndays) % s_app.ndays;
+    s_app.cur_day = s_app.days[pos].day;
+}
+
+/* Anchors the picker on today, else the first event day after it (so the
+ * first thing a sync lands on is today's card, not a week-old result). */
+static void anchor_today(void) {
+    int today = rift_today_bj();
+    if (today <= 0 || !s_app.ndays) return;
+    for (int i = 0; i < s_app.ndays; i++) {
+        if (s_app.days[i].day >= today) {
+            s_app.cur_day = s_app.days[i].day;
+            return;
+        }
+    }
+    s_app.cur_day = s_app.days[s_app.ndays - 1].day;
+}
+
 /* Data-page Wi-Fi line mirrors the provisioning service state, so the
  * screen doubles as the on-device setup guide (mockups 08/09). */
 static bool wifi_line(char *buf, int cap, bool *ok) {
@@ -301,21 +329,30 @@ static void process_event(const input_event_t *ev) {
     switch (s_app.page) {
     case RIFT_PAGE_HOME:
         if (move && (ev->btn == BSP_BTN_UP || ev->btn == BSP_BTN_DOWN)) {
-            int rows = ROW_COUNT;
-            if (ev->btn == BSP_BTN_UP)
-                s_app.cur_row = (s_app.cur_row + rows - 1) % rows;
-            else
-                s_app.cur_row = (s_app.cur_row + 1) % rows;
+            if (s_app.cur_row == ROW_DATE) {
+                /* the date bar is a picker: UP/DOWN step match-days */
+                day_step(ev->btn == BSP_BTN_UP ? -1 : 1);
+            } else {
+                int rows = ROW_COUNT;
+                if (ev->btn == BSP_BTN_UP)
+                    s_app.cur_row = (s_app.cur_row + rows - 1) % rows;
+                else
+                    s_app.cur_row = (s_app.cur_row + 1) % rows;
+            }
             refresh_home();
         } else if (click && s_app.cur_row == ROW_DATE) {
-            /* cycle one day per click; long-press enters the data page */
-            s_app.cur_day += 1;
+            /* OK drops the cursor into the day's match list */
+            s_app.cur_row = ROW_M0;
             refresh_home();
         } else if (click && s_app.cur_row == ROW_TEASER) {
-            s_app.cur_day =
-                match_index_for_day(s_app.cur_day, 0) >= 0
-                    ? s_app.cur_day
-                    : s_app.cur_day;
+            /* teaser: jump to the next day with events */
+            for (int i = 0; i < s_app.ndays; i++) {
+                if (s_app.days[i].day > s_app.cur_day) {
+                    s_app.cur_day = s_app.days[i].day;
+                    s_app.cur_row = ROW_M0;
+                    break;
+                }
+            }
             refresh_home();
         } else if (click
                    && (s_app.cur_row == ROW_M0 || s_app.cur_row == ROW_M1)) {
@@ -534,8 +571,7 @@ static void input_task(void *arg) {
                 rift_sort_matches(s_app.ms, s_app.nmatch);
                 s_app.ndays = rift_group_days(s_app.ms, s_app.nmatch,
                                               s_app.days, RIFT_DAYS_MAX);
-                int today = rift_today_bj();
-                if (today > 0) s_app.cur_day = today;
+                anchor_today();
                 if (s_app.page == RIFT_PAGE_HOME) refresh_home();
                 else if (s_app.page == RIFT_PAGE_DATA) refresh_data();
             } else if (ev.kind == EV_DETAILS
@@ -612,8 +648,10 @@ static void on_blufi_event(rift_blufi_event_t event, void *user) {
 static void on_net_ready(rift_net_res_t res, void *user) {
     (void)user;
     if (!s_app.ready || !s_app.queue) return;
-    const input_event_t ev = {
-        .kind = res == RIFT_NET_RES_DETAILS ? EV_DETAILS : EV_WINDOW};
+    ev_kind_t kind = EV_NET_DIRTY;   // schedule swap: refresh the open page
+    if (res == RIFT_NET_RES_DETAILS) kind = EV_DETAILS;
+    else if (res == RIFT_NET_RES_WINDOW) kind = EV_WINDOW;
+    const input_event_t ev = {.kind = kind};
     xQueueSend(s_app.queue, &ev, 0);
 }
 
@@ -660,6 +698,7 @@ void rift_app_boot(void) {
     /* offline v1: today is unknown until network time lands; show the
      * first event day of the sample. */
     s_app.cur_day = s_app.ndays ? s_app.days[0].day : 0;
+    anchor_today();
     s_app.cur_row = ROW_DATE;
 
     if (bsp_button_init(on_key, NULL) != ESP_OK)

@@ -89,6 +89,10 @@ typedef struct {
  * bounded array cannot be starved by stale seasons. */
 int rift_parse_schedule(const char *json, rift_match_t *out, int max,
                         int *count, int win0_day, int win1_day);
+/* Extracts the schedule payload's pages.older token (false = none: the page
+ * was the oldest). The first page slides with the calendar, so sync walks
+ * older pages to backfill past event days. */
+bool rift_schedule_older(const char *json, char *out, size_t cap);
 /* Details fill the scratch struct and patch the owning match's team ids and
  * codes (the details payload is their only source). */
 int rift_parse_event_details(const char *json, rift_match_t *m,

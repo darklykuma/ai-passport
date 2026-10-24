@@ -195,7 +195,7 @@ void rift_view_home_create(void) {
                                   &rift_font_16, C_DIM);
     }
     lv_obj_t *f;
-    footer(s_home_scr, &f, "OK进入 日期行切日 长按=数据页");
+    footer(s_home_scr, &f, "上下切日 OK进入 长按=数据页");
     load_screen(s_home_scr);
 }
 
@@ -208,9 +208,12 @@ void rift_view_home_refresh(const rift_match_t *ms, const rift_day_t *days,
     char b[40];
     rift_fmt_date_label(cur_day, b, sizeof b);
     lv_label_set_text(s_home.date, b);
+    /* focus speaks in app rows: 0 = the date bar, 1..3 = the cards below */
+    lv_obj_set_style_text_color(s_home.date,
+                                cur_row == 0 ? C_CYAN : C_MAIN, 0);
 
     for (int i = 0; i < 3; i++) {
-        bool focused = cur_row == i;
+        bool focused = cur_row == i + 1;
         lv_obj_t *card = s_home.card[i];
         lv_obj_set_style_border_color(
             card, focused ? C_CYAN : C_EDGE, 0);
@@ -292,7 +295,7 @@ void rift_view_home_refresh(const rift_match_t *ms, const rift_day_t *days,
         /* "HH:MM" is all we want; strip to time text */
         lv_label_set_text(s_home.row[2].time, t2);
         lv_obj_set_style_text_color(s_home.row[2].time,
-                                    cur_row == 2 ? C_CYAN : C_DIM, 0);
+                                    cur_row == 3 ? C_CYAN : C_DIM, 0);
     }
 }
 

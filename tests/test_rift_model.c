@@ -115,6 +115,56 @@ static void test_schedule(void) {
                                ms, RIFT_MATCH_MAX, &n2, 20741, 20757) == -1);
 }
 
+/* Backfill: the first schedule page slides with the calendar; sync walks
+ * pages.older and parses each older page into the tail of the array. */
+static void test_schedule_older(void) {
+    char *json = slurp("tests/fixtures/rift/schedule.json");
+    char tok[256];
+    assert(rift_schedule_older(json, tok, sizeof tok));
+    assert(strcmp(tok, "b2xkZXI6OjExMzQ3NTc5ODAwNjY2NDU4Mg==") == 0);
+    char tiny[4];
+    assert(rift_schedule_older(json, tiny, sizeof tiny));
+    assert(strcmp(tiny, "b2x") == 0);   /* truncated, still terminated */
+    free(json);
+    /* "older": null (oldest page reached) and a missing pages block both
+     * end the walk */
+    char out[8];
+    assert(!rift_schedule_older(
+        "{\"data\":{\"schedule\":{\"pages\":{\"older\":null}}}}",
+        out, sizeof out));
+    assert(out[0] == '\0');
+    assert(!rift_schedule_older("{\"data\":{\"schedule\":{}}}",
+                                out, sizeof out));
+}
+
+/* The append pattern sync uses: an older page parses at ms+total, then the
+ * whole array re-sorts and re-groups (new 10-16 match joins that day). */
+static void test_schedule_backfill_append(void) {
+    rift_match_t ms[RIFT_MATCH_MAX];
+    int n = parse_window_fixture(ms);
+    const char *older =
+        "{\"data\":{\"schedule\":{\"events\":[{\"type\":\"match\","
+        "\"state\":\"completed\",\"startTime\":\"2026-10-15T20:00:00Z\","
+        "\"blockName\":\"Play-Ins\",\"match\":{\"teams\":["
+        "{\"code\":\"A\",\"result\":{\"gameWins\":1}},"
+        "{\"code\":\"B\",\"result\":{\"gameWins\":0}}]}}]}}";
+    int k = 0;
+    assert(rift_parse_schedule(
+               older, ms + n, RIFT_MATCH_MAX - n, &k, 20741, 20757) == 0);
+    assert(k == 1);   /* 10-15T20:00Z rolls into Beijing day 10-16 */
+    rift_sort_matches(ms, n + k);
+    rift_day_t days[RIFT_DAYS_MAX];
+    int nd = rift_group_days(ms, n + k, days, RIFT_DAYS_MAX);
+    assert(nd == 19);
+    assert(days[0].day == 20742 && days[0].count == 3);  /* was 2 */
+    int found = 0;
+    for (int i = days[0].first; i < days[0].first + days[0].count; i++)
+        if (strcmp(ms[i].code1, "A") == 0 && ms[i].wins1 == 1
+            && ms[i].state == RIFT_ST_DONE)
+            found = 1;
+    assert(found);
+}
+
 static void test_event_details(void) {
     rift_match_t ms[RIFT_MATCH_MAX];
     int n = parse_window_fixture(ms);
@@ -218,6 +268,8 @@ int main(void) {
     test_time_helpers();
     test_struct_sizing();
     test_schedule();
+    test_schedule_older();
+    test_schedule_backfill_append();
     test_event_details();
     test_window();
     test_window_truncated();

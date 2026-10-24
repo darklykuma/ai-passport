@@ -22,13 +22,13 @@ void rift_net_attach(rift_match_t *ms, int *nmatch, rift_day_t *days,
 // Boot-time: load the last synced schedule from NVS (false = none).
 bool rift_net_load_cache(rift_match_t *ms, int *n);
 
-/* Per-match detail/window pipeline: the app binds one scratch pair (the
- * owning match copy plus its detail struct); the worker fetches
- * getEventDetails / livestats-window into them and reports back through cb
- * (worker context — enqueue only). */
+/* Async results reported through the ready cb (worker context — enqueue
+ * only): details/window fill the scratch pair; schedule means the whole
+ * schedule array was swapped by a sync. */
 typedef enum {
     RIFT_NET_RES_DETAILS = 0,
     RIFT_NET_RES_WINDOW,
+    RIFT_NET_RES_SCHEDULE,
 } rift_net_res_t;
 void rift_net_bind_detail(rift_match_t *match, rift_detail_t *detail);
 void rift_net_set_ready_cb(void (*cb)(rift_net_res_t res, void *user),
