@@ -66,6 +66,19 @@ static lv_obj_t *screen(void) {
     return scr;
 }
 
+/* Every *_create() must switch the display here: building the screen object
+ * alone leaves the previous screen loaded (the panel stayed on boot forever
+ * before this existed). The previous screen is deleted right after the load
+ * so the small LVGL pool never holds two dead pages. */
+static lv_obj_t *s_loaded_scr;
+
+static void load_screen(lv_obj_t *scr) {
+    lv_obj_t *prev = s_loaded_scr;
+    lv_screen_load(scr);
+    s_loaded_scr = scr;
+    if (prev) lv_obj_delete(prev);
+}
+
 static void band(lv_obj_t *scr, lv_obj_t **title, lv_obj_t **right,
                  lv_color_t edge) {
     lv_obj_t *b = panel(scr, 0, 0, 240, 34, C_HEADER_BG, edge);
@@ -125,7 +138,7 @@ void rift_view_boot(void) {
     s_boot_pct = label(s_boot_scr, 190, 272, &rift_font_16, C_DIM);
     lv_obj_t *f;
     footer(s_boot_scr, &f, "数据源 lolesports · 非官方接口");
-    lv_scr_load(s_boot_scr);
+    load_screen(s_boot_scr);
 }
 
 void rift_view_boot_progress(int pct, const char *line) {
@@ -183,6 +196,7 @@ void rift_view_home_create(void) {
     }
     lv_obj_t *f;
     footer(s_home_scr, &f, "OK进入 日期行切日 长按=数据页");
+    load_screen(s_home_scr);
 }
 
 void rift_view_home_refresh(const rift_match_t *ms, const rift_day_t *days,
@@ -324,6 +338,7 @@ void rift_view_match_create(void) {
     }
     lv_obj_t *f;
     footer(s_match_scr, &f, "OK 小场详情 · 长按OK 返回");
+    load_screen(s_match_scr);
 }
 
 void rift_view_match_refresh(const rift_match_t *m, int cur_game) {
@@ -420,6 +435,7 @@ void rift_view_game_create(void) {
     }
     lv_obj_t *f;
     footer(s_game_scr, &f, "OK 切换KDA · 长按OK 返回");
+    load_screen(s_game_scr);
 }
 
 void rift_view_game_refresh(const rift_match_t *m, int game_idx, bool kda) {
@@ -513,6 +529,7 @@ void rift_view_live_create(void) {
     }
     lv_obj_t *f;
     footer(s_live_scr, &f, "OK 立即刷新 · 每30秒自动更新");
+    load_screen(s_live_scr);
 }
 
 void rift_view_live_refresh(const rift_match_t *m) {
@@ -568,6 +585,7 @@ void rift_view_data_create(void) {
     lv_label_set_text(nt, "离线时可浏览全部已缓存内容");
     lv_obj_t *f;
     footer(s_data_scr, &f, "OK 刷新数据 · 长按OK 返回");
+    load_screen(s_data_scr);
 }
 
 void rift_view_data_refresh(int cursor, const char *cache_line,
@@ -610,6 +628,7 @@ void rift_view_wifi_create(void) {
     s_wifi.cursor = label(s_wifi_scr, 216, 0, &rift_font_16, C_CYAN);
     lv_obj_t *f;
     footer(s_wifi_scr, &f, "OK 选择 · 长按OK 返回");
+    load_screen(s_wifi_scr);
 }
 
 void rift_view_wifi_refresh(int cursor) {
@@ -651,6 +670,7 @@ void rift_view_aps_create(void) {
     s_aps.cursor = label(s_aps_scr, 38, 0, &rift_font_16, C_CYAN);
     lv_obj_t *f;
     footer(s_aps_scr, &f, "OK 选择 · 长按OK 返回");
+    load_screen(s_aps_scr);
 }
 
 void rift_view_aps_refresh(const rift_blufi_ap_t *aps, int n, int cursor,
@@ -752,6 +772,7 @@ void rift_view_kb_create(const char *title) {
     }
     lv_obj_t *f;
     footer(s_kb_scr, &f, "OK 输入 · UP/DOWN 移动 · 长按OK 返回");
+    load_screen(s_kb_scr);
 }
 
 void rift_view_kb_refresh(bool mask, const char *status) {
