@@ -11,8 +11,10 @@
 #include "esp_blufi.h"
 #include "esp_blufi_api.h"
 #include "esp_event.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "esp_wifi_default.h"
 #include "freertos/FreeRTOS.h"
@@ -229,6 +231,30 @@ static void host_task(void *arg)
     nimble_port_freertos_deinit();
 }
 
+// esp_nimble_enable() does not check the xTaskCreatePinnedToCore return, so a
+// failed host-task allocation still reports success; the only symptom is the
+// sync callback never firing (device silent in every scan). Record the heap
+// around the enable call and re-check sync once, three seconds later.
+static void sync_probe(void *arg)
+{
+    (void)arg;
+    if (!s_profile_initialized)
+        ESP_LOGW(TAG, "sync still pending @3s: state=%d free=%u largest=%u",
+                 (int)s_state, (unsigned)esp_get_free_heap_size(),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+}
+
+static void start_sync_probe(void)
+{
+    static esp_timer_handle_t probe;
+    const esp_timer_create_args_t args = {
+        .callback = sync_probe,
+        .name = "rift_sync_probe",
+    };
+    if (esp_timer_create(&args, &probe) == ESP_OK)
+        esp_timer_start_once(probe, 3000000);
+}
+
 static void blufi_event(esp_blufi_cb_event_t event, esp_blufi_cb_param_t *param)
 {
     switch (event) {
@@ -385,9 +411,16 @@ static esp_err_t host_start(void)
     if (rc != 0) return ESP_FAIL;
     esp_blufi_btc_init();
     s_btc_initialized = true;
+    ESP_LOGI(TAG, "pre-enable heap: free=%u largest=%u",
+             (unsigned)esp_get_free_heap_size(),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     err = esp_nimble_enable(host_task);
-    if (err == ESP_OK) s_host_running = true;
-    else ESP_LOGE(TAG, "nimble host enable failed: %s", esp_err_to_name(err));
+    if (err == ESP_OK) {
+        s_host_running = true;
+        start_sync_probe();
+    } else {
+        ESP_LOGE(TAG, "nimble host enable failed: %s", esp_err_to_name(err));
+    }
     return err;
 }
 
